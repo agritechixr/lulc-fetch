@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lulc-fetch"
+version = "0.1.0"
+description = "Fetch Sentinel-2 imagery, LULC reference maps and high-res imagery for an AOI"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = [
+    "numpy",
+    "rasterio>=1.3",
+    "pystac-client>=0.7",
+    "planetary-computer",
+    "requests",
+    "shapely>=2",
+]
+
+[project.optional-dependencies]
+web = ["fastapi", "uvicorn[standard]", "python-multipart", "pyshp", "keyring"]
+
+[project.scripts]
+lulc-fetch = "lulc_fetch.cli:main"
+lulc-fetch-web = "webapp.server:main"
+
+[tool.setuptools]
+packages = ["lulc_fetch", "webapp"]
+
+[tool.setuptools.package-data]
+webapp = ["static/*"]

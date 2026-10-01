@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Data produced by the tool
+downloads/
+output/
+*.tif
+*.tiff
+*.SAFE.zip
+*.part
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

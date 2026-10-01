@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LULC Fetch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231f7a5a' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+    <span>LULC Fetch</span>
+    <small>Sentinel-2 · land-cover labels · high-res</small>
+  </div>
+  <button id="btn-creds" class="btn ghost"><span id="creds-dot" class="dot"></span>Credentials</button>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="search">Search</button>
+      <button class="tab" data-tab="jobs">Downloads <span id="jobs-badge" class="badge hidden">0</span></button>
+    </nav>
+
+    <section id="tab-search" class="tabpanel">
+      <!-- 1. AOI -->
+      <div class="card">
+        <h2><span class="step">1</span>Area of interest</h2>
+        <div class="seg" id="aoi-tabs">
+          <button class="active" data-aoi="draw">Draw</button>
+          <button data-aoi="coords">Lat / Long</button>
+          <button data-aoi="address">Address</button>
+          <button data-aoi="upload">Upload</button>
+        </div>
+
+        <div class="aoi-pane" data-pane="draw">
+          <p class="hint">Draw your area on the map.</p>
+          <div class="row">
+            <button class="btn" id="draw-rect">▭ Rectangle</button>
+            <button class="btn" id="draw-poly">⬠ Polygon</button>
+          </div>
+        </div>
+
+        <div class="aoi-pane hidden" data-pane="coords">
+          <div class="seg small" id="coord-mode">
+            <button class="active" data-mode="point">Point + radius</button>
+            <button data-mode="bbox">Bounding box</button>
+          </div>
+          <div id="coord-point" class="grid3">
+            <label>Latitude<input id="pt-lat" type="number" step="any" placeholder="12.9716"></label>
+            <label>Longitude<input id="pt-lon" type="number" step="any" placeholder="77.5946"></label>
+            <label>Radius km<input id="pt-km" type="number" step="any" value="5" min="0.1"></label>
+          </div>
+          <div id="coord-bbox" class="grid2 hidden">
+            <label>Min lon (W)<input id="bb-w" type="number" step="any"></label>
+            <label>Min lat (S)<input id="bb-s" type="number" step="any"></label>
+            <label>Max lon (E)<input id="bb-e" type="number" step="any"></label>
+            <label>Max lat (N)<input id="bb-n" type="number" step="any"></label>
+          </div>
+          <div class="row">
+            <button class="btn" id="pick-point" title="Click the map to fill latitude/longitude">⌖ Pick on map</button>
+            <button class="btn primary" id="apply-coords">Use these coordinates</button>
+          </div>
+        </div>
+
+        <div class="aoi-pane hidden" data-pane="address">
+          <div class="row">
+            <input id="geo-q" type="search" placeholder="City, district, village, address…">
+            <button class="btn primary" id="geo-go">Search</button>
+          </div>
+          <label class="inline">Radius for point results <input id="geo-km" type="number" value="5" min="0.1" step="any"> km</label>
+          <ul id="geo-results" class="list"></ul>
+          <p class="hint">Search by <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">OpenStreetMap Nominatim</a>.</p>
+        </div>
+
+        <div class="aoi-pane hidden" data-pane="upload">
+          <label class="drop" id="drop">
+            <input id="file" type="file" multiple accept=".zip,.shp,.shx,.dbf,.prj,.cpg,.geojson,.json,.kml,.kmz">
+            <strong>Drop a file here or click to choose</strong>
+            <span>Shapefile (.zip, or .shp + .shx + .dbf + .prj), GeoJSON, KML, KMZ</span>
+          </label>
+          <div id="upload-info" class="hint"></div>
+        </div>
+
+        <div id="aoi-summary" class="aoi-summary hidden">
+          <div><strong id="aoi-area"></strong><span id="aoi-detail"></span></div>
+          <div class="row tight">
+            <button class="btn small" id="aoi-zoom">Zoom</button>
+            <button class="btn small" id="aoi-clear">Clear</button>
+          </div>
+        </div>
+        <div id="aoi-warn" class="warn hidden"></div>
+      </div>
+
+      <!-- 2. Filters -->
+      <div class="card">
+        <h2><span class="step">2</span>Date &amp; filters</h2>
+        <label>Data source<select id="source"></select></label>
+        <div class="grid2">
+          <label>Start date<input id="start" type="date"></label>
+          <label>End date<input id="end" type="date"></label>
+        </div>
+        <div class="row presets">
+          <button class="chip" data-days="30">Last 30 days</button>
+          <button class="chip" data-days="90">Last 3 months</button>
+          <button class="chip" data-days="365">Last year</button>
+        </div>
+        <label>Max cloud cover <output id="cloud-val">30%</output>
+          <input id="cloud" type="range" min="0" max="100" value="30">
+        </label>
+        <div class="row">
+          <button class="btn primary grow" id="btn-search">Search imagery</button>
+          <button class="btn" id="btn-download-range" title="Composite or labels for the whole range">Download…</button>
+        </div>
+      </div>
+
+      <!-- 3. Results -->
+      <div class="card" id="results-card">
+        <div class="results-head">
+          <h2><span class="step">3</span>Results</h2>
+          <div class="seg small" id="sort">
+            <button class="active" data-sort="cloud">Cloud</button>
+            <button data-sort="date">Date</button>
+            <button data-sort="coverage">Coverage</button>
+          </div>
+        </div>
+        <div id="results-info" class="hint">Choose an area and dates, then search.</div>
+        <div id="results"></div>
+      </div>
+    </section>
+
+    <section id="tab-jobs" class="tabpanel hidden">
+      <div id="jobs-empty" class="empty">No downloads yet. Search, pick a date, then click <b>Download</b>.</div>
+      <div id="jobs"></div>
+    </section>
+  </aside>
+
+  <div class="mapwrap">
+    <div id="map"></div>
+    <div id="preview-ctl" class="map-panel hidden">
+      <div class="row between"><strong id="pv-title">Preview</strong><button class="x" id="pv-close" aria-label="Close">×</button></div>
+      <div id="pv-stats" class="pv-stats"></div>
+      <label class="inline"><input type="checkbox" id="pv-clouds" checked> Cloud / shadow mask</label>
+      <label>Opacity<input type="range" id="pv-opacity" min="0" max="100" value="100"></label>
+    </div>
+    <div id="map-hint" class="map-hint hidden"></div>
+  </div>
+</main>
+
+<!-- Metadata modal -->
+<dialog id="dlg-meta" class="modal wide">
+  <div class="modal-head"><h3 id="meta-title">Metadata</h3><button class="x" data-close>×</button></div>
+  <div class="seg small" id="meta-items"></div>
+  <div class="modal-body" id="meta-body"></div>
+</dialog>
+
+<!-- Download modal -->
+<dialog id="dlg-dl" class="modal">
+  <div class="modal-head"><h3>Download data</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <div class="opts" id="dl-kind">
+      <label class="opt" data-kind="scene"><input type="radio" name="kind" value="scene">
+        <span><b>Single date</b><small id="dl-scene-desc">Clipped, cloud-masked Sentinel-2 bands for the chosen date</small></span></label>
+      <label class="opt"><input type="radio" name="kind" value="composite">
+        <span><b>Cloud-free composite</b><small>Per-pixel median of all clear observations in the date range. Best for LULC.</small></span></label>
+      <label class="opt"><input type="radio" name="kind" value="labels">
+        <span><b>LULC reference map</b><small>ESA WorldCover / Esri land cover on the same grid, for training and validation</small></span></label>
+      <label class="opt" data-kind="product"><input type="radio" name="kind" value="product">
+        <span><b>Original full product (.SAFE)</b><small>Entire ~110 km tile, ~0.5–1.2 GB, from Copernicus (needs account)</small></span></label>
+    </div>
+
+    <div id="dl-s2" class="dl-section">
+      <div class="row between"><b>Bands</b>
+        <span class="row tight"><button class="chip" id="bands-default">Default</button><button class="chip" id="bands-all">All</button><button class="chip" id="bands-rgb">RGB+NIR</button></span></div>
+      <div id="bands" class="bands"></div>
+      <label class="inline"><input type="checkbox" id="dl-indices" checked> Add indices <small id="indices-list"></small></label>
+      <label class="inline" id="dl-mask-wrap"><input type="checkbox" id="dl-mask" checked> Mask clouds &amp; shadows</label>
+      <div class="grid2" id="dl-comp-opts">
+        <label>Statistic<select id="dl-stat"><option value="median">Median</option><option value="mean">Mean</option></select></label>
+        <label>Max dates used<input id="dl-maxscenes" type="number" value="20" min="1" max="100"></label>
+      </div>
+    </div>
+
+    <div id="dl-labels" class="dl-section grid2">
+      <label>Product<select id="dl-product"></select></label>
+      <label>Year<select id="dl-year"></select></label>
+    </div>
+
+    <div id="dl-res-wrap" class="dl-section">
+      <label>Pixel size<select id="dl-res">
+        <option value="10">10 m (native)</option><option value="20">20 m</option>
+        <option value="30">30 m</option><option value="60">60 m</option><option value="100">100 m</option>
+      </select></label>
+      <div id="dl-estimate" class="hint"></div>
+    </div>
+
+    <div id="dl-product-wrap" class="dl-section">
+      <div id="dl-product-list" class="mono small"></div>
+    </div>
+    <div id="dl-error" class="warn hidden"></div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn" data-close>Cancel</button>
+    <button class="btn primary" id="dl-go">Start download</button>
+  </div>
+</dialog>
+
+<!-- Credentials modal -->
+<dialog id="dlg-creds" class="modal">
+  <div class="modal-head"><h3>Credentials</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <p class="hint">Default sources (Earth Search, Planetary Computer) need no login.
+      Saved secrets are kept in your OS keychain. They are never shown here again and only go to the provider they belong to.</p>
+    <div id="creds-list"></div>
+    <p class="hint" id="creds-backend"></p>
+  </div>
+</dialog>
+
+<div id="toasts"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
