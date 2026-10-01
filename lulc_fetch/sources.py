@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
+import numpy as np
 from pystac import Item
 from pystac_client import Client
 
@@ -36,7 +37,27 @@ class Source:
     name: str
     url: str
     collection = "sentinel-2-l2a"
-    visual_asset = "visual"  # 8-bit true-colour (TCI) asset, used for quick previews
+    mission = "sentinel-2"
+    visual_asset = "visual"  # 8-bit true-colour (TCI) asset for quick previews; None = build from bands
+    mask_band = "SCL"        # quality layer used for cloud masking
+    native_res = 10
+
+    def to_reflectance(self, item: Item, dn):
+        """Raw digital numbers → surface reflectance (0-1)."""
+        return (dn + self.boa_offset(item)) / 10000.0
+
+    def mask_classes(self, m):
+        """(cloud, shadow, no-data) boolean arrays from the quality layer (Sentinel-2 SCL classes)."""
+        m = np.nan_to_num(m, nan=0)
+        return np.isin(m, (8, 9, 10)), m == 3, np.isin(m, (0, 1))
+
+    def tile(self, item: Item) -> str:
+        p = item.properties
+        if "s2:mgrs_tile" in p:
+            return p["s2:mgrs_tile"]
+        if "grid:code" in p:
+            return p["grid:code"].replace("MGRS-", "")
+        return item.id.split("_")[1] if "_" in item.id else item.id
 
     def client(self) -> Client:
         return Client.open(self.url)
@@ -146,7 +167,56 @@ class CopernicusDataSpace(Source):
         }
 
 
-SOURCES = {cls.name: cls for cls in (EarthSearch, PlanetaryComputer, CopernicusDataSpace)}
+_LANDSAT_KEYS = {"B01": "coastal", "B02": "blue", "B03": "green", "B04": "red", "B08": "nir08",
+                 "B11": "swir16", "B12": "swir22", "QA": "qa_pixel"}
+LANDSAT_BANDS = ["B01", "B02", "B03", "B04", "B08", "B11", "B12"]
+LANDSAT_DEFAULT_BANDS = ["B02", "B03", "B04", "B08", "B11", "B12"]
+
+
+class PlanetaryComputerLandsat(PlanetaryComputer):
+    """USGS Landsat 8 / 9 Collection 2 Level-2 surface reflectance (30 m), mirrored on Planetary Computer.
+
+    Bands are stored under their Sentinel-2-equivalent names so every index works unchanged:
+    B02 = SR_B2 blue, B03 = SR_B3 green, B04 = SR_B4 red, B08 = SR_B5 NIR, B11 = SR_B6 SWIR1, B12 = SR_B7 SWIR2.
+    """
+    name = "landsat-pc"
+    collection = "landsat-c2-l2"
+    mission = "landsat"
+    visual_asset = None
+    mask_band = "QA"
+    native_res = 30
+
+    def search_kwargs(self, max_cloud):
+        q = {"platform": {"in": ["landsat-8", "landsat-9"]}}
+        if max_cloud is not None:
+            q["eo:cloud_cover"] = {"lt": max_cloud}
+        return {"query": q}
+
+    def asset_key(self, item, band):
+        return _LANDSAT_KEYS[band]
+
+    def to_reflectance(self, item, dn):
+        return dn * 2.75e-5 - 0.2
+
+    def mask_classes(self, m):
+        """QA_PIXEL bit flags: 0 fill, 1 dilated cloud, 2 cirrus, 3 cloud, 4 cloud shadow."""
+        q = np.nan_to_num(m, nan=1).astype("uint16")
+        bit = lambda b: (q >> b) & 1 == 1
+        return bit(1) | bit(2) | bit(3), bit(4), bit(0)
+
+    def tile(self, item):
+        p = item.properties
+        return f"WRS {p.get('landsat:wrs_path', '?')}/{p.get('landsat:wrs_row', '?')}"
+
+
+SOURCES = {cls.name: cls for cls in (EarthSearch, PlanetaryComputer, CopernicusDataSpace, PlanetaryComputerLandsat)}
+
+MISSIONS = {
+    "sentinel-2": {"title": "Sentinel-2 L2A (10 m)", "sources": ["earth-search", "planetary-computer", "cdse"],
+                   "bands": S2_BANDS, "default_bands": DEFAULT_BANDS, "res": 10},
+    "landsat": {"title": "Landsat 8–9 Collection 2 L2 (30 m)", "sources": ["landsat-pc"],
+                "bands": LANDSAT_BANDS, "default_bands": LANDSAT_DEFAULT_BANDS, "res": 30},
+}
 
 
 def get_source(name: str, **credentials) -> Source:

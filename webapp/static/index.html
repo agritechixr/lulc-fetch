@@ -188,6 +188,7 @@
       <!-- 2. Filters -->
       <div class="card">
         <h2><span class="step">2</span>Date &amp; filters</h2>
+        <label>Satellite<select id="mission"></select></label>
         <label>Data source<select id="source"></select></label>
         <div class="grid2">
           <label>Start date<input id="start" type="date"></label>
@@ -324,6 +325,38 @@
       </div>
     </section>
 
+    <section id="tab-pca" class="tabpanel hidden">
+      <div class="card">
+        <h2><span class="step">1</span>Input image <button type="button" class="tip" data-tip="The raster layer to analyse. Any multiband image works: Sentinel-2, Landsat, drone, or the radar layer. PCA needs at least two bands." aria-label="Help">i</button></h2>
+        <select id="pca-input"><option value="">Choose a raster layer…</option></select>
+        <div class="area-pick">
+          <label>Area to use <button type="button" class="tip" data-tip="Limit the analysis to part of the image. Smaller areas run faster and at full resolution, and the components then describe only that area." aria-label="Help">i</button><select id="pca-area"></select></label>
+          <p class="hint" id="pca-area-hint">The whole image is used.</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row between"><h2 style="margin:0"><span class="step">2</span>Bands <button type="button" class="tip" data-tip="Which bands go into the analysis. Recommended leaves out atmospheric bands (B01 coastal aerosol, B09 water vapour) and derived bands such as indices, which mostly add noise or repeat other bands." aria-label="Help">i</button></h2>
+          <span class="row tight"><button class="chip" id="pca-bands-rec">Recommended</button><button class="chip" id="pca-bands-all">All</button><button class="chip" id="pca-bands-none">None</button></span></div>
+        <div id="pca-bands" class="bands pca-bands"></div>
+        <p class="hint" id="pca-bands-hint"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Method <button type="button" class="tip" data-tip="The algorithm from scikit-learn. Standard PCA is the right choice for most work. The others are for special cases. Each has its own hint." aria-label="Help">i</button></h2>
+        <div class="opts" id="pca-methods"></div>
+      </div>
+      <div class="card">
+        <div class="row between"><h2 style="margin:0"><span class="step">4</span>Parameters</h2><button class="chip" id="pca-reset">Reset to defaults</button></div>
+        <div id="pca-params"></div>
+        <details class="an-details" id="pca-adv-wrap"><summary>Advanced</summary><div id="pca-adv"></div></details>
+      </div>
+      <div class="card">
+        <button class="btn primary" id="pca-run" style="width:100%">Run analysis</button>
+        <div id="pca-status" class="hint"></div>
+        <div id="pca-error" class="warn err hidden"></div>
+        <div id="pca-report" class="hidden"></div>
+      </div>
+    </section>
+
     <section id="tab-export" class="tabpanel hidden">
       <div class="card">
         <h2><span class="step">1</span>Layer</h2>
@@ -367,6 +400,12 @@
       <div id="jobs"></div>
     </section>
     </div>
+    <!-- progress + cancel for whatever the current tool is running -->
+    <div class="run-bar hidden" id="run-bar" aria-live="polite">
+      <div class="rb-head"><span class="spinner"></span><b id="rb-title"></b><span class="rb-pct" id="rb-pct"></span></div>
+      <div class="rb-track"><div class="rb-fill" id="rb-fill"></div></div>
+      <div class="rb-foot"><span id="rb-msg"></span><button class="btn small danger" id="rb-cancel">Cancel</button></div>
+    </div>
   </aside>
 </main>
 
@@ -403,7 +442,7 @@
       <label class="opt"><input type="radio" name="kind" value="labels">
         <span><b>LULC reference map</b><small>ESA WorldCover / Esri land cover on the same grid, for training and validation</small></span></label>
       <label class="opt" data-kind="product"><input type="radio" name="kind" value="product">
-        <span><b>Original full product (.SAFE)</b><small>Entire ~110 km tile, ~0.5–1.2 GB, from Copernicus (needs account)</small></span></label>
+        <span><b id="dl-product-title">Original full product (.SAFE)</b><small id="dl-product-desc">Entire ~110 km tile, ~0.5–1.2 GB, from Copernicus (needs account)</small></span></label>
     </div>
 
     <div id="dl-s2" class="dl-section">
@@ -425,7 +464,7 @@
 
     <div id="dl-res-wrap" class="dl-section">
       <label>Pixel size<select id="dl-res">
-        <option value="10">10 m (native)</option><option value="20">20 m</option>
+        <option value="10">10 m</option><option value="20">20 m</option>
         <option value="30">30 m</option><option value="60">60 m</option><option value="100">100 m</option>
       </select></label>
       <div id="dl-estimate" class="hint"></div>
@@ -517,6 +556,7 @@
 
 <!-- Layer context menu -->
 <div class="ctx-menu hidden" id="ctx-menu"></div>
+<div class="tip-pop hidden" id="tip-pop" role="tooltip"></div>
 <div id="toasts"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>

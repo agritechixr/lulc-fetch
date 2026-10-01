@@ -66,6 +66,71 @@
     if (!sticky) msgTimer = setTimeout(() => $("#sb-msg").textContent = "Ready", 5000);
   }
 
+  // ---------------- progress + cancel bar (bottom of the tool panel), one run per tool
+  class CancelledError extends Error { constructor() { super("Cancelled"); this.cancelled = true; } }
+  const runs = {};  // tool id -> { title, progress (0–1 or null = unknown), message, started, cancel() }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  function renderRunBar() {
+    const r = runs[currentTool], bar = $("#run-bar");
+    bar.classList.toggle("hidden", !r);
+    if (!r) return;
+    const known = r.progress != null;
+    const pct = known ? Math.round(r.progress * 100) : null;
+    const secs = (Date.now() - r.started) / 1000;
+    let eta = "";
+    if (known && r.progress > 0.05 && r.progress < 1) eta = ` · ~${fmtSecs(secs * (1 - r.progress) / r.progress)} left`;
+    $("#rb-title").textContent = r.title;
+    $("#rb-pct").textContent = known ? `${pct}%` : "";
+    $("#rb-fill").classList.toggle("indeterminate", !known);
+    $("#rb-fill").style.width = known ? `${Math.max(2, pct)}%` : "";
+    $("#rb-msg").textContent = `${r.message || "Working…"} · ${fmtSecs(secs)}${eta}`;
+    $("#rb-cancel").disabled = !!r.cancelling;
+    $("#rb-cancel").textContent = r.cancelling ? "Cancelling…" : "Cancel";
+  }
+  const fmtSecs = (s) => s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
+  $("#rb-cancel").onclick = () => { const r = runs[currentTool]; if (r && !r.cancelling) { r.cancelling = true; r.message = "Cancelling…"; renderRunBar(); r.cancel(); } };
+  setInterval(() => { if (runs[currentTool]) renderRunBar(); }, 1000);  // keep the elapsed time ticking
+
+  // Track a background job until it finishes. Resolves with the finished job; throws CancelledError / Error.
+  async function trackJob(job, { tool = currentTool, title } = {}) {
+    const run = { title: title || job.title, progress: 0, message: "Starting…", started: Date.now(),
+                  cancel: () => api(`/api/jobs/${job.id}/cancel`, { method: "POST" }).catch(() => {}) };
+    runs[tool] = run;
+    renderRunBar();
+    try {
+      let j = job;
+      while (j.status === "queued" || j.status === "running") {
+        await sleep(700);
+        j = await api(`/api/jobs/${job.id}`);
+        run.progress = j.progress;
+        if (!run.cancelling) run.message = (j.message || run.message).replace(/^\d\d:\d\d:\d\d\s+/, "");
+        if (runs[tool] === run) renderRunBar();
+      }
+      if (j.status === "cancelled") throw new CancelledError();
+      if (j.status === "error") throw new Error(j.error || "The job failed");
+      return j;
+    } finally {
+      if (runs[tool] === run) { delete runs[tool]; renderRunBar(); }
+      refreshJobs();
+    }
+  }
+  // Track a single request (no server-side progress): indeterminate bar; Cancel aborts it.
+  async function trackFetch(fn, { tool = currentTool, title, message } = {}) {
+    const ctrl = new AbortController();
+    const run = { title, progress: null, message: message || "Working…", started: Date.now(), cancel: () => ctrl.abort() };
+    runs[tool] = run;
+    renderRunBar();
+    try {
+      return await fn(ctrl.signal);
+    } catch (e) {
+      if (e.name === "AbortError" || ctrl.signal.aborted) throw new CancelledError();
+      throw e;
+    } finally {
+      if (runs[tool] === run) { delete runs[tool]; renderRunBar(); }
+    }
+  }
+  const notCancelled = (e) => { if (e?.cancelled) { status("Cancelled"); toast("Cancelled"); return false; } return true; };
+
   function download(url, name) {
     const a = document.createElement("a");
     a.href = url; a.download = name || "";
@@ -108,6 +173,7 @@
     analyze: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5" opacity=".5"/>',
     jobs: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/>',
     export: '<path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 14v6h16v-6"/>',
+    pca: '<circle cx="7" cy="16" r="1.4"/><circle cx="11" cy="12" r="1.4"/><circle cx="15" cy="10" r="1.4"/><circle cx="9" cy="17" r="1.4"/><circle cx="17" cy="7" r="1.4"/><path d="M3 21L21 3"/><path d="M8 6l10 10" opacity=".5"/>',
     home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     raster: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
     vector: '<path d="M4 18l5-12 7 4 4 8z"/>',
@@ -117,6 +183,7 @@
   const TOOLS = [
     { id: "search", title: "Find imagery", icon: "search", subtitle: "Search, preview and download Sentinel-2, composites and land-cover labels" },
     { id: "analyze", title: "Index analysis", icon: "analyze", subtitle: "NDVI, SAVI, EVI, NDWI and 21 more indices or your own formula" },
+    { id: "pca", title: "PCA & dimensionality reduction", icon: "pca", subtitle: "PCA, Kernel PCA, NMF, ICA and more (scikit-learn) on any multiband image" },
     { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
   ];
@@ -142,10 +209,12 @@
     $$("#tools-menu [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === tool.id));
     document.title = tool.id === "home" ? "LULC Fetch" : `${tool.title} · LULC Fetch`;
     setPane("tools", true);
+    renderRunBar();
     if (tool.id === "analyze") refreshAnalyzeInputs();
     if (tool.id === "jobs") refreshJobs();
     if (tool.id === "home") refreshHomeProducts();
     if (tool.id === "export") { refreshExportLayers(); renderExportForm(); }
+    if (tool.id === "pca" && pcaState.schema) refreshPcaInputs();
     prefs.set("tool", tool.id);
   }
 
@@ -373,11 +442,11 @@
   }
 
   // raster layers are rendered by the server into a map-ready PNG (display style lives in l.render)
-  async function renderRaster(l) {
+  async function renderRaster(l, { signal } = {}) {
     l.busy = true; l.error = null;
     renderContents();
     try {
-      const res = await api("/api/analyze/render", { method: "POST", json: {
+      const res = await api("/api/analyze/render", { method: "POST", signal, json: {
         path: l.path, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0, ...l.render } });
       const { image, bounds, ...legend } = res;
       if (!getLayer(l.id)) return res;  // removed while rendering
@@ -386,7 +455,7 @@
       restack();
       return res;
     } catch (e) {
-      l.error = e.message;
+      if (e.name !== "AbortError") l.error = e.message;
       throw e;
     } finally {
       l.busy = false;
@@ -425,6 +494,7 @@
     if (l.type === "image") return "preview image";
     const r = l.render || {};
     if (r.composite) return state.catalog?.composites[r.composite]?.title || r.composite;
+    if (r.rgb) return l.legend?.bands ? "RGB " + l.legend.bands.join("/") : "RGB";
     if (r.index) return r.index;
     if (r.formula) return "formula";
     if (r.band) return l.legend?.kind === "classes" ? "classes" : `band ${r.band}`;
@@ -500,6 +570,7 @@
       };
     });
     refreshAnalyzeInputs();
+    if (pcaState.schema) refreshPcaInputs();
     refreshClipPickers();
     if (currentTool === "export") { refreshExportLayers(); if (!exportLayer()) renderExportForm(); }
   }
@@ -659,8 +730,13 @@
             await addRasterFromPath(r.path, { name: r.name });
             status(`${r.name} added to Contents`);
           } else {
-            toast("Sentinel-1 processing started. The layer appears in Contents when it's ready.");
             switchTool("jobs");
+            addedJobs.add(r.job.id);
+            prefs.set("addedJobs", [...addedJobs].slice(-200));
+            trackJob(r.job, { tool: "jobs" }).then(async (done) => {
+              for (const f of done.files.filter((x) => /\.tiff?$/i.test(x))) await addRasterFromPath(`downloads/${done.id}/${f}`, { name: done.title });
+              toast(`Added “${done.title}” to Contents`);
+            }).catch((e2) => { if (notCancelled(e2)) toast(e2.message, true); });
           }
         } catch (err) { toast(err.message, true); }
       });
@@ -684,7 +760,8 @@
   }
 
   // ------------------------------------------------------------------ identify (click map on selected raster)
-  map.on("click", (e) => { if (!picking && !activeDraw) identify(e.latlng); });
+  let suppressClickUntil = 0;
+  map.on("click", (e) => { if (!picking && !activeDraw && Date.now() > suppressClickUntil) identify(e.latlng); });
   async function identify(latlng) {
     const e = { latlng };
     const l = selectedLayer();
@@ -740,18 +817,19 @@
       formats = [["png", "PNG image", "The preview picture as shown on the map"]];
     } else {
       const tifDesc = r.index || r.formula ? "Index values as float32, full resolution, original projection"
+        : r.rgb ? `All ${l.info?.count || ""} bands of the file (e.g. every component), full resolution`
         : r.composite ? "The 3 displayed bands as surface reflectance, full resolution"
         : `Band ${r.band} with its original values${l.legend?.kind === "classes" ? " and colour table" : ""}`;
       formats = [["tif", "GeoTIFF", tifDesc],
                  ["png", "PNG image", "As displayed (colours), full resolution up to 8192 px"],
                  ["pngw", "PNG + world file (.zip)", "Georeferenced PNG (.pgw + .prj) for QGIS / ArcGIS"],
-                 ["shp", "Shapefile (.zip)", r.composite ? "Not available for a colour composite. Choose an index or single band." : "Polygons of value classes, with class, range and area attributes"]];
+                 ["shp", "Shapefile (.zip)", r.composite || r.rgb ? "Not available for a colour image. Display a single band first (Properties)." : "Polygons of value classes, with class, range and area attributes"]];
     }
     $("#lx-layer-info").textContent = `${l.type === "vector" ? "Vector" : l.type === "image" ? "Preview image" : "Raster"} · ${displayLabel(l)}${l.path ? " · " + l.path : ""}`;
     const prev = $('input[name="lxf"]:checked')?.value;
-    $("#lx-formats").innerHTML = formats.map(([k, t, d]) => `<label class="opt ${k === "shp" && r.composite ? "disabled" : ""}">
+    $("#lx-formats").innerHTML = formats.map(([k, t, d]) => `<label class="opt ${k === "shp" && (r.composite || r.rgb) ? "disabled" : ""}">
       <input type="radio" name="lxf" value="${k}"><span><b>${t}</b><small>${esc(d)}</small></span></label>`).join("");
-    const keep = formats.find(([k]) => k === prev && !(k === "shp" && r.composite));
+    const keep = formats.find(([k]) => k === prev && !(k === "shp" && (r.composite || r.rgb)));
     $(`input[name="lxf"][value="${keep ? prev : formats[0][0]}"]`).checked = true;
     $("#lx-name").value = safeName(l.name);
     $("#lx-error").classList.add("hidden");
@@ -785,7 +863,10 @@
             if (body.method === "custom") body.breaks = $("#lx-breaks").value.split(/[,\s]+/).filter(Boolean).map(Number);
             if (body.method === "equal" && l.legend?.kind === "continuous") { body.vmin = l.legend.vmin; body.vmax = l.legend.vmax; }
           }
-          r = await api("/api/layers/export", { method: "POST", json: body });
+          const job = await api("/api/layers/export", { method: "POST", json: body });
+          try {
+            r = (await trackJob(job, { tool: "export", title: `Exporting ${name} (${fmtSel.toUpperCase()})` })).result;
+          } catch (ex2) { if (!notCancelled(ex2)) return; throw ex2; }
         }
         download(r.url, r.name);
         toast(`Exported ${r.name}${r.features ? ` · ${r.features.toLocaleString()} features` : ""}${r.size_mb ? ` · ${fmt(r.size_mb)} MB` : ""}`);
@@ -800,6 +881,7 @@
   const clipPickers = {
     "an-area": { what: "image is analysed", onChange: () => { if (an.sel && !an.sel.composite) compute(); } },
     "lx-area": { what: "layer is exported", own: true, onChange: () => {} },
+    "pca-area": { what: "image is used", onChange: () => {} },
   };
   const polygonLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
   function refreshClipPicker(id) {
@@ -876,10 +958,17 @@
       const comps = Object.entries(c.composites).filter(([, v]) => v.bands.every((b) => b in bm));
       let opts = "";
       if (r.index || r.formula) opts += `<optgroup label="Index"><option value="keep">${esc(r.index || "Formula: " + r.formula)}</option></optgroup>`;
+      const nb = l.info?.count || 0;
+      if (nb >= 3) {
+        const combos = [[1, 2, 3], [2, 3, 1], [1, 3, 2], [3, 2, 1]].filter((c) => c.every((b) => b <= nb));
+        if (r.rgb && !combos.some((c) => c.join() === r.rgb.join())) combos.unshift(r.rgb);
+        const nm = (b) => l.info.bands[b - 1]?.description || "Band " + b;
+        opts += `<optgroup label="RGB of bands">${combos.map((c) => `<option value="r:${c.join(",")}">${c.map(nm).map(esc).join(" / ")}</option>`).join("")}</optgroup>`;
+      }
       if (comps.length) opts += `<optgroup label="Band combination">${comps.map(([k, v]) => `<option value="c:${k}">${esc(v.title)}</option>`).join("")}</optgroup>`;
       opts += `<optgroup label="Single band">${(l.info?.bands || []).map((b) => `<option value="b:${b.index}">Band ${b.index}${b.description !== "Band " + b.index ? " · " + esc(b.description) : ""}</option>`).join("")}</optgroup>`;
       $("#lp-display").innerHTML = opts;
-      $("#lp-display").value = r.index || r.formula ? "keep" : r.composite ? `c:${r.composite}` : `b:${r.band}`;
+      $("#lp-display").value = r.index || r.formula ? "keep" : r.composite ? `c:${r.composite}` : r.rgb ? `r:${r.rgb.join(",")}` : `b:${r.band}`;
       $("#lp-cmap").innerHTML = `<option value="">Default</option>` + Object.keys(c.colormaps).map((k) => `<option ${r.cmap === k ? "selected" : ""}>${k}</option>`).join("");
       $("#lp-stretch").value = r.stretch || "fixed";
       $("#lp-vmin").value = l.legend?.vmin != null ? +l.legend.vmin.toFixed(4) : "";
@@ -896,8 +985,9 @@
   }
   function syncPropsUi() {
     const v = $("#lp-display").value;
-    $("#lp-style").classList.toggle("hidden", v.startsWith("c:"));
-    $("#lp-range").classList.toggle("hidden", v.startsWith("c:") || $("#lp-stretch").value !== "custom");
+    const rgbLike = v.startsWith("c:") || v.startsWith("r:");
+    $("#lp-style").classList.toggle("hidden", rgbLike);
+    $("#lp-range").classList.toggle("hidden", rgbLike || $("#lp-stretch").value !== "custom");
   }
   $("#lp-display").onchange = syncPropsUi;
   $("#lp-stretch").onchange = syncPropsUi;
@@ -912,6 +1002,7 @@
       const v = $("#lp-display").value, style = { stretch: $("#lp-stretch").value, cmap: $("#lp-cmap").value || null };
       if (style.stretch === "custom") { style.vmin = parseFloat($("#lp-vmin").value); style.vmax = parseFloat($("#lp-vmax").value); }
       if (v.startsWith("c:")) l.render = { composite: v.slice(2) };
+      else if (v.startsWith("r:")) l.render = { rgb: v.slice(2).split(",").map(Number) };
       else if (v.startsWith("b:")) l.render = { band: +v.slice(2), ...style };
       else l.render = { index: l.render.index, formula: l.render.formula, ...style };
       try { await renderRaster(l); } catch (e) { toast(e.message, true); }
@@ -1052,6 +1143,7 @@
   $("#draw-poly").onclick = () => startDraw(L.Draw.Polygon);
   map.on(L.Draw.Event.CREATED, (e) => {
     activeDraw = null;
+    suppressClickUntil = Date.now() + 500;  // the mouse-up that finished the drawing is not an identify click
     const g = e.layer.toGeoJSON().geometry, done = drawDone;
     drawDone = null;
     if (done) done(g); else setAOI(g, "drawn");
@@ -1182,12 +1274,12 @@
     if (!start || !end || start > end) return toast("Choose a valid date range", true);
     busy($("#btn-search"), "Searching…", async () => {
       try {
-        const res = await api("/api/search", { method: "POST", json: {
+        const res = await trackFetch((signal) => api("/api/search", { method: "POST", signal, json: {
           source: $("#source").value, aoi: state.aoi, start, end, max_cloud: +$("#cloud").value,
-        } });
+        } }), { tool: "search", title: "Searching the catalog", message: `${$("#mission").selectedOptions[0]?.text || ""}, ${start} → ${end}` });
         state.results = res;
         renderResults();
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { if (notCancelled(e)) toast(e.message, true); }
     });
   };
 
@@ -1268,9 +1360,9 @@
   async function previewScene(sc, el, btn) {
     await busy(btn, "Loading…", async () => {
       try {
-        const res = await api("/api/preview", { method: "POST", json: {
+        const res = await trackFetch((signal) => api("/api/preview", { method: "POST", signal, json: {
           source: state.results.source, item_ids: sc.items.map((i) => i.id), aoi: state.aoi,
-        } });
+        } }), { tool: "search", title: `Preview ${sc.date}`, message: "Reading imagery and cloud mask for your area" });
         removePreviews();
         state.activeScene = sc;
         el.classList.add("active");
@@ -1284,7 +1376,7 @@
         pv.textContent = `Inside your area: ${fmt(s.clear_pct)}% clear · ${fmt(s.cloud_pct)}% cloud · ${fmt(s.shadow_pct)}% shadow · ${res.resolution_m} m preview`;
         pv.classList.remove("hidden");
         status(`Preview ${sc.date}: ${fmt(s.clear_pct)}% clear inside the area`);
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { if (notCancelled(e)) toast(e.message, true); }
     });
   }
 
@@ -1338,14 +1430,15 @@
   }
 
   // ------------------------------------------------------------------ download dialog
+  const mission = () => state.config.missions[$("#mission").value] || state.config.missions["sentinel-2"];
   function bandBoxes(selected) {
-    $("#bands").innerHTML = state.config.bands.map((b) =>
+    $("#bands").innerHTML = mission().bands.map((b) =>
       `<label><input type="checkbox" value="${b}" ${selected.includes(b) ? "checked" : ""}>${b}</label>`).join("");
     $$("#bands input").forEach((i) => i.onchange = updateEstimate);
     updateEstimate();
   }
-  $("#bands-default").onclick = () => bandBoxes(state.config.default_bands);
-  $("#bands-all").onclick = () => bandBoxes(state.config.bands);
+  $("#bands-default").onclick = () => bandBoxes(mission().default_bands);
+  $("#bands-all").onclick = () => bandBoxes(mission().bands);
   $("#bands-rgb").onclick = () => bandBoxes(["B02", "B03", "B04", "B08"]);
 
   const dlKind = () => $('input[name="kind"]:checked')?.value;
@@ -1393,11 +1486,19 @@
       ? `Bands for ${scene.date} (${scene.tiles.join(", ")}), clipped to your area`
       : "Pick a date from the search results first";
     $(`input[name="kind"][value="${scene ? "scene" : "composite"}"]`).checked = true;
+    const landsat = $("#mission").value === "landsat";
+    $("#dl-product-title").textContent = landsat ? "Original product bundle (EarthExplorer)" : "Original full product (.SAFE)";
+    $("#dl-product-desc").textContent = landsat ? "Full Landsat Level-2 scene bundle (.tar, ~1 GB) from USGS EarthExplorer (needs credentials)"
+      : "Entire ~110 km tile, ~0.5–1.2 GB, from Copernicus (needs account)";
     if (scene) {
       $("#dl-product-list").innerHTML = scene.items.map((i) => esc(i.product_name)).join("<br>") +
-        `<p class="hint">Downloaded from Copernicus Data Space with your saved account.</p>`;
+        `<p class="hint">Downloaded from ${landsat ? "USGS EarthExplorer" : "Copernicus Data Space"} with your saved credentials.</p>`;
     }
-    if (!$("#bands").children.length) bandBoxes(state.config.default_bands);
+    if ($("#bands").dataset.mission !== $("#mission").value) {
+      bandBoxes(mission().default_bands);
+      $("#bands").dataset.mission = $("#mission").value;
+      $("#dl-res").value = String(mission().res);
+    }
     updateDialog();
     $("#dlg-dl").showModal();
   }
@@ -1418,15 +1519,25 @@
       body.start = body.end = sc.date;
       body.max_cloud = 100;
     }
-    if (k === "product") body.product_names = sc.items.map((i) => i.product_name);
+    if (k === "product") {
+      body.product_names = sc.items.map((i) => i.product_name);
+      body.entity_ids = sc.items.map((i) => i.properties["landsat:scene_id"] || "");
+    }
     if (["scene", "composite"].includes(k) && !body.bands.length) return showDlError("Select at least one band");
     busy($("#dl-go"), "Starting…", async () => {
+      let job;
       try {
-        await api("/api/jobs", { method: "POST", json: body });
-        $("#dlg-dl").close();
-        switchTool("jobs");
-        refreshJobs();
-      } catch (e) { showDlError(e.message); }
+        job = await api("/api/jobs", { method: "POST", json: body });
+      } catch (e) { return showDlError(e.message); }
+      $("#dlg-dl").close();
+      addedJobs.add(job.id);  // added below, as soon as it finishes
+      prefs.set("addedJobs", [...addedJobs].slice(-200));
+      try {
+        const done = await trackJob(job, { tool: "search" });
+        const tifs = done.files.filter((f) => /\.tiff?$/i.test(f));
+        for (const f of tifs) await addRasterFromPath(`downloads/${done.id}/${f}`, { name: done.title });
+        toast(tifs.length ? `Added “${done.title}” to Contents` : `${done.title} finished. Files are in Downloads & jobs.`);
+      } catch (e) { if (notCancelled(e)) toast(e.message, true); }
     });
   };
   function showDlError(msg) { const el = $("#dl-error"); el.textContent = msg; el.classList.remove("hidden"); }
@@ -1434,20 +1545,29 @@
   // ------------------------------------------------------------------ downloads & jobs
   const openLogs = new Set();
   const addedJobs = new Set(prefs.get("addedJobs", []));
+  let jobsSeen = false;
   async function refreshJobs() {
     let list;
     try { list = await api("/api/jobs"); } catch { return; }
     const running = list.filter((j) => j.status === "running" || j.status === "queued").length;
     $("#sb-jobs").classList.toggle("hidden", !running);
-    $("#sb-jobs").innerHTML = running ? `<span class="spinner"></span>${running} download${running > 1 ? "s" : ""} running` : "";
-    // finished downloads go straight into Contents
+    const live = list.filter((j) => j.status === "running");
+    const avg = live.length ? Math.round(100 * live.reduce((a, j) => a + j.progress, 0) / live.length) : 0;
+    $("#sb-jobs").innerHTML = running ? `<span class="spinner"></span>${running} job${running > 1 ? "s" : ""} running · ${avg}%` : "";
+    // Downloads that finish while the page is open go straight into Contents. Older ones (e.g. from a
+    // previous session) are not re-added: they are listed under Workspace. PCA jobs add their own layer.
+    if (!jobsSeen) {
+      list.filter((j) => j.status === "done").forEach((j) => addedJobs.add(j.id));
+      jobsSeen = true;
+    }
     for (const j of list) {
-      if (j.status !== "done" || addedJobs.has(j.id)) continue;
+      if (j.status !== "done" || addedJobs.has(j.id) || j.kind === "pca" || j.kind === "export") continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
         addRasterFromPath(`downloads/${j.id}/${f}`, { name: j.title }).then(() => toast(`Added “${j.title}” to Contents`)));
     }
+    list = list.filter((j) => j.kind !== "export");  // quick layer exports are not listed here
     $("#jobs-empty").classList.toggle("hidden", list.length > 0);
     $("#jobs").innerHTML = list.map((j) => {
       const elapsed = Math.round(((j.finished || Date.now() / 1000) - (j.started || j.created)));
@@ -1457,22 +1577,26 @@
         `<div><i style="background:${esc(d.color)}"></i><span>${esc(d.name)}</span><b>${fmt(d.pct)}%</b></div>`).join("")}</div>` : "";
       const facts = [j.params.grid, j.result?.date && `date ${j.result.date}`, j.result?.dates && `${j.result.dates.length} dates`,
         j.result?.valid_pct != null && `${fmt(j.result.valid_pct)}% valid pixels`].filter(Boolean).join(" · ");
-      const showLogs = j.status === "running" || j.status === "error" || openLogs.has(j.id);
+      const showLogs = j.status === "error" || openLogs.has(j.id);
+      const live = j.status === "running" || j.status === "queued";
       return `<div class="job">
         <h4><span>${esc(j.title)}</span><span class="status ${j.status}">${j.status === "running" ? '<span class="spinner"></span>' : ""}${j.status}</span></h4>
         <div class="sub">${esc(j.params.source || "")} · ${elapsed}s${facts ? " · " + esc(facts) : ""}</div>
+        ${live ? `<div class="rb-track"><div class="rb-fill" style="width:${Math.max(2, Math.round(j.progress * 100))}%"></div></div>
+          <div class="sub">${Math.round(j.progress * 100)}% · ${esc((j.message || "Starting…").replace(/^\d\d:\d\d:\d\d\s+/, ""))}</div>` : ""}
         ${j.error ? `<div class="warn">${esc(j.error)}</div>` : ""}
         ${png ? `<img class="result" src="/api/jobs/${j.id}/files/${encodeURIComponent(png)}?t=${j.finished || ""}" alt="Result preview">` : ""}
         ${dist}
         ${files ? `<div class="files">${files}</div>` : ""}
         <details data-job="${j.id}" ${showLogs ? "open" : ""}><summary>Log (${j.logs.length} lines)</summary><pre>${esc(j.logs.join("\n"))}</pre></details>
-        <div class="row"><button class="btn small danger" data-del="${j.id}">${j.status === "running" ? "Hide" : "Delete files"}</button></div>
+        <div class="row">${live ? `<button class="btn small danger" data-cancel="${j.id}">Cancel</button>` : `<button class="btn small danger" data-del="${j.id}">Delete files</button>`}</div>
       </div>`;
     }).join("");
     $$("#jobs details").forEach((d) => d.addEventListener("toggle", () => d.open ? openLogs.add(d.dataset.job) : openLogs.delete(d.dataset.job)));
     $$("#jobs pre").forEach((p) => p.scrollTop = p.scrollHeight);
     $$("[data-addmap]").forEach((b) => b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); addRasterFromPath(b.dataset.addmap, { name: b.dataset.name }); });
     $$("[data-del]").forEach((b) => b.onclick = async () => { await api(`/api/jobs/${b.dataset.del}`, { method: "DELETE" }); refreshJobs(); });
+    $$("[data-cancel]").forEach((b) => b.onclick = async () => { b.disabled = true; b.textContent = "Cancelling…"; await api(`/api/jobs/${b.dataset.cancel}/cancel`, { method: "POST" }); refreshJobs(); });
     clearTimeout(state.polling);
     if (running) state.polling = setTimeout(refreshJobs, 1500);
   }
@@ -1481,7 +1605,7 @@
   async function loadCreds() {
     const data = await api("/api/credentials");
     const p = data.providers;
-    $("#creds-dot").classList.toggle("ok", p.cdse_account.complete || p.cdse_s3.complete);
+    $("#creds-dot").classList.toggle("ok", Object.values(p).some((x) => x.complete));
     $("#creds-backend").textContent = `Storage: ${data.backend}.`;
     $("#creds-list").innerHTML = Object.entries(p).map(([key, prov]) => `
       <form class="cred" data-p="${key}" autocomplete="off">
@@ -1682,7 +1806,8 @@
       $("#an-result").classList.remove("hidden");
       let res;
       try {
-        res = await renderRaster(out);
+        res = await trackFetch((signal) => renderRaster(out, { signal }),
+          { tool: "analyze", title: `${sel.index || "Formula"} · ${an.layer.name}`, message: clip ? "Computing for the selected area" : "Computing for the whole image" });
       } catch (e) {
         if (isNew) { removeLayer(out.id, { silent: true }); renderContents(); saveLayers(); }
         throw e;
@@ -1700,7 +1825,7 @@
       showResult(res);
       status(`${out.name} computed. It's in Contents.`);
     } catch (e) {
-      if (id === an.reqId) toast(e.message, true);
+      if (id === an.reqId && notCancelled(e)) toast(e.message, true);
     } finally {
       if (id === an.reqId) $("#an-busy").classList.add("hidden");
     }
@@ -1774,11 +1899,14 @@
   // export: the result layer through the layer export dialog; several indices as one multi-band GeoTIFF
   $("#an-export-one").onclick = () => { const l = getLayer(an.resultId); if (l) openExport(l); };
   async function doExport(indices, formulas, btn) {
-    return busy(btn, "Computing…", async () => {
-      const r = await api("/api/analyze/export", { method: "POST", json: { ...analyzeBody(), indices, formulas, clip: getClip("an-area") } });
+    const job = await api("/api/analyze/export", { method: "POST", json: { ...analyzeBody(), indices, formulas, clip: getClip("an-area") } });
+    $("#dlg-export").close();
+    try {
+      const done = await trackJob(job, { tool: "analyze" });
+      const r = done.result;
       download(r.url, r.name);
       toast(`Saved ${r.name} (${r.layers.length} band${r.layers.length > 1 ? "s" : ""})`);
-    });
+    } catch (e) { if (notCancelled(e)) toast(e.message, true); }
   }
   $("#an-export-many").onclick = () => {
     if (!an.info) return toast("Choose an image first", true);
@@ -1953,6 +2081,222 @@
     $("#an-formula").focus();
   };
 
+  // ------------------------------------------------------------------ ⓘ hints (hover ~0.5 s, or click to pin)
+  let tipTimer = null, tipFor = null;
+  function showTip(btn, pinned) {
+    const pop = $("#tip-pop");
+    pop.innerHTML = esc(btn.dataset.tip);
+    pop.classList.remove("hidden");
+    pop.classList.toggle("pinned", pinned);
+    $$(".tip.pinned").forEach((t) => t !== btn && t.classList.remove("pinned"));
+    btn.classList.toggle("pinned", pinned);
+    const r = btn.getBoundingClientRect(), pr = pop.getBoundingClientRect();
+    let left = r.left + r.width / 2 - pr.width / 2, top = r.bottom + 8;
+    if (top + pr.height > innerHeight - 8) top = r.top - pr.height - 8;
+    pop.style.left = Math.max(8, Math.min(left, innerWidth - pr.width - 8)) + "px";
+    pop.style.top = top + "px";
+    tipFor = btn;
+  }
+  function hideTip(force = false) {
+    clearTimeout(tipTimer);
+    if (!force && tipFor?.classList.contains("pinned")) return;
+    $("#tip-pop").classList.add("hidden");
+    $$(".tip.pinned").forEach((t) => t.classList.remove("pinned"));
+    tipFor = null;
+  }
+  document.addEventListener("mouseover", (e) => {
+    const b = e.target.closest?.(".tip");
+    if (!b || tipFor?.classList.contains("pinned")) return;
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => showTip(b, false), 450);
+  });
+  document.addEventListener("mouseout", (e) => { if (e.target.closest?.(".tip")) hideTip(); });
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest(".tip");
+    if (b) { e.preventDefault(); e.stopPropagation(); b.classList.contains("pinned") ? hideTip(true) : showTip(b, true); return; }
+    if (!e.target.closest("#tip-pop")) hideTip(true);
+  }, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(true); });
+  const tipBtn = (text) => `<button type="button" class="tip" data-tip="${esc(text)}" aria-label="Help">i</button>`;
+
+  // ------------------------------------------------------------------ PCA & dimensionality reduction tool
+  const pcaState = { schema: null, layer: null, method: "pca", job: null };
+
+  function refreshPcaInputs() {
+    const sel = $("#pca-input");
+    const rasters = layers.filter((l) => l.type === "raster" && !l.derived);
+    sel.innerHTML = `<option value="">${rasters.length ? "Choose a raster layer…" : "No raster layers yet"}</option>` +
+      rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+    if (pcaState.layer && rasters.includes(pcaState.layer)) sel.value = pcaState.layer.id;
+    else if (pcaState.layer) { pcaState.layer = null; renderPcaBands(); }
+  }
+
+  function recommendedBand(b) {
+    const name = an.catalog ? normBand(String(b.description).replace(/\s/g, "")) : null;
+    return name && !pcaState.schema.atmospheric_bands.includes(name) && name !== "VVVH";
+  }
+  function renderPcaBands() {
+    const l = pcaState.layer, box = $("#pca-bands");
+    if (!l) { box.innerHTML = ""; $("#pca-bands-hint").textContent = "Choose an input image first."; return; }
+    const bands = l.info.bands, anyKnown = bands.some(recommendedBand);
+    box.innerHTML = bands.map((b) => {
+      const rec = anyKnown ? recommendedBand(b) : true;
+      const label = b.description !== `Band ${b.index}` ? esc(b.description) : `${b.index}`;
+      return `<label title="Band ${b.index}: ${esc(b.description)}"><input type="checkbox" value="${b.index}" data-rec="${rec ? 1 : 0}" ${rec ? "checked" : ""}>${label}</label>`;
+    }).join("");
+    $$("#pca-bands input").forEach((i) => i.onchange = updatePcaBandHint);
+    updatePcaBandHint();
+  }
+  const pcaBands = () => $$("#pca-bands input:checked").map((i) => +i.value);
+  function updatePcaBandHint() {
+    const n = pcaBands().length;
+    $("#pca-bands-hint").textContent = n < 2 ? "Select at least 2 bands." : `${n} bands selected.`;
+    const nc = $('[data-p="n_components"]');
+    if (nc && pcaState.method !== "kernel") { nc.max = Math.max(1, n); if (+nc.value > n && n >= 1) nc.value = Math.min(3, n); }
+  }
+  $("#pca-bands-rec").onclick = () => { $$("#pca-bands input").forEach((i) => i.checked = i.dataset.rec === "1"); updatePcaBandHint(); };
+  $("#pca-bands-all").onclick = () => { $$("#pca-bands input").forEach((i) => i.checked = true); updatePcaBandHint(); };
+  $("#pca-bands-none").onclick = () => { $$("#pca-bands input").forEach((i) => i.checked = false); updatePcaBandHint(); };
+
+  function renderPcaMethods() {
+    const ms = pcaState.schema.methods;
+    $("#pca-methods").innerHTML = Object.entries(ms).map(([k, m]) => `<label class="opt">
+      <input type="radio" name="pcam" value="${k}" ${k === pcaState.method ? "checked" : ""}>
+      <span><b>${esc(m.title)}${m.recommended ? '<span class="rec">RECOMMENDED</span>' : ""}${tipBtn(m.tip)}</b><small>${esc(m.desc)}</small></span></label>`).join("");
+    $$('input[name="pcam"]').forEach((r) => r.onchange = () => { pcaState.method = r.value; renderPcaParams(true); });
+  }
+
+  function pcaField(p, value) {
+    let input;
+    if (p.type === "bool") input = `<input type="checkbox" data-p="${p.name}" ${value ? "checked" : ""}>`;
+    else if (p.type === "select") input = `<select data-p="${p.name}">${p.options.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+    else input = `<input type="number" data-p="${p.name}" step="${p.type === "int" ? 1 : "any"}" ${p.min != null ? `min="${p.min}"` : ""} ${p.max != null ? `max="${p.max}"` : ""}
+      value="${value ?? ""}" placeholder="${esc(p.placeholder || "")}">`;
+    const off = p.name === "standardize" && ["nmf", "svd"].includes(pcaState.method);
+    return `<div class="pca-field ${off ? "disabled" : ""}"><span>${esc(p.label)}${tipBtn(p.tip)}</span>${input}
+      ${off ? `<div class="note">Not used by ${esc(pcaState.schema.methods[pcaState.method].title)}: bands are rescaled to 0–1 instead.</div>` : ""}</div>`;
+  }
+  function renderPcaParams(keepCommon = false) {
+    const sc = pcaState.schema, m = sc.methods[pcaState.method];
+    const prev = keepCommon ? collectPcaParams(true) : {};
+    const all = [...sc.common, ...m.params];
+    const val = (p) => (p.name in prev ? prev[p.name] : p.default);
+    $("#pca-params").innerHTML = all.filter((p) => !p.advanced).map((p) => pcaField(p, val(p))).join("");
+    const adv = all.filter((p) => p.advanced);
+    $("#pca-adv").innerHTML = adv.map((p) => pcaField(p, val(p))).join("");
+    $("#pca-adv-wrap").classList.toggle("hidden", !adv.length);
+    $$('#pca-params [data-p="standardize"], #pca-adv [data-p="standardize"]').forEach((i) => i.disabled = ["nmf", "svd"].includes(pcaState.method));
+    updatePcaBandHint();
+  }
+  function collectPcaParams(raw = false) {
+    const out = {};
+    $$("#pca-params [data-p], #pca-adv [data-p]").forEach((i) => {
+      const v = i.type === "checkbox" ? i.checked : i.value;
+      out[i.dataset.p] = raw ? v : (i.type === "number" ? (v === "" ? null : +v) : v);
+    });
+    return out;
+  }
+  $("#pca-reset").onclick = () => { renderPcaParams(false); if (pcaState.layer) $("#pca-bands-rec").click(); };
+  $("#pca-input").onchange = () => {
+    pcaState.layer = getLayer($("#pca-input").value);
+    renderPcaBands();
+    if (pcaState.layer) selectLayer(pcaState.layer.id);
+  };
+
+  $("#pca-run").onclick = async () => {
+    const l = pcaState.layer, err = $("#pca-error");
+    err.classList.add("hidden");
+    if (!l) return toast("Choose an input image first", true);
+    const bands = pcaBands();
+    if (bands.length < 2) return toast("Select at least 2 bands", true);
+    const m = pcaState.schema.methods[pcaState.method];
+    const btn = $("#pca-run");
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span>Running ${esc(m.title)}…`;
+    $("#pca-report").classList.add("hidden");
+    $("#pca-status").textContent = `Starting ${m.title}…`;
+    try {
+      const job = await api("/api/pca/run", { method: "POST", json: {
+        path: l.path, bands, method: pcaState.method, params: collectPcaParams(), clip: getClip("pca-area"), name: l.name } });
+      addedJobs.add(job.id);  // this tool adds the result itself (as an RGB of the components)
+      prefs.set("addedJobs", [...addedJobs].slice(-200));
+      pcaState.job = job.id;
+      $("#pca-status").textContent = "";
+      const j = await trackJob(job, { tool: "pca", title: `${m.title} · ${l.name}` });
+      const rep = j.result;
+      const n = rep.n_components;
+      const out = await addRasterFromPath(rep.path, { name: `${m.title} (${n}) · ${l.name}${getClip("pca-area") ? " · area" : ""}`,
+        render: n >= 3 ? { rgb: [1, 2, 3] } : { band: 1, stretch: "auto", cmap: "Viridis" } });
+      out.pcaReport = rep;
+      saveLayers();
+      showPcaReport(rep, out);
+      $("#pca-status").textContent = `Done in ${rep.seconds} s. The result is in Contents.`;
+      refreshJobs();
+    } catch (e) {
+      $("#pca-status").textContent = e.cancelled ? "Cancelled. Change the parameters and run again." : "";
+      if (!e.cancelled) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Run analysis";
+    }
+  };
+
+  function showPcaReport(rep, layer) {
+    const box = $("#pca-report");
+    const ev = rep.explained_variance || rep.explained_variance_kept;
+    let chart = "";
+    if (ev) {
+      const w = 300, h = 110, n = ev.length, bw = Math.min(46, (w - 20) / n - 6);
+      let cum = 0;
+      const pts = [];
+      const bars = ev.map((v, i) => {
+        cum += v;
+        const x = 14 + i * ((w - 20) / n), bh = v * (h - 30);
+        pts.push(`${x + bw / 2},${h - 18 - cum * (h - 30)}`);
+        return `<rect x="${x}" y="${h - 18 - bh}" width="${bw}" height="${bh}" rx="2" fill="var(--accent)" opacity=".85"><title>${rep.prefix}${i + 1}: ${(v * 100).toFixed(1)}%</title></rect>
+          <text x="${x + bw / 2}" y="${h - 5}" font-size="9" text-anchor="middle" fill="currentColor">${rep.prefix}${i + 1}</text>
+          <text x="${x + bw / 2}" y="${h - 21 - bh}" font-size="9" text-anchor="middle" fill="currentColor">${(v * 100).toFixed(1)}%</text>`;
+      }).join("");
+      chart = `<div class="home-label" style="margin-top:14px">${rep.explained_variance ? "Explained variance" : "Share of variance among kept components"}
+          ${tipBtn(rep.explained_variance ? "How much of the image's total variation each component holds. The line is the running total. If the first 3 components add up to over 95%, they summarise the image well." : "Kernel PCA can't measure the share of total variance, only how the kept components compare with each other.")}</div>
+        <svg class="ev-chart" viewBox="0 0 ${w} ${h}" style="color:var(--muted)">${bars}
+          ${rep.explained_variance ? `<polyline points="${pts.join(" ")}" fill="none" stroke="var(--text)" stroke-width="1.5" stroke-dasharray="3 2"/>` : ""}</svg>
+        ${rep.explained_variance ? `<div class="hint" style="margin-top:0">First ${ev.length} components hold <b>${(ev.reduce((a, b) => a + b, 0) * 100).toFixed(1)}%</b> of the variation.</div>` : ""}`;
+    }
+    let table = "";
+    if (rep.loadings) {
+      const maxAbs = Math.max(...rep.loadings.flat().map(Math.abs)) || 1;
+      const cell = (v) => {
+        const a = Math.min(1, Math.abs(v) / maxAbs), c = v >= 0 ? "31,122,90" : "180,35,24";
+        return `<td style="background:rgba(${c},${(a * 0.75).toFixed(2)});color:${a > 0.55 ? "#fff" : "inherit"}">${v.toFixed(2)}</td>`;
+      };
+      table = `<div class="home-label" style="margin-top:14px">Band loadings ${tipBtn("How strongly each band contributes to each component (green = positive, red = negative). Bands with large values drive that component. E.g. NIR high and Red negative means the component tracks vegetation.")}</div>
+        <div class="load-wrap"><table class="load-table"><tr><th></th>${rep.bands.map((b) => `<th>${esc(b)}</th>`).join("")}</tr>
+        ${rep.loadings.map((row, i) => `<tr><th>${rep.prefix}${i + 1}</th>${row.map(cell).join("")}</tr>`).join("")}</table></div>`;
+    }
+    const pcaHint = rep.method === "pca" || rep.method === "incremental"
+      ? `<p class="hint">Typical reading for multispectral imagery: <b>${rep.prefix}1</b> ≈ overall brightness, <b>${rep.prefix}2</b> ≈ vegetation vs. soil / built-up, <b>${rep.prefix}3</b> ≈ moisture / water. Check the loadings to confirm.</p>` : "";
+    box.innerHTML = `<div class="pca-sum"><b>${esc(rep.title)}</b> · ${rep.n_components} components from ${rep.bands.length} bands
+        (${esc(rep.bands.join(", "))})<br>Output ${rep.width.toLocaleString()} × ${rep.height.toLocaleString()} px${rep.factor > 1 ? ` (${rep.factor}× coarser than native)` : " at native resolution"}
+        · fitted on ${rep.pixels_fit.toLocaleString()} pixels · ${rep.standardized ? "standardized" : "not standardized"} · ${rep.seconds} s
+        ${rep.reconstruction_error != null ? `<br>Reconstruction error: ${rep.reconstruction_error.toFixed(3)}` : ""}</div>
+      ${rep.warnings?.length ? `<div class="warn">${rep.warnings.map(esc).join("<br>")}. Try more iterations (Advanced).</div>` : ""}
+      ${chart}${table}${pcaHint}
+      <div class="row"><button class="btn small" data-pz>Zoom to result</button><button class="btn small" data-px>Export…</button>
+        <button class="btn small" data-pp title="Show another combination of components">Change display…</button></div>`;
+    box.classList.remove("hidden");
+    $("[data-pz]", box).onclick = () => zoomTo(layer);
+    $("[data-px]", box).onclick = () => openExport(layer);
+    $("[data-pp]", box).onclick = () => openProps(layer);
+  }
+
+  async function initPca() {
+    pcaState.schema = await api("/api/pca/schema");
+    renderPcaMethods();
+    renderPcaParams(false);
+    renderPcaBands();
+  }
+
   async function initAnalyze() {
     an.catalog = state.catalog = await api("/api/indices");
     $("#an-cmap").innerHTML = `<option value="">Index default</option>` + Object.keys(an.catalog.colormaps).map((k) => `<option>${k}</option>`).join("");
@@ -1969,7 +2313,13 @@
     setPane("contents", prefs.get("contents", true));
     buildToolsMenu();
     state.config = await api("/api/config");
-    $("#source").innerHTML = Object.entries(state.config.sources).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
+    $("#mission").innerHTML = Object.entries(state.config.missions).map(([k, m]) => `<option value="${k}">${esc(m.title)}</option>`).join("");
+    const fillSources = () => {
+      $("#source").innerHTML = mission().sources.map((k) => `<option value="${k}">${esc(state.config.sources[k])}</option>`).join("");
+    };
+    $("#mission").value = prefs.get("mission", "sentinel-2") in state.config.missions ? prefs.get("mission", "sentinel-2") : "sentinel-2";
+    fillSources();
+    $("#mission").onchange = () => { prefs.set("mission", $("#mission").value); fillSources(); clearResults(); };
     $("#indices-list").textContent = `(${state.config.indices.join(", ")})`;
     $("#dl-product").innerHTML = Object.entries(state.config.label_products).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
     const years = { worldcover: [2021, 2020], esri: [2023, 2022, 2021, 2020, 2019, 2018, 2017] };
@@ -1978,6 +2328,7 @@
     fillYears();
     setRange(90);
     await initAnalyze();
+    initPca().catch((e) => toast("PCA tool: " + e.message, true));
     restoreLayers();
     loadCreds().catch(() => {});
     setPane("tools", false);  // the tool panel opens only when a tool is chosen from the Tools menu

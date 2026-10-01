@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = ["fastapi", "uvicorn[standard]", "python-multipart", "keyring"]
+web = ["fastapi", "uvicorn[standard]", "python-multipart", "keyring", "scikit-learn"]
 
 [project.scripts]
 lulc-fetch = "lulc_fetch.cli:main"

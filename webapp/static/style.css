@@ -433,3 +433,45 @@ body.no-contents .contents, body.no-tools .toolpanel { border: 0; }
 .lyr-zoom { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 3px; border-radius: 4px; display: grid; place-items: center; }
 .lyr-zoom:hover { background: var(--panel-2); color: var(--accent); }
 .lyr-zoom svg { width: 14px; height: 14px; }
+
+/* ⓘ hints: hover ~0.5 s or click to pin */
+.tip { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--muted); background: none; color: var(--muted);
+  font: italic 700 10.5px/14px Georgia, serif; padding: 0; cursor: help; display: inline-grid; place-items: center;
+  vertical-align: middle; margin-left: 4px; flex: none; }
+.tip:hover, .tip.pinned { border-color: var(--accent); color: var(--accent); background: var(--accent-2); }
+.tip-pop { position: fixed; z-index: 4000; max-width: 300px; background: var(--text); color: var(--panel); font-size: 12.5px;
+  line-height: 1.45; padding: 8px 11px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.25); pointer-events: none; }
+.tip-pop.pinned { pointer-events: auto; }
+
+/* PCA tool */
+.pca-bands { grid-template-columns: repeat(4, 1fr); }
+.pca-bands label small { color: var(--muted); font-size: 10px; margin-left: 2px; }
+.pca-field { display: grid; grid-template-columns: 1fr 140px; gap: 8px; align-items: center; margin-top: 8px; }
+.pca-field > span { font-size: 12.5px; color: var(--text); display: flex; align-items: center; }
+.pca-field input, .pca-field select { margin: 0; padding: 5px 8px; font-size: 12.5px; }
+.pca-field input[type=checkbox] { justify-self: start; width: 16px; height: 16px; }
+.pca-field.disabled { opacity: .5; }
+.pca-field .note { grid-column: 1 / -1; font-size: 11px; color: var(--muted); margin-top: -4px; }
+.opt .rec { font-size: 10px; font-weight: 700; color: var(--accent); background: var(--accent-2); border-radius: 4px; padding: 0 5px; margin-left: 6px; }
+.opt b { display: inline-flex; align-items: center; }
+.pca-sum { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+.pca-sum b { color: var(--text); }
+.ev-chart { width: 100%; margin-top: 8px; }
+.load-table { border-collapse: collapse; font-size: 11px; margin-top: 6px; width: 100%; }
+.load-table th, .load-table td { padding: 3px 4px; text-align: center; font-variant-numeric: tabular-nums; }
+.load-table th { color: var(--muted); font-weight: 600; }
+.load-wrap { overflow-x: auto; }
+
+/* progress + cancel bar at the bottom of the tool panel */
+.run-bar { flex: none; border-top: 1px solid var(--border); background: var(--panel); padding: 10px 12px 12px; box-shadow: 0 -4px 12px rgba(0,0,0,.05); }
+.rb-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.rb-head b { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-pct { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent); }
+.rb-track { height: 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); overflow: hidden; margin-top: 7px; }
+.rb-fill { height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width .4s ease; }
+.rb-fill.indeterminate { width: 35% !important; animation: rb-slide 1.2s ease-in-out infinite; }
+@keyframes rb-slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+.rb-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; }
+.rb-foot span { font-size: 11.5px; color: var(--muted); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job .rb-track { margin-top: 8px; }
+.status.cancelled { background: var(--panel-2); color: var(--muted); }

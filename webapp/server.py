@@ -37,7 +37,8 @@ STATIC = Path(__file__).parent / "static"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 SOURCE_TITLES = {"earth-search": "Earth Search (AWS) — no login",
                  "planetary-computer": "Microsoft Planetary Computer — no login",
-                 "cdse": "Copernicus Data Space (ESA) — needs S3 keys"}
+                 "cdse": "Copernicus Data Space (ESA) — needs S3 keys",
+                 "landsat-pc": "USGS Landsat via Planetary Computer — no login"}
 
 app = FastAPI(title="lulc-fetch")
 jobs = JobManager()
@@ -99,7 +100,9 @@ def _png_data_url(rgba: np.ndarray) -> str:
 
 @app.get("/api/config")
 def config():
-    return {"sources": SOURCE_TITLES, "bands": S2_BANDS, "default_bands": DEFAULT_BANDS,
+    from lulc_fetch.sources import MISSIONS
+
+    return {"sources": SOURCE_TITLES, "missions": MISSIONS, "bands": S2_BANDS, "default_bands": DEFAULT_BANDS,
             "indices": list(INDICES),
             "label_products": {k: v["title"] for k, v in LABEL_PRODUCTS.items()}}
 
@@ -141,6 +144,11 @@ def test_credentials(provider: str):
             with rasterio.Env(**src.gdal_env()), rasterio.open(href) as ds:
                 ds.read(1, window=((0, 16), (0, 16)))
             return {"ok": True, "message": "S3 keys work — read a test file from CDSE"}
+        if provider == "usgs":
+            from lulc_fetch import usgs as ee
+            c = credentials.get_all("usgs")
+            ee.logout(ee.login(c["username"], c["token"]))
+            return {"ok": True, "message": "Logged in to USGS EarthExplorer (M2M API)"}
         if provider == "planetary_computer":
             return {"ok": True, "message": "Saved (Planetary Computer works without a key; nothing to test)"}
     except Exception as e:
@@ -228,19 +236,23 @@ class PreviewRequest(BaseModel):
 
 @app.post("/api/preview")
 def preview(req: PreviewRequest):
-    """True-colour image of the AOI from the chosen items, plus an SCL cloud overlay and stats."""
+    """True-colour image of the AOI from the chosen items, plus a cloud/shadow overlay and stats."""
     aoi = _aoi(req.aoi)
     src = _source(req.source)
     items = list(src.client().search(collections=[src.collection], ids=req.item_ids).items())
     if not items:
         raise HTTPException(404, "Items not found")
     l, b, r, t = transform_bounds("EPSG:4326", "EPSG:3857", *aoi.bbox)
-    res = max(10.0, max(r - l, t - b) / req.max_px)
+    res = max(float(src.native_res), max(r - l, t - b) / req.max_px)
     grid = make_grid(aoi, res, "EPSG:3857")  # Web Mercator, so the overlay lines up exactly in Leaflet
     env = src.gdal_env()
     scene = s2.Scene(items[0].datetime.date(), items)
 
     def visual():
+        if not src.visual_asset:  # build true colour from reflectance (0–0.3 → 0–255)
+            rgb = [s2.read_band(src, scene, b, grid, env) for b in ("B04", "B03", "B02")]
+            # gamma 0.6 brightens dark land without blowing out clouds (÷1.15 undoes the TCI boost below)
+            return np.clip((np.clip(np.stack(rgb), 0, None) / 0.3) ** 0.6 * 255 / 1.15, 0, 255)
         out = None
         for item in items:
             if src.visual_asset not in item.assets:
@@ -257,7 +269,7 @@ def preview(req: PreviewRequest):
     try:
         with ThreadPoolExecutor(2) as ex:
             f_rgb = ex.submit(visual)
-            f_scl = ex.submit(s2.read_band, src, scene, "SCL", grid, env)
+            f_scl = ex.submit(s2.read_band, src, scene, src.mask_band, grid, env)
             rgb, scl = f_rgb.result(), f_scl.result()
     except Exception as e:
         raise HTTPException(502, f"Could not read imagery: {e}")
@@ -267,9 +279,8 @@ def preview(req: PreviewRequest):
     region = aoi_mask(aoi, grid)
     region = region if region is not None else np.ones(grid.shape, bool)
     has_data = np.all(np.isfinite(rgb), axis=0) & region
-    scl_i = np.nan_to_num(scl, nan=0).astype("uint8")
-    cloud = np.isin(scl_i, (8, 9, 10)) & region
-    shadow = (scl_i == 3) & region
+    cloud, shadow, nodata = src.mask_classes(scl)
+    cloud, shadow = cloud & region, shadow & region
 
     image = np.zeros((4, *grid.shape), "uint8")
     image[:3] = np.clip(np.nan_to_num(rgb, nan=0) * 1.15, 0, 255).astype("uint8")  # TCI is a bit dark
@@ -285,7 +296,7 @@ def preview(req: PreviewRequest):
         "bounds": [[south, west], [north, east]], "resolution_m": round(res, 1),
         "stats": {"data_pct": 100 * has_data.sum() / n, "cloud_pct": 100 * cloud.sum() / n,
                   "shadow_pct": 100 * shadow.sum() / n,
-                  "clear_pct": 100 * (has_data & ~cloud & ~shadow & ~np.isin(scl_i, (0, 1))).sum() / n},
+                  "clear_pct": 100 * (has_data & ~cloud & ~shadow & ~nodata).sum() / n},
     }
 
 
@@ -308,6 +319,7 @@ class JobRequest(BaseModel):
     product: str = "worldcover"
     year: int = 2021
     product_names: list[str] = Field(default_factory=list)
+    entity_ids: list[str] = Field(default_factory=list)  # Landsat scene ids for EarthExplorer
 
 
 @app.post("/api/jobs")
@@ -315,6 +327,26 @@ def create_job(req: JobRequest):
     bad = [b for b in req.bands if b not in S2_BANDS]
     if bad:
         raise HTTPException(400, f"Unknown bands {bad}")
+
+    if req.kind == "product" and req.source == "landsat-pc":
+        if not req.product_names:
+            raise HTTPException(400, "No products selected")
+        usgs = credentials.get_all("usgs")
+        if not all(usgs.values()):
+            raise HTTPException(400, "Add your USGS EarthExplorer username and M2M token under Credentials first")
+
+        def run(job):
+            from lulc_fetch import progress, usgs as ee
+            paths = []
+            for i, name in enumerate(req.product_names):
+                ent = req.entity_ids[i] if i < len(req.entity_ids) else None
+                log.info("Downloading %s from USGS EarthExplorer...", name)
+                with progress.span(i / len(req.product_names), (i + 1) / len(req.product_names)):
+                    paths.append(str(ee.download_product(name, ent, job.dir, usgs["username"], usgs["token"])))
+            return {"files": paths}
+
+        title = f"Landsat product (EarthExplorer): {', '.join(req.product_names)[:80]}"
+        return jobs.submit("product", title, req.model_dump(exclude={"aoi"}), run).to_dict()
 
     if req.kind == "product":
         if not req.product_names:
@@ -342,12 +374,13 @@ def create_job(req: JobRequest):
         if not (req.start and req.end):
             raise HTTPException(400, "Start and end dates are required")
         src = _source(req.source)
+        sat, short = ("Landsat", "LS") if src.mission == "landsat" else ("Sentinel-2", "S2")
         if req.source == "cdse":
             src.gdal_env()  # fail now, not in the background, when S3 keys are missing
 
     if req.kind == "scene":
-        name = f"S2_{req.date or req.start + '_' + req.end}"
-        title = f"Sentinel-2 {'scene ' + req.date if req.date else 'best scene ' + req.start + ' → ' + req.end}"
+        name = f"{short}_{req.date or req.start + '_' + req.end}"
+        title = f"{sat} {'scene ' + req.date if req.date else 'best scene ' + req.start + ' → ' + req.end}"
 
         def run(job):
             return export_scene(src, aoi, grid, req.start, req.end, job.dir / f"{name}.tif",
@@ -355,11 +388,11 @@ def create_job(req: JobRequest):
                                 candidates=1 if req.date else 5, mask_clouds=req.mask_clouds,
                                 indices=req.indices)
     elif req.kind == "composite":
-        title = f"Sentinel-2 {req.stat} composite {req.start} → {req.end}"
+        title = f"{sat} {req.stat} composite {req.start} → {req.end}"
 
         def run(job):
             return export_composite(src, aoi, grid, req.start, req.end,
-                                    job.dir / f"S2_{req.stat}_{req.start}_{req.end}.tif",
+                                    job.dir / f"{short}_{req.stat}_{req.start}_{req.end}.tif",
                                     bands=req.bands, max_cloud=req.max_cloud, max_scenes=req.max_scenes,
                                     stat=req.stat, indices=req.indices)
     elif req.kind == "labels":
@@ -387,6 +420,14 @@ def get_job(job_id: str):
     if job_id not in jobs.jobs:
         raise HTTPException(404, "No such job")
     return jobs.jobs[job_id].to_dict()
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    job = jobs.cancel(job_id)
+    if not job:
+        raise HTTPException(404, "No such job")
+    return job.to_dict()
 
 
 @app.delete("/api/jobs/{job_id}")
@@ -524,6 +565,7 @@ class AnalyzeBase(BaseModel):
 class RenderRequest(AnalyzeBase):
     composite: str | None = None
     band: int | None = None
+    rgb: list[int] | None = None
     clip: dict | None = None
     stretch: str = "fixed"  # fixed | auto | custom
     vmin: float | None = None
@@ -536,7 +578,7 @@ def analyze_render(req: RenderRequest):
     from lulc_fetch.analysis import render
 
     res = render(_raster_path(req.path), band_map=req.band_map, scale=req.scale, offset=req.offset,
-                 index=req.index, formula=req.formula, composite=req.composite, band=req.band, clip=_clip(req.clip),
+                 index=req.index, formula=req.formula, composite=req.composite, band=req.band, rgb=req.rgb, clip=_clip(req.clip),
                  stretch=req.stretch,
                  vmin=req.vmin, vmax=req.vmax, cmap=req.cmap)
     res["image"] = _png_data_url(res.pop("rgba"))
@@ -567,6 +609,14 @@ class ExportRequest(BaseModel):
 
 
 @app.post("/api/analyze/export")
+def analyze_export_job(req: ExportRequest):
+    """Several indices as one GeoTIFF, as a background job (progress + cancel)."""
+    _raster_path(req.path)
+    _clip(req.clip)
+    return jobs.submit("export", f"Export {len(req.indices) + len(req.formulas)} indices", {"format": "tif"},
+                       lambda job: analyze_export(req)).to_dict()
+
+
 def analyze_export(req: ExportRequest):
     import re
     import uuid
@@ -645,22 +695,62 @@ def open_product(req: ProductOpenRequest):
     return {"kind": "job", "job": jobs.submit("s1", title, {"source": "Sentinel-1 GRD", "res": req.res}, run).to_dict()}
 
 
+# ------------------------------------------------------------------ PCA & dimensionality reduction (scikit-learn)
+
+@app.get("/api/pca/schema")
+def pca_schema():
+    from lulc_fetch import pca
+
+    return pca.schema()
+
+
+class PcaRequest(BaseModel):
+    path: str
+    bands: list[int]
+    method: str = "pca"
+    params: dict = Field(default_factory=dict)
+    clip: dict | None = None
+    name: str = "image"
+
+
+@app.post("/api/pca/run")
+def pca_run(req: PcaRequest):
+    import re
+
+    from lulc_fetch import pca
+
+    src = _raster_path(req.path)
+    if req.method not in pca.METHODS:
+        raise HTTPException(400, f"Unknown method {req.method}")
+    clip = _clip(req.clip)
+    title = f"{pca.METHODS[req.method]['title']} · {req.name}"
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", f"{req.method}_{req.name}")[:60]
+
+    def run(job):
+        report = pca.run(src, job.dir / f"{stem}.tif", bands=req.bands, method=req.method, params=req.params, clip=clip)
+        report["path"] = str((job.dir / f"{stem}.tif").relative_to(Path.cwd()))
+        return report
+
+    return jobs.submit("pca", title, {"source": pca.METHODS[req.method]["full"]}, run).to_dict()
+
+
 # ------------------------------------------------------------------ layer export (GeoTIFF / PNG / shapefile / KML)
 
 EXPORT_DIR = Path.cwd() / "exports"
 
 
-def _export_target(name: str, ext: str) -> Path:
+def _export_target(name: str, ext: str, job=None) -> Path:
+    """Where an export is written: the job's own folder (removed automatically if cancelled) or exports/."""
     import re
     import uuid
 
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("_.")[:80] or "layer"
-    return EXPORT_DIR / uuid.uuid4().hex[:8] / f"{safe}.{ext}"
+    return (job.dir if job else EXPORT_DIR / uuid.uuid4().hex[:8]) / f"{safe}.{ext}"
 
 
-def _export_url(path: Path) -> dict:
-    return {"url": f"/api/exports/{path.parent.name}/{path.name}", "name": path.name,
-            "size_mb": path.stat().st_size / 1e6}
+def _export_url(path: Path, job=None) -> dict:
+    url = f"/api/jobs/{job.id}/files/{path.name}" if job else f"/api/exports/{path.parent.name}/{path.name}"
+    return {"url": url, "name": path.name, "size_mb": path.stat().st_size / 1e6}
 
 
 class LayerExportRequest(BaseModel):
@@ -674,6 +764,7 @@ class LayerExportRequest(BaseModel):
     formula: str | None = Field(None, max_length=500)
     composite: str | None = None
     band: int | None = None
+    rgb: list[int] | None = None
     stretch: str = "fixed"
     vmin: float | None = None
     vmax: float | None = None
@@ -687,31 +778,52 @@ class LayerExportRequest(BaseModel):
 
 @app.post("/api/layers/export")
 def export_layer(req: LayerExportRequest):
+    """Runs as a background job (progress + cancel). Returns the job; its result holds the download URL."""
+    from urllib.parse import quote
+
+    src = _raster_path(req.path)
+    plain = not (req.index or req.formula or req.composite or req.band or req.rgb) and not req.clip
+    if (plain or (req.rgb and not req.clip)) and req.format == "tif":  # the file itself: no work needed
+        result = {"url": f"/api/rasters/file?path={quote(req.path)}", "name": src.name, "size_mb": src.stat().st_size / 1e6}
+        job = jobs.submit("export", f"Export {req.name}", {"format": req.format}, lambda job: result)
+        return job.to_dict()
+    if req.format in ("png", "pngw") and plain:
+        raise HTTPException(400, "Choose how to display the layer first")
+    if req.format not in ("tif", "png", "pngw", "shp"):
+        raise HTTPException(400, f"Unknown format {req.format}")
+    _clip(req.clip)
+    return jobs.submit("export", f"Export {req.name} ({req.format.upper()})", {"format": req.format},
+                       lambda job: _export_layer_now(req, job)).to_dict()
+
+
+def _export_layer_now(req: "LayerExportRequest", job) -> dict:
     from urllib.parse import quote
 
     from lulc_fetch import analysis
 
     src = _raster_path(req.path)
     spec = {"band_map": req.band_map, "scale": req.scale, "offset": req.offset, "index": req.index,
-            "formula": req.formula, "composite": req.composite, "band": req.band, "stretch": req.stretch,
+            "formula": req.formula, "composite": req.composite, "band": req.band, "rgb": req.rgb, "stretch": req.stretch,
             "vmin": req.vmin, "vmax": req.vmax, "cmap": req.cmap, "clip": _clip(req.clip)}
-    plain = not (req.index or req.formula or req.composite or req.band) and not req.clip
+    plain = not (req.index or req.formula or req.composite or req.band or req.rgb) and not req.clip
+    if req.rgb and not req.clip and req.format == "tif":
+        plain = True  # an RGB view of a file exports the file itself (all bands, e.g. every component)
     if req.format == "tif":
         if plain:  # the layer is the file itself
             return {"url": f"/api/rasters/file?path={quote(req.path)}", "name": src.name,
                     "size_mb": src.stat().st_size / 1e6}
-        out = analysis.export_layer_tif(src, _export_target(req.name, "tif"), **spec)
+        out = analysis.export_layer_tif(src, _export_target(req.name, "tif", job), **spec)
     elif req.format in ("png", "pngw"):
         if plain:
             raise HTTPException(400, "Choose how to display the layer first")
-        out = analysis.export_png(src, _export_target(req.name, "png"), world_file=req.format == "pngw", **spec)
+        out = analysis.export_png(src, _export_target(req.name, "png", job), world_file=req.format == "pngw", **spec)
     elif req.format == "shp":
-        out, n = analysis.polygonize(src, _export_target(req.name, "zip"), name=req.name, method=req.method,
+        out, n = analysis.polygonize(src, _export_target(req.name, "zip", job), name=req.name, method=req.method,
                                      classes=req.classes, breaks=req.breaks, sieve_px=req.sieve, **spec)
-        return {**_export_url(out), "features": n}
+        return {**_export_url(out, job), "features": n}
     else:
         raise HTTPException(400, f"Unknown format {req.format}")
-    return _export_url(out)
+    return _export_url(out, job)
 
 
 class VectorExportRequest(BaseModel):
