@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import progress
 from . import sentinel2 as s2
 from .aoi import AOI, Grid, aoi_mask
 from .indices import compute_indices
@@ -78,6 +79,7 @@ def export_scene(source: Source, aoi: AOI | None, grid: Grid, start: str, end: s
                  preview: bool = True) -> dict:
     check_size(grid)
     region = aoi_mask(aoi, grid)
+    progress.update(0.01, "Searching the catalog")
     items = s2.search(source, grid.bbox_lonlat(), start, end, max_cloud, intersects=search_geometry(aoi))
     scenes = s2.group_scenes(items)
     if date:
@@ -88,9 +90,12 @@ def export_scene(source: Source, aoi: AOI | None, grid: Grid, start: str, end: s
         scene = scenes[0]
     else:
         log.info("Checking AOI cloud cover for the %d least-cloudy dates...", min(candidates, len(scenes)))
-        scene, _ = s2.pick_best_scene(source, scenes, grid, region, candidates)
+        with progress.span(0.05, 0.3):
+            scene, _ = s2.pick_best_scene(source, scenes, grid, region, candidates)
     log.info("Using %s  tiles=%s  ids=%s", scene.date, ",".join(scene.tiles), ", ".join(scene.ids))
-    arrays = s2.scene_stack(source, scene, grid, bands, mask_clouds=mask_clouds)
+    with progress.span(0.3, 0.95):
+        arrays = s2.scene_stack(source, scene, grid, bands, mask_clouds=mask_clouds)
+    progress.update(0.96, "Writing GeoTIFF")
     tags = {"source": source.name, "date": scene.date, "items": ",".join(scene.ids),
             "units": "surface reflectance (0-1)", "cloud_masked": mask_clouds}
     result = write_s2_outputs(Path(out), arrays, grid, region, indices=indices, preview=preview, tags=tags)
@@ -102,13 +107,16 @@ def export_composite(source: Source, aoi: AOI | None, grid: Grid, start: str, en
                      stat: str = "median", indices: bool = False, preview: bool = True) -> dict:
     check_size(grid)
     region = aoi_mask(aoi, grid)
+    progress.update(0.01, "Searching the catalog")
     items = s2.search(source, grid.bbox_lonlat(), start, end, max_cloud, intersects=search_geometry(aoi))
     scenes = s2.group_scenes(items)[:max_scenes]
     if not scenes:
         raise ValueError("No scenes found — widen the date range or raise the cloud limit.")
     dates = sorted(str(s.date) for s in scenes)
     log.info("Compositing %d dates: %s", len(scenes), ", ".join(dates))
-    arrays, count = s2.composite(source, scenes, grid, bands, stat)
+    with progress.span(0.03, 0.95):
+        arrays, count = s2.composite(source, scenes, grid, bands, stat)
+    progress.update(0.96, "Writing GeoTIFF")
     tags = {"source": source.name, "period": f"{start}/{end}", "stat": stat,
             "dates": ",".join(dates), "units": "surface reflectance (0-1)"}
     result = write_s2_outputs(Path(out), arrays, grid, region, indices=indices, preview=preview,
@@ -120,7 +128,9 @@ def export_labels(product: str, year: int, aoi: AOI | None, grid: Grid, out: str
     from .extras import _rgb, fetch_labels
 
     check_size(grid)
+    progress.update(0.05, "Downloading the land-cover map")
     data, spec = fetch_labels(product, year, grid)
+    progress.update(0.85, "Writing GeoTIFF")
     region = aoi_mask(aoi, grid)
     if region is not None:
         data[~region] = 0

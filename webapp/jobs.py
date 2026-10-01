@@ -22,7 +22,10 @@ class Job:
     kind: str
     title: str
     params: dict
-    status: str = "queued"  # queued | running | done | error
+    status: str = "queued"  # queued | running | done | error | cancelled
+    progress: float = 0.0   # 0–1, reported by the work through lulc_fetch.progress
+    message: str = ""
+    cancel_requested: bool = False
     created: float = field(default_factory=time.time)
     started: float | None = None
     finished: float | None = None
@@ -41,18 +44,20 @@ class Job:
 
     def to_dict(self) -> dict:
         return {"id": self.id, "kind": self.kind, "title": self.title, "params": self.params,
-                "status": self.status, "created": self.created, "started": self.started,
+                "status": self.status, "progress": round(self.progress, 4), "message": self.message,
+                "created": self.created, "started": self.started,
                 "finished": self.finished, "logs": self.logs[-200:], "result": self.result,
                 "error": self.error, "files": self.files()}
 
 
 class _JobLogHandler(logging.Handler):
-    """Routes log records emitted on a job's thread into that job's log."""
+    """Routes log records emitted on a job's thread into that job's log (and its current step)."""
 
     def emit(self, record):
         job = getattr(_current, "job", None)
         if job is not None:
             job.logs.append(self.format(record))
+            job.message = record.getMessage()[:160]
 
 
 class JobManager:
@@ -73,20 +78,51 @@ class JobManager:
         return job
 
     def _run(self, job: Job, fn):
+        from lulc_fetch import progress
+
         _current.job = job
+        if job.cancel_requested:  # cancelled while still queued
+            job.status, job.finished = "cancelled", time.time()
+            return
         job.status, job.started = "running", time.time()
         job.dir.mkdir(parents=True, exist_ok=True)
+
+        def on_progress(fraction, message):
+            if job.cancel_requested:
+                raise progress.Cancelled()
+            if fraction is not None:
+                job.progress = max(job.progress, fraction)  # never jump backwards
+            if message:
+                job.message = message
+
+        progress.set_handler(on_progress)
         try:
             job.result = fn(job)
-            job.status = "done"
+            job.status, job.progress = "done", 1.0
             job.logs.append(f"Finished in {time.time() - job.started:.0f} s")
+        except progress.Cancelled:
+            import shutil
+
+            job.status = "cancelled"
+            job.logs.append("Cancelled by the user. Partial files were removed.")
+            shutil.rmtree(job.dir, ignore_errors=True)
         except Exception as e:  # report every failure to the UI instead of losing it in the thread
             job.status, job.error = "error", str(e) or type(e).__name__
             job.logs.append(f"ERROR: {job.error}")
             logging.getLogger(__name__).debug(traceback.format_exc())
         finally:
+            progress.set_handler(None)
             job.finished = time.time()
             _current.job = None
+
+    def cancel(self, job_id: str) -> Job | None:
+        job = self.jobs.get(job_id)
+        if job and job.status in ("queued", "running"):
+            job.cancel_requested = True
+            job.message = "Cancelling…"
+            if job.status == "queued":
+                job.status = "cancelled"
+        return job
 
     def delete(self, job_id: str):
         import shutil

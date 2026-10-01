@@ -14,6 +14,7 @@ from rasterio.warp import calculate_default_transform, reproject, transform_boun
 from rasterio.warp import transform as warp_transform
 from rasterio.windows import Window
 
+from . import progress
 from .indices import CATALOG, COLORMAPS, SAR_NAMES, S2_NAMES, evaluate, normalize_band, required_bands
 from .sources import DEFAULT_BANDS
 
@@ -290,11 +291,19 @@ def _render_native(src, spec: dict, max_px: int | None):
 
     Returns (rgba uint8 [4, h, w], affine transform of that grid, metadata for legends).
     """
-    if spec.get("composite"):
-        title, names = COMPOSITES[spec["composite"]]
+    if spec.get("composite") or spec.get("rgb"):
         win, geom = clip_region(src, spec.get("clip"))
-        bands = _bands(src, spec["band_map"], set(names), spec["scale"], spec["offset"], max_px=max_px, window=win)
-        arrays = [bands[n] for n in names]
+        if spec.get("rgb"):  # any three file bands, e.g. PC1 / PC2 / PC3
+            idx = [int(b) for b in spec["rgb"]][:3]
+            if len(idx) != 3 or not all(1 <= b <= src.count for b in idx):
+                raise ValueError("RGB display needs three valid band numbers")
+            arrays = list(_read(src, idx, max_px=max_px, window=win))
+            names = [src.descriptions[b - 1] or f"Band {b}" for b in idx]
+            title = "RGB " + " / ".join(names)
+        else:
+            title, names = COMPOSITES[spec["composite"]]
+            bands = _bands(src, spec["band_map"], set(names), spec["scale"], spec["offset"], max_px=max_px, window=win)
+            arrays = [bands[n] for n in names]
         transform = _grid_transform(src, win, arrays[0].shape)
         _mask_outside(arrays, geom, transform)
         valid = np.all([np.isfinite(a) for a in arrays], axis=0)
@@ -381,11 +390,11 @@ def _spec(band_map, scale, offset, **kw) -> dict:
 
 def render(path: str | Path, *, band_map: dict[str, int], scale: float, offset: float,
            index: str | None = None, formula: str | None = None, composite: str | None = None,
-           band: int | None = None, stretch: str = "fixed", vmin: float | None = None,
+           band: int | None = None, rgb: list[int] | None = None, stretch: str = "fixed", vmin: float | None = None,
            vmax: float | None = None, cmap: str | None = None, clip: dict | None = None, max_px: int = 1400) -> dict:
     """Map-ready RGBA image (Web Mercator) of a composite / index / formula / single band, plus legend data.
     With `clip` (GeoJSON polygon, EPSG:4326) only that area is read, shown and counted in the stats."""
-    spec = _spec(band_map, scale, offset, index=index, formula=formula, composite=composite, band=band,
+    spec = _spec(band_map, scale, offset, index=index, formula=formula, composite=composite, band=band, rgb=rgb,
                  stretch=stretch, vmin=vmin, vmax=vmax, cmap=cmap, clip=clip)
     with rasterio.open(path) as src:
         rgba, transform, meta = _render_native(src, spec, max_px)
@@ -403,9 +412,11 @@ def export_png(path: str | Path, out: str | Path, *, world_file: bool = False, m
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    progress.update(0.05, "Rendering the image")
     with rasterio.open(path) as src:
         rgba, t, _ = _render_native(src, _spec(**spec), max_px)
         crs = src.crs
+    progress.update(0.8, "Writing PNG")
     png = out.with_suffix(".png")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", NotGeoreferencedWarning)
@@ -446,6 +457,7 @@ def export_layer_tif(path: str | Path, out: str | Path, *, rows_per_chunk: int =
             profile.pop("blockxsize", None); profile.pop("blockysize", None); profile.pop("tiled", None)
             with rasterio.open(out, "w", **profile) as dst:
                 for r0 in range(0, region.height, rows_per_chunk):
+                    progress.update(r0 / region.height, f"Writing band {b} ({r0 / region.height:.0%})")
                     win = Window(0, r0, region.width, min(rows_per_chunk, region.height - r0))
                     data = src.read(b, window=Window(region.col_off, region.row_off + r0, win.width, win.height))
                     if geom is not None:
@@ -458,12 +470,29 @@ def export_layer_tif(path: str | Path, out: str | Path, *, rows_per_chunk: int =
                     dst.write_colormap(1, src.colormap(b))
                 dst.update_tags(**src.tags())
             return out
+        if spec.get("rgb"):
+            profile = {"driver": "GTiff", **grid, "count": src.count, "dtype": "float32",
+                       "crs": src.crs, "nodata": np.nan, "compress": "deflate", "predictor": 3, "BIGTIFF": "IF_SAFER"}
+            with rasterio.open(out, "w", **profile) as dst:
+                for r0 in range(0, region.height, rows_per_chunk):
+                    progress.update(r0 / region.height, f"Writing all bands ({r0 / region.height:.0%})")
+                    win = Window(0, r0, region.width, min(rows_per_chunk, region.height - r0))
+                    data = src.read(window=Window(region.col_off, region.row_off + r0, win.width, win.height),
+                                    masked=True).astype("float32").filled(np.nan)
+                    layers = list(data)
+                    _mask_outside(layers, geom, dst.window_transform(win))
+                    dst.write(np.stack(layers), window=win)
+                for i, d in enumerate(src.descriptions, start=1):
+                    dst.set_band_description(i, d or f"Band {i}")
+                dst.update_tags(**src.tags())
+            return out
         if spec.get("composite"):
             title, names = COMPOSITES[spec["composite"]]
             profile = {"driver": "GTiff", **grid, "count": 3, "dtype": "float32",
                        "crs": src.crs, "nodata": np.nan, "compress": "deflate", "predictor": 3}
             with rasterio.open(out, "w", **profile) as dst:
                 for r0 in range(0, region.height, rows_per_chunk):
+                    progress.update(r0 / region.height, f"Writing {title} ({r0 / region.height:.0%})")
                     win = Window(0, r0, region.width, min(rows_per_chunk, region.height - r0))
                     bands = _bands(src, spec["band_map"], set(names), spec["scale"], spec["offset"],
                                    window=Window(region.col_off, region.row_off + r0, win.width, win.height))
@@ -518,13 +547,15 @@ def polygonize(path: str | Path, out_zip: str | Path, *, name: str = "layer", me
     from .vector_io import write_shapefile_zip
 
     spec = _spec(**spec)
-    if spec.get("composite"):
+    if spec.get("composite") or spec.get("rgb"):
         raise ValueError("A colour composite has no single value per pixel. Choose an index or a single band "
                          "to convert to polygons.")
+    progress.update(0.05, "Reading values")
     with rasterio.open(path) as src:
         values, title, _, transform = _layer_values(src, spec, max_px)
         pal = _palette(src, int(spec["band"])) if spec.get("band") else None
         crs = src.crs
+    progress.update(0.35, "Grouping values into classes")
     if pal:
         _, names = pal
         cls = np.nan_to_num(values, nan=0).astype("int32")
@@ -537,7 +568,10 @@ def polygonize(path: str | Path, out_zip: str | Path, *, name: str = "layer", me
     if sieve_px and sieve_px > 1:
         cls = features.sieve(cls, size=int(sieve_px), mask=valid)
     feats = []
+    progress.update(0.5, "Tracing polygons")
     for geom, v in features.shapes(cls, mask=cls > 0, transform=transform):
+        if len(feats) % 2000 == 0:
+            progress.update(0.5 + 0.4 * min(1, len(feats) / 40000), f"Tracing polygons ({len(feats):,})")
         g = shape(geom)
         row = table.get(int(v), {"value": int(v), "name": f"Class {int(v)}", "min": None, "max": None})
         props = {"class": int(v), "label": row["name"], "min_val": row["min"], "max_val": row["max"]}
@@ -549,6 +583,7 @@ def polygonize(path: str | Path, out_zip: str | Path, *, name: str = "layer", me
                              f"'merge patches smaller than' value.")
     if not feats:
         raise ValueError("No polygons were produced (the layer has no valid pixels)")
+    progress.update(0.92, "Writing the shapefile")
     out = write_shapefile_zip(feats, crs, out_zip, name)
     return out, len(feats)
 
@@ -600,6 +635,7 @@ def export(path: str | Path, out_path: str | Path, items: list[tuple[str, str]],
             profile.update(tiled=True, blockxsize=256, blockysize=256)
         with rasterio.open(out_path, "w", **profile) as dst:
             for r0 in range(0, region.height, rows_per_chunk):
+                progress.update(r0 / region.height, f"Computing {', '.join(n for n, _ in items)[:60]} ({r0 / region.height:.0%})")
                 win = Window(0, r0, region.width, min(rows_per_chunk, region.height - r0))
                 bands = _bands(src, band_map, needed, scale, offset,
                                window=Window(region.col_off, region.row_off + r0, win.width, win.height))

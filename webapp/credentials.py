@@ -29,6 +29,15 @@ PROVIDERS = {
         "fields": {"access_key": "Access key", "secret_key": "Secret key"},
         "secret": {"secret_key"},
     },
+    "usgs": {
+        "title": "USGS EarthExplorer (Landsat)",
+        "help": "Downloads original Landsat product bundles. Use your ERS username and an M2M application token "
+                "(Profile ▸ Access Request ▸ M2M API, then create an Application Token). Not needed to search, "
+                "preview or download clipped Landsat data.",
+        "signup": "https://ers.cr.usgs.gov/profile/access",
+        "fields": {"username": "ERS username", "token": "M2M application token"},
+        "secret": {"token"},
+    },
     "planetary_computer": {
         "title": "Microsoft Planetary Computer (optional)",
         "help": "Not required. A subscription key only raises rate limits.",

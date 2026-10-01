@@ -11,6 +11,8 @@ from pathlib import Path
 
 import requests
 
+from . import progress
+
 log = logging.getLogger(__name__)
 
 TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
@@ -66,6 +68,7 @@ def download_product(name: str, out_dir: str | Path = ".", username: str | None 
         for chunk in r.iter_content(chunk_size=8 << 20):
             f.write(chunk)
             done += len(chunk)
+            progress.update(done / total if total else None, f"Downloading {done / 1e6:,.0f}{f' of {total / 1e6:,.0f}' if total else ''} MB")
             if total and 100 * done / total >= next_pct:
                 next_pct += 10
                 log.info("  %s: %5.1f%% of %.0f MB", out.name, 100 * done / total, total / 1e6)

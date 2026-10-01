@@ -2,11 +2,12 @@
 
 A toolkit for land-use / land-cover (LULC) work with free satellite data. It has a **desktop GIS-style web app** and a **command-line tool**:
 
-- **Find and download Sentinel-2 L2A** (10 m, global, every ~5 days) from AWS Earth Search, Microsoft Planetary Computer or Copernicus Data Space:
+- **Find and download Sentinel-2 L2A** (10 m, every ~5 days) from AWS Earth Search, Microsoft Planetary Computer or Copernicus Data Space, and **Landsat 8–9 Collection 2 L2** (30 m), with original Landsat bundles from USGS EarthExplorer:
   - surface reflectance, cloud masking, cloud-free median composites
   - only the pixels inside your area of interest are downloaded
 - **Open your own Copernicus products** (`.SAFE`): Sentinel-2 L1C/L2A with all bands, and Sentinel-1 GRD converted to calibrated radar backscatter (VV/VH, dB).
 - **30 spectral and radar indices** (NDVI, SAVI, EVI, NDWI, NDBI, NBR, RVI…) or your own formula, on any GeoTIFF. Band-order checks catch mislabelled files.
+- **PCA & dimensionality reduction** with scikit-learn: PCA, Incremental PCA, Kernel PCA, NMF, FastICA, Truncated SVD, Factor Analysis.
 - **LULC reference maps** for training and validation: ESA WorldCover 10 m and Esri/Impact Observatory annual LULC 10 m.
 - **Other collections** from Planetary Computer: NAIP 0.6 m aerial (USA), Sentinel-1 RTC, Copernicus DEM, and more.
 - **Export any layer** as GeoTIFF, PNG (optionally georeferenced), Shapefile, GeoJSON or KML, for the whole layer or just an area you choose.
@@ -39,7 +40,7 @@ A desktop GIS-style workspace, laid out like QGIS or ArcGIS:
 
 - **Menu bar**
   - **File:** add data, add from the workspace, open a Sentinel product (.SAFE), export / properties / remove the selected layer, credentials.
-  - **Tools ▾:** Find imagery, Index analysis, Export data, Downloads & jobs. The right-hand panel only opens when you pick a tool; × closes it.
+  - **Tools ▾:** Find imagery, Index analysis, PCA & dimensionality reduction, Export data, Downloads & jobs. The right-hand panel only opens when you pick a tool; × closes it.
   - **View:** show or hide the panels, choose the basemap (streets, satellite, topographic, none), place labels, zoom to all layers, theme.
   - **Help:** getting started, quick guide, keyboard shortcuts (<kbd>Ctrl/⌘ O</kbd> add data, <kbd>Ctrl/⌘ E</kbd> export, <kbd>Del</kbd> remove layer, <kbd>Ctrl/⌘ 1</kbd> / <kbd>2</kbd> toggle panels).
 - **Contents (left)** holds every layer:
@@ -56,16 +57,22 @@ A desktop GIS-style workspace, laid out like QGIS or ArcGIS:
 - **Export any layer** (Tools ▸ Export data, or right-click ▸ Export / save to computer):
   - **Rasters:** **GeoTIFF** (index values / band / composite, original projection), **PNG** (as displayed), **PNG + world file** (.pgw + .prj, georeferenced), or **Shapefile**. For a shapefile, the values are grouped into classes (equal intervals, quantiles or your own breaks), small patches are merged, and the result is converted to polygons with class, range and area attributes. Class maps such as WorldCover keep their class names.
   - **Vectors:** **Shapefile**, **GeoJSON** or **KML**.
+- **Progress and Cancel:** whatever a tool is running (search, preview, download, composite, index, PCA, export, Sentinel-1 processing) shows a bar at the bottom of the tool panel. It gives the % complete, the current step, elapsed time and an estimate of the time left, plus a **Cancel** button. Cancelled jobs stop at the next checkpoint and their partial files are deleted, so you can fix a parameter and run again. Downloads & jobs shows the same progress and Cancel for every job.
 - **Status bar (bottom):** the cursor's lat/long (click it to switch decimal degrees / DMS), a **map scale box** (pick 1:500 … 1:10,000,000 or type any scale and press Enter), the zoom level, and running downloads.
 
 ### Find imagery
 1. **Area of interest.** Draw it, type lat/long (point + radius or bounding box), search an address (OpenStreetMap), or upload a shapefile / GeoJSON / KML. Any polygon layer can also become the area (right-click ▸ Use as area of interest).
-2. **Dates and filters:** source (Earth Search, Planetary Computer or Copernicus), date range, maximum cloud %.
+2. **Satellite, dates and filters:**
+   - **Satellite:** Sentinel-2 L2A (10 m) or **Landsat 8–9 Collection 2 L2** (30 m).
+   - **Source:** Earth Search, Planetary Computer or Copernicus for Sentinel-2; the USGS Landsat copy on Planetary Computer for Landsat.
+   - Date range and maximum cloud %.
+
+   Landsat bands are stored under their Sentinel-2-equivalent names (B02 blue, B03 green, B04 red, B08 NIR, B11/B12 SWIR), so every index works. Clouds are masked with the QA_PIXEL flags.
 3. **Results:**
    - One card per acquisition date shows a thumbnail, the tile cloud %, and how much of your area it covers. Footprints become a layer.
    - **Preview area** adds the real imagery of your area, plus a cloud/shadow mask, as layers.
    - **Metadata** shows the scene's full STAC metadata.
-   - **Download** offers that date, a cloud-free composite, ESA WorldCover / Esri land-cover labels, or the original Copernicus .SAFE product. Jobs run in the background (Downloads & jobs), and their output is added to Contents.
+   - **Download** offers that date, a cloud-free composite, ESA WorldCover / Esri land-cover labels, or the original product: a Copernicus .SAFE for Sentinel-2, or a USGS EarthExplorer bundle for Landsat. Progress shows at the bottom of the tool, and the result is added to Contents when it's done.
 
 ### Your own Sentinel products (.SAFE)
 Copy Copernicus products (extracted `.SAFE` folders or `.SAFE.zip` files) into the `data/` folder. They then appear under **File ▸ Open Sentinel product (.SAFE)** and on **Help ▸ Getting started**:
@@ -103,8 +110,36 @@ Pick an input raster layer, then click an index. **Each result is a new layer**,
   - **Suggestions** list indices that work with the bands your image has.
 - **Automatic detection:** band mapping is detected from band names (Sentinel-2, Landsat `SR_B*`, NAIP) or the band count. Pixel values are converted to reflectance (S2 ×10000, Landsat C2, 8-bit). Both can be changed in the panel.
 
+### PCA & dimensionality reduction
+Turns many correlated bands into a few new ones (components) that hold most of the information. It's useful for visual interpretation, change detection and as classifier input.
+
+1. **Input image and area:** any raster layer. Optionally use the area picker; small areas run at full resolution in seconds.
+2. **Bands:** *Recommended* leaves out atmospheric bands (B01, B09) and derived bands such as indices or VV−VH.
+3. **Method** (scikit-learn), with **PCA as the recommended default**:
+
+| Method | Use it for |
+|---|---|
+| **PCA** (default) | Removing band redundancy. PC1 ≈ brightness, PC2 ≈ vegetation vs. soil, PC3 ≈ moisture. |
+| Incremental PCA | The same result, but learns from *every* pixel in batches. For huge images. |
+| Kernel PCA | Non-linear patterns (RBF / poly / sigmoid / cosine kernel). Slow, so best on a selected area. |
+| NMF | Additive, non-negative parts, similar to spectral unmixing (vegetation / soil / water). |
+| FastICA | Statistically independent signals: can isolate haze, shadow or a single cover type. |
+| Truncated SVD | PCA without centring: keeps absolute brightness. |
+| Factor Analysis | Shared factors plus per-band noise. Varimax makes factors easy to read. |
+
+4. **Parameters:** the defaults suit satellite imagery (3 components, standardized bands, automatic resolution, a 100,000-pixel fitting sample). Method-specific and rarely needed options are under *Advanced*, and **Reset to defaults** restores everything. Every parameter has an **ⓘ hint**: hover for a moment or click it.
+
+The result is a layer with one band per component, shown as an RGB of components 1–3. Properties can switch to other combinations. The report shows explained variance (bar chart and running total) and a band-loadings heatmap. GeoTIFF export contains all components.
+
+How it scales: the model is fitted on a random pixel sample (Incremental PCA uses every pixel) and applied strip by strip, so memory stays bounded. On the sample Sentinel-2 tile, PCA takes about 4 s for a 550 km² area at 10 m and about 36 s for the whole tile.
+
 ### Credentials and security
-**Credentials** stores your Copernicus account, Copernicus S3 keys and an optional Planetary Computer key in the OS keychain (macOS Keychain on a Mac). Secrets are never sent back to the browser, and they only go to the provider they belong to.
+**Credentials** stores, in the OS keychain (macOS Keychain on a Mac):
+- your Copernicus account and Copernicus S3 keys
+- your **USGS EarthExplorer** username and **M2M application token**, which USGS requires instead of a password. Get one at ers.cr.usgs.gov ▸ Access Request ▸ M2M API, then create an Application Token.
+- an optional Planetary Computer key
+
+Each entry has a **Test** button. Secrets are never sent back to the browser, and they only go to the provider they belong to.
 
 The server listens on `127.0.0.1` only and rejects requests from other websites. It is a personal, single-user tool. Hosting it for several people would need user accounts and per-user credential storage first.
 
@@ -120,9 +155,12 @@ lulc_fetch/          core library (also used by the CLI)
   sentinel2.py       STAC search, cloud masking, scenes, median composites
   sources.py         Earth Search / Planetary Computer / Copernicus catalogs
   pipeline.py        scene / composite / label exports
+  pca.py             PCA / Kernel PCA / NMF / ICA / SVD / FA (scikit-learn) with parameter schema
   indices.py         index catalog + safe formula evaluator
   analysis.py        rendering, band detection, clipping, GeoTIFF / PNG / shapefile export
   safe.py            Sentinel-2 .SAFE → VRT, Sentinel-1 GRD → calibrated σ⁰ GeoTIFF
+  usgs.py            USGS EarthExplorer M2M login and Landsat bundle download
+  progress.py        progress reporting + cooperative cancellation for long tasks
   vector_io.py       shapefile / KML / GeoJSON writers
   extras.py, cdse.py WorldCover / Esri labels, other collections, Copernicus product download
 webapp/
@@ -202,6 +240,10 @@ Commercial providers (Planet 3 m, Maxar/Airbus <1 m) need paid access.
 - Map previews of large rasters are drawn at reduced resolution (≈1400 px). Their stats are computed on that preview unless you pick an area. GeoTIFF exports are always full resolution.
 - Raster → shapefile works on at most 2000 px on the long side (pick an area for full detail). PNG export is capped at 8192 px.
 - Sentinel-1 backscatter is geocoded on the ellipsoid without terrain correction, and thermal noise is not removed.
+- PCA on very large images is processed at reduced resolution (Auto keeps it under 25 M pixels; Kernel PCA under 2 M). Pick an area for full detail.
+- Landsat's official cloud mask (CFMask) sometimes flags bright city roofs as cloud. You'll see it as yellow speckle in previews.
+- Cancelling takes effect at the next checkpoint, usually within a second or two. A single long step, such as fitting Kernel PCA, finishes before it stops.
+- The EarthExplorer bundle download follows the USGS M2M API but needs an account with M2M access. It has not been tested here without such an account.
 - The web app is a single-user tool for your own computer. It is not designed to be hosted for others.
 
 ## License

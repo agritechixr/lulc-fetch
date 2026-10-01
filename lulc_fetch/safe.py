@@ -21,6 +21,7 @@ from rasterio.control import GroundControlPoint
 from rasterio.enums import Resampling
 from rasterio.warp import calculate_default_transform, reproject, transform_bounds
 
+from . import progress
 from .aoi import AOI, make_grid, utm_crs
 
 log = logging.getLogger(__name__)
@@ -199,7 +200,7 @@ def s1_to_backscatter(product: str | Path, out_path: str | Path, *, res: float =
     n = max(1, int(round(res / 10)))
 
     looks = []
-    for pol, meas, cal in pols:
+    for k, (pol, meas, cal) in enumerate(pols):
         lines, pixels, lut = _calibration_lut(_read_text(cal))
         with rasterio.open(meas) as src:
             gcps, gcp_crs = src.gcps
@@ -209,6 +210,7 @@ def s1_to_backscatter(product: str | Path, out_path: str | Path, *, res: float =
             log.info("Calibrating %s: %d×%d px → %d×%d (%d×%d looks)", pol, src.width, src.height, w, h, n, n)
             step = max(n, rows_per_strip // n * n)
             for r0 in range(0, h * n, step):
+                progress.update(0.8 * (k + r0 / (h * n)) / len(pols), f"Calibrating {pol} ({r0 / (h * n):.0%})")
                 nrows = min(step, h * n - r0)
                 dn = src.read(1, window=((r0, r0 + nrows), (0, w * n))).astype("float32")
                 power = (dn ** 2).reshape(nrows // n, n, w, n).mean(axis=(1, 3))
@@ -231,7 +233,8 @@ def s1_to_backscatter(product: str | Path, out_path: str | Path, *, res: float =
         dst_crs = utm_crs(lon, lat)
         dst_transform, dw, dh = calculate_default_transform(gcp_crs, dst_crs, w, h, gcps=gcps_ml, resolution=res)
     bands, names = [], []
-    for pol, arr in looks:
+    for k, (pol, arr) in enumerate(looks):
+        progress.update(0.8 + 0.18 * k / len(looks), f"Geocoding {pol}")
         dst = np.full((dh, dw), np.nan, "float32")
         log.info("Geocoding %s to %s at %g m (%d×%d px)", pol, dst_crs.to_string(), res, dw, dh)
         reproject(arr, dst, gcps=gcps_ml, src_crs=gcp_crs, dst_transform=dst_transform, dst_crs=dst_crs,
