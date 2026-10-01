@@ -1,4 +1,9 @@
-/* LULC Fetch web UI — vanilla JS, Leaflet + Leaflet.draw. */
+/* LULC Fetch — desktop GIS-style web UI. Vanilla JS + Leaflet.
+ *
+ * Layout: menu bar (File · Tools · View · Help) / Contents (layers, left) / map / tool panel (right) / status bar.
+ * Every dataset (downloads, local files, AOI, previews, index results) is a layer in `layers`, which can be
+ * shown, reordered, styled, identified (click map) and exported (GeoTIFF / PNG / Shapefile / GeoJSON / KML).
+ */
 (() => {
   "use strict";
 
@@ -6,13 +11,23 @@
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (n, d = 1) => (n == null || isNaN(n) ? "–" : Number(n).toFixed(d));
+  const fmtv = (v) => v == null || isNaN(v) ? "–" : Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(3);
 
   const state = {
     config: null, aoi: null, results: null, sort: "cloud",
-    activeScene: null, downloadScene: null, polling: null,
+    activeScene: null, downloadScene: null, polling: null, catalog: null,
   };
 
-  // ------------------------------------------------------------------ api
+  const prefs = (() => { // per-browser conveniences; everything works without them
+    let p = {};
+    try { p = JSON.parse(localStorage.getItem("lulc-prefs") || "{}"); } catch {}
+    return {
+      get: (k, d) => (k in p ? p[k] : d),
+      set: (k, v) => { p[k] = v; try { localStorage.setItem("lulc-prefs", JSON.stringify(p)); } catch {} },
+    };
+  })();
+
+  // ------------------------------------------------------------------ api / ui helpers
   async function api(path, opts = {}) {
     const init = { ...opts, headers: { ...(opts.headers || {}) } };
     if (opts.json !== undefined) {
@@ -44,24 +59,902 @@
     try { return await fn(); } finally { btn.disabled = false; btn.innerHTML = old; }
   }
 
-  // ------------------------------------------------------------------ map
-  const map = L.map("map", { zoomControl: true }).setView([20.5, 78.9], 5);
-  const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19, attribution: "© OpenStreetMap contributors",
-  });
-  const imagery = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-    maxZoom: 19, attribution: "Imagery © Esri, Maxar, Earthstar Geographics",
-  });
-  const labels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19 });
-  streets.addTo(map);
-  const aoiLayer = L.featureGroup().addTo(map);
-  const footprintLayer = L.featureGroup().addTo(map);
-  const geoLayer = L.featureGroup().addTo(map);
-  let previewImage = null, previewClouds = null;
-  L.control.layers({ "Streets": streets, "Satellite (Esri)": imagery }, { "Place labels": labels, "Scene footprints": footprintLayer }, { position: "bottomright" }).addTo(map);
-  L.control.scale({ imperial: false }).addTo(map);
+  let msgTimer;
+  function status(msg, sticky = false) {
+    $("#sb-msg").textContent = msg;
+    clearTimeout(msgTimer);
+    if (!sticky) msgTimer = setTimeout(() => $("#sb-msg").textContent = "Ready", 5000);
+  }
 
-  const AOI_STYLE = { color: "#1f7a5a", weight: 2.5, fillOpacity: 0.08, dashArray: null };
+  function download(url, name) {
+    const a = document.createElement("a");
+    a.href = url; a.download = name || "";
+    document.body.append(a); a.click(); a.remove();
+  }
+
+  // ------------------------------------------------------------------ map
+  const savedView = prefs.get("view", { center: [20.5, 78.9], zoom: 5 });
+  const map = L.map("map", { zoomControl: true, zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 90 }).setView(savedView.center, savedView.zoom);
+  map.on("moveend", () => { const c = map.getCenter(); prefs.set("view", { center: [+c.lat.toFixed(5), +c.lng.toFixed(5)], zoom: +map.getZoom().toFixed(2) }); });
+  map.createPane("labels").style.zIndex = 650;
+  map.getPane("labels").style.pointerEvents = "none";
+  const BASEMAPS = {
+    streets: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" }),
+    imagery: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Imagery © Esri, Maxar, Earthstar Geographics" }),
+    topo: L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "© OpenStreetMap contributors, SRTM · © OpenTopoMap (CC-BY-SA)" }),
+    none: null,
+  };
+  const placeLabels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, pane: "labels" });
+  let basemap = null;
+  function setBasemap(name) {
+    if (!(name in BASEMAPS)) name = "streets";
+    if (basemap) map.removeLayer(basemap);
+    basemap = BASEMAPS[name];
+    basemap?.addTo(map);
+    map.getContainer().classList.remove("bm-streets", "bm-imagery", "bm-topo", "bm-none");
+    map.getContainer().classList.add("bm-" + name);
+    prefs.set("basemap", name);
+  }
+  function setLabels(on) { on ? placeLabels.addTo(map) : map.removeLayer(placeLabels); prefs.set("labels", on); }
+  setBasemap(prefs.get("basemap", "streets"));
+  setLabels(prefs.get("labels", false));
+  L.control.scale({ imperial: false, position: "bottomleft" }).addTo(map);
+  const geoLayer = L.featureGroup().addTo(map);  // transient hover previews for address results
+
+  // ------------------------------------------------------------------ tools (Tools menu + tool panel)
+  // To add a tool: add <section id="tab-<id>" class="tabpanel hidden"> to index.html and an entry here.
+  const ICONS = {
+    search: '<path d="M4 7l4-4 4 4-4 4z"/><path d="M12 15l4-4 4 4-4 4z"/><path d="M9.5 9.5l5 5"/><path d="M3 21c1.5-3 4-4.5 7-4.5"/>',
+    analyze: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5" opacity=".5"/>',
+    jobs: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/>',
+    export: '<path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 14v6h16v-6"/>',
+    home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
+    raster: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
+    vector: '<path d="M4 18l5-12 7 4 4 8z"/>',
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>',
+  };
+  const svg = (name, w = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+  const TOOLS = [
+    { id: "search", title: "Find imagery", icon: "search", subtitle: "Search, preview and download Sentinel-2, composites and land-cover labels" },
+    { id: "analyze", title: "Index analysis", icon: "analyze", subtitle: "NDVI, SAVI, EVI, NDWI and 21 more indices or your own formula" },
+    { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
+    { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
+  ];
+  let currentTool = "home";
+
+  function buildToolsMenu() {
+    $("#tools-menu").innerHTML = TOOLS.map((t) => `<button class="tool-item" data-tool="${t.id}">
+        <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>`).join("") +
+      "";
+    $$("#tools-menu [data-tool]").forEach((b) => b.onclick = () => { switchTool(b.dataset.tool); toggleMenu(null); });
+    $("#tool-cards").innerHTML = TOOLS.map((t) => `<button class="tool-card" data-tool="${t.id}">
+        <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>`).join("");
+    $$("#tool-cards [data-tool]").forEach((b) => b.onclick = () => switchTool(b.dataset.tool));
+  }
+
+  function switchTool(id) {
+    const tool = TOOLS.find((t) => t.id === id) || { id: "home", title: "Start", subtitle: "Choose a tool" };
+    currentTool = tool.id;
+    $$(".tabpanel").forEach((p) => p.classList.toggle("hidden", p.id !== "tab-" + tool.id));
+    $("#tool-title").textContent = tool.title;
+    $("#tool-sub").textContent = tool.subtitle;
+    $("#active-tool").innerHTML = tool.id === "home" ? "" : `Tool: <b>${esc(tool.title)}</b>`;
+    $$("#tools-menu [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === tool.id));
+    document.title = tool.id === "home" ? "LULC Fetch" : `${tool.title} · LULC Fetch`;
+    setPane("tools", true);
+    if (tool.id === "analyze") refreshAnalyzeInputs();
+    if (tool.id === "jobs") refreshJobs();
+    if (tool.id === "home") refreshHomeProducts();
+    if (tool.id === "export") { refreshExportLayers(); renderExportForm(); }
+    prefs.set("tool", tool.id);
+  }
+
+  // ------------------------------------------------------------------ menus & commands
+  let openMenu = null;
+  function toggleMenu(m) {
+    openMenu?.classList.remove("open");
+    openMenu = m;
+    if (m) { m.classList.add("open"); syncMenuChecks(); }
+  }
+  $$("#menus .menu").forEach((m) => {
+    const btn = $(".menu-btn", m);
+    btn.onclick = (e) => { e.stopPropagation(); toggleMenu(m === openMenu ? null : m); };
+    btn.onmouseenter = () => { if (openMenu && openMenu !== m) toggleMenu(m); };
+  });
+  function syncMenuChecks() {
+    $("#mi-contents").classList.toggle("on", !document.body.classList.contains("no-contents"));
+    $("#mi-tools").classList.toggle("on", !document.body.classList.contains("no-tools"));
+    $("#mi-labels").classList.toggle("on", map.hasLayer(placeLabels));
+    const bm = prefs.get("basemap", "streets"), th = prefs.get("theme", "auto");
+    $$('[data-group="basemap"]').forEach((b) => b.classList.toggle("on", b.dataset.cmd === "basemap:" + bm));
+    $$('[data-group="theme"]').forEach((b) => b.classList.toggle("on", b.dataset.cmd === "theme:" + th));
+    const sel = selectedLayer();
+    $$('[data-cmd="export-layer"], [data-cmd="remove-layer"], [data-cmd="layer-props"]').forEach((b) => b.disabled = !sel);
+    $('[data-cmd="clear-layers"]').disabled = !layers.length;
+  }
+
+  function setPane(which, show) {
+    const cls = which === "contents" ? "no-contents" : "no-tools";
+    document.body.classList.toggle(cls, !show);
+    prefs.set(which, show);
+    setTimeout(() => map.invalidateSize(), 30);
+  }
+
+  function applyTheme(t) {
+    if (t === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+    prefs.set("theme", t);
+  }
+
+  function runCmd(cmd) {
+    const [name, arg] = cmd.split(":");
+    switch (name) {
+      case "add-data": $("#add-file").click(); break;
+      case "add-workspace": openWorkspace(); break;
+      case "open-safe": openSafeDialog(); break;
+      case "export-layer": openExport(selectedLayer()); break;
+      case "layer-props": openProps(selectedLayer()); break;
+      case "remove-layer": { const l = selectedLayer(); if (l) removeLayer(l.id); break; }
+      case "clear-layers": if (layers.length && confirm("Remove all layers from Contents? Files on disk are kept.")) [...layers].forEach((l) => removeLayer(l.id)); break;
+      case "credentials": $("#btn-creds").click(); break;
+      case "toggle-contents": setPane("contents", document.body.classList.contains("no-contents")); break;
+      case "toggle-tools": setPane("tools", document.body.classList.contains("no-tools")); break;
+      case "basemap": setBasemap(arg); break;
+      case "toggle-labels": setLabels(!map.hasLayer(placeLabels)); break;
+      case "zoom-all": zoomAll(); break;
+      case "theme": applyTheme(arg); break;
+      case "guide": showHelp("guide"); break;
+      case "shortcuts": showHelp("shortcuts"); break;
+      case "start": switchTool("home"); break;
+    }
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cmd]");
+    if (b && !b.disabled) { runCmd(b.dataset.cmd); toggleMenu(null); return; }
+    if (!e.target.closest(".menu")) toggleMenu(null);
+    if (!e.target.closest("#ctx-menu")) hideCtx();
+  });
+
+  // ------------------------------------------------------------------ status bar: coordinates & scale
+  let coordFmt = prefs.get("coords", "dd"), lastLatLng = null;
+  const dms = (v, pos, neg) => {
+    const a = Math.abs(v), d = Math.floor(a), mf = (a - d) * 60, m = Math.floor(mf), s = (mf - m) * 60;
+    return `${d}°${String(m).padStart(2, "0")}′${s.toFixed(1).padStart(4, "0")}″${v >= 0 ? pos : neg}`;
+  };
+  function showCoords(ll) {
+    lastLatLng = ll;
+    if (!ll) { $("#sb-coords").textContent = "Lat –  Lon –"; return; }
+    const lng = L.Util.wrapNum(ll.lng, [-180, 180], true);
+    $("#sb-coords").textContent = coordFmt === "dd"
+      ? `Lat ${ll.lat.toFixed(5)}  Lon ${lng.toFixed(5)}`
+      : `${dms(ll.lat, "N", "S")}  ${dms(lng, "E", "W")}`;
+  }
+  map.on("mousemove", (e) => showCoords(e.latlng));
+  map.getContainer().addEventListener("mouseleave", () => showCoords(null));
+  $("#sb-coords").onclick = () => { coordFmt = coordFmt === "dd" ? "dms" : "dd"; prefs.set("coords", coordFmt); showCoords(lastLatLng); };
+
+  const EARTH_CIRC = 40075016.686, DPI = 96, INCH = 0.0254;
+  const metersPerPixel = (z, lat) => EARTH_CIRC * Math.cos(lat * Math.PI / 180) / Math.pow(2, z + 8);
+  function updateScale() {
+    const c = map.getCenter();
+    const scale = metersPerPixel(map.getZoom(), c.lat) * DPI / INCH;
+    if (document.activeElement !== $("#sb-scale")) $("#sb-scale").value = Math.round(scale).toLocaleString("en-US");
+    $("#sb-zoom").textContent = `z ${map.getZoom().toFixed(1)}`;
+  }
+  function setScale(text) {
+    const n = parseFloat(String(text).replace(/[^\d.]/g, ""));
+    if (!n || n < 50) { updateScale(); return; }
+    const lat = map.getCenter().lat;
+    const z = Math.log2(EARTH_CIRC * Math.cos(lat * Math.PI / 180) * DPI / INCH / (n * 256));
+    map.setZoom(Math.max(map.getMinZoom(), Math.min(map.getMaxZoom() || 19, z)));
+    $("#sb-scale").blur();
+  }
+  map.on("zoomend moveend", updateScale);
+  $("#sb-scale").addEventListener("change", (e) => setScale(e.target.value));
+  $("#sb-scale").addEventListener("keydown", (e) => { if (e.key === "Enter") setScale(e.target.value); if (e.key === "Escape") { e.target.blur(); updateScale(); } });
+  $("#sb-scale").addEventListener("focus", (e) => e.target.select());
+  updateScale();
+  $("#sb-jobs").onclick = () => switchTool("jobs");
+
+  // ------------------------------------------------------------------ layers (Contents)
+  const layers = [];   // index 0 = drawn on top
+  let selectedId = null, seq = 0;
+  const PALETTE = ["#2563eb", "#db2777", "#ea580c", "#0891b2", "#7c3aed", "#65a30d", "#dc2626", "#0d9488"];
+  let colorIdx = 0;
+  const nextColor = () => PALETTE[colorIdx++ % PALETTE.length];
+  const selectedLayer = () => layers.find((l) => l.id === selectedId) || null;
+  const getLayer = (id) => layers.find((l) => l.id === id) || null;
+
+  function vecStyle(l) {
+    return { color: l.color || "#2563eb", weight: l.weight ?? 2, opacity: l.opacity,
+             fillOpacity: (l.fillOpacity ?? 0.12) * l.opacity, dashArray: l.dash || null };
+  }
+
+  function featurePopup(f, l) {
+    const props = Object.entries(f.properties || {}).filter(([, v]) => v !== null && typeof v !== "object");
+    return `<div class="pxpop"><div><b>${esc(l.name)}</b></div><table>${props.slice(0, 25).map(([k, v]) =>
+      `<tr><td>${esc(k)}</td><td>${esc(typeof v === "number" ? fmtv(v) : v)}</td></tr>`).join("") || "<tr><td>No attributes</td></tr>"}</table></div>`;
+  }
+
+  function buildLeaflet(l) {
+    l.leaflet?.remove();
+    l.leaflet = null;
+    if (l.type === "vector") {
+      l.leaflet = L.geoJSON(l.geojson, {
+        bubblingMouseEvents: false,
+        style: () => vecStyle(l),
+        pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 5, ...vecStyle(l), fillOpacity: 0.8 * l.opacity, bubblingMouseEvents: false }),
+        // A selected raster wins: clicking on top of a polygon still reads the raster's pixel values.
+        onEachFeature: (f, lyr) => lyr.on("click", (e) => {
+          if (picking || activeDraw) return;
+          const sel = selectedLayer();
+          if (sel?.type === "raster" && sel.visible) identify(e.latlng);
+          else L.popup({ maxWidth: 300 }).setLatLng(e.latlng).setContent(featurePopup(f, l)).openOn(map);
+        }),
+      });
+    } else if ((l.type === "image" && l.url) || (l.type === "raster" && l.image)) {
+      l.leaflet = L.imageOverlay(l.url || l.image, l.bounds, { opacity: l.opacity, interactive: false });
+    }
+    if (l.leaflet && l.visible) l.leaflet.addTo(map);
+  }
+
+  function addLayer(def, { select = true, zoom = false, below = null } = {}) {
+    if (def.id) removeLayer(def.id, { silent: true });
+    const l = { visible: true, opacity: 1, open: false, ...def, id: def.id || `${def.type}-${Date.now().toString(36)}${(seq++).toString(36)}` };
+    const at = below ? layers.findIndex((x) => x.id === below) : -1;
+    if (at >= 0) layers.splice(at + 1, 0, l); else layers.unshift(l);
+    buildLeaflet(l);
+    if (select) selectedId = l.id;
+    restack();
+    renderContents();
+    saveLayers();
+    if (zoom) zoomTo(l);
+    return l;
+  }
+
+  function removeLayer(id, { silent = false } = {}) {
+    const i = layers.findIndex((l) => l.id === id);
+    if (i < 0) return;
+    const [l] = layers.splice(i, 1);
+    l.leaflet?.remove();
+    if (selectedId === id) selectedId = null;
+    if (silent) return;
+    onLayerRemoved(l);
+    renderContents();
+    saveLayers();
+  }
+
+  function restack() {
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const l = layers[i];
+      if (l.visible && l.leaflet && map.hasLayer(l.leaflet)) l.leaflet.bringToFront();
+    }
+  }
+  function setVisible(l, v) {
+    l.visible = v;
+    if (l.leaflet) { if (v) l.leaflet.addTo(map); else l.leaflet.remove(); }
+    restack();
+    saveLayers();
+  }
+  function setOpacity(l, o) {
+    l.opacity = o;
+    if (l.type === "vector") l.leaflet?.setStyle(vecStyle(l));
+    else l.leaflet?.setOpacity(o);
+    saveLayers();
+  }
+  function layerBounds(l) {
+    if (l.type === "vector") return l.leaflet?.getBounds();
+    const b = l.bounds || l.info?.bounds;  // info.bounds works even before the layer has finished drawing
+    return b ? L.latLngBounds(b) : null;
+  }
+  function zoomTo(l) {
+    if (!l) return;
+    const b = layerBounds(l);
+    if (b?.isValid()) { map.fitBounds(b, { padding: [30, 30], maxZoom: 17 }); status(`Zoomed to ${l.name}`); }
+    else toast(`${l.name} has no extent to zoom to yet`, true);
+  }
+  function zoomAll() {
+    let b = null;
+    layers.filter((l) => l.visible).forEach((l) => { const lb = layerBounds(l); if (lb?.isValid()) b = b ? b.extend(lb) : L.latLngBounds(lb.getSouthWest(), lb.getNorthEast()); });
+    if (b) map.fitBounds(b, { padding: [30, 30] }); else toast("No visible layers to zoom to");
+  }
+  function selectLayer(id) {
+    selectedId = id;
+    $$("#layer-list .layer").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
+  }
+  function moveLayer(id, toIndex) {
+    const i = layers.findIndex((l) => l.id === id);
+    if (i < 0) return;
+    const [l] = layers.splice(i, 1);
+    layers.splice(Math.max(0, Math.min(layers.length, toIndex)), 0, l);
+    restack();
+    renderContents();
+    saveLayers();
+  }
+
+  // raster layers are rendered by the server into a map-ready PNG (display style lives in l.render)
+  async function renderRaster(l) {
+    l.busy = true; l.error = null;
+    renderContents();
+    try {
+      const res = await api("/api/analyze/render", { method: "POST", json: {
+        path: l.path, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0, ...l.render } });
+      const { image, bounds, ...legend } = res;
+      if (!getLayer(l.id)) return res;  // removed while rendering
+      l.image = image; l.bounds = bounds; l.legend = legend;
+      if (l.leaflet) { l.leaflet.setUrl(image); l.leaflet.setBounds(L.latLngBounds(bounds)); } else buildLeaflet(l);
+      restack();
+      return res;
+    } catch (e) {
+      l.error = e.message;
+      throw e;
+    } finally {
+      l.busy = false;
+      renderContents();
+      saveLayers();
+    }
+  }
+
+  function defaultRender(info) {
+    const has = (bs) => bs.every((b) => b in info.band_map);
+    if (has(["B04", "B03", "B02"])) return { composite: "true" };
+    if (has(["VV", "VH", "VVVH"])) return { composite: "sar" };
+    return { band: 1, stretch: "fixed" };  // index files named e.g. "NDVI" get that index's colours; class maps their palette
+  }
+
+  async function addRasterFromPath(path, { name, render, select = true, zoom = true } = {}) {
+    const info = await api(`/api/rasters/info?path=${encodeURIComponent(path)}`);
+    const l = addLayer({ type: "raster", name: name || info.name, path, info, band_map: { ...info.band_map },
+                         scale: info.scale, offset: info.offset, render: render || defaultRender(info), userSet: [] }, { select });
+    try {
+      await renderRaster(l);
+      if (zoom) zoomTo(l);
+    } catch (e) { toast(`${l.name}: ${e.message}`, true); }
+    return l;
+  }
+
+  function addVectorLayer(fc, name, opts = {}) {
+    return addLayer({ type: "vector", name, geojson: fc, color: opts.color || nextColor(), ...opts }, { zoom: opts.zoom ?? true, below: opts.below });
+  }
+
+  function displayLabel(l) {
+    if (l.type === "vector") {
+      const n = l.geojson?.features?.length ?? 0;
+      return `${n} feature${n === 1 ? "" : "s"}`;
+    }
+    if (l.type === "image") return "preview image";
+    const r = l.render || {};
+    if (r.composite) return state.catalog?.composites[r.composite]?.title || r.composite;
+    if (r.index) return r.index;
+    if (r.formula) return "formula";
+    if (r.band) return l.legend?.kind === "classes" ? "classes" : `band ${r.band}`;
+    return "";
+  }
+
+  function legendHtml(l) {
+    const g = l.legend;
+    if (l.type === "vector") return `<div class="lyr-meta">${displayLabel(l)} · EPSG:4326</div>`;
+    if (!g) return "";
+    if (g.kind === "continuous") {
+      return `<div class="lyr-legend"><div class="legend" style="background:linear-gradient(to right, ${g.colors.join(",")})"></div>
+        <div class="row between"><span>${fmtv(g.vmin)}</span><span>${esc(g.title || "")}</span><span>${fmtv(g.vmax)}</span></div></div>`;
+    }
+    if (g.kind === "classes") {
+      return `<div class="lyr-classes">${g.classes.slice(0, 10).map((c) =>
+        `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span><span>${fmt(c.pct)}%</span></div>`).join("")}</div>`;
+    }
+    if (g.kind === "rgb") return `<div class="lyr-meta">R = ${g.bands[0]} · G = ${g.bands[1]} · B = ${g.bands[2]}</div>`;
+    return "";
+  }
+
+  function layerIcon(l) {
+    if (l.type === "vector") return `<span class="lyr-ic" style="border-color:${l.color};color:${l.color};background:${l.color}22">${svg("vector", 2.2)}</span>`;
+    const g = l.legend;
+    if (g?.kind === "continuous") return `<span class="lyr-ic" style="background:linear-gradient(135deg, ${g.colors.join(",")})"></span>`;
+    if (g?.kind === "classes") return `<span class="lyr-ic" style="background:conic-gradient(${g.classes.slice(0, 6).map((c, i, a) => `${c.color} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(",")})"></span>`;
+    return `<span class="lyr-ic">${svg(l.type)}</span>`;
+  }
+
+  function renderContents() {
+    $("#contents-empty").classList.toggle("hidden", layers.length > 0);
+    $("#layer-list").innerHTML = layers.map((l) => `
+      <div class="layer ${l.id === selectedId ? "selected" : ""} ${l.open ? "open" : ""}" data-id="${esc(l.id)}" draggable="true">
+        <div class="lyr-row">
+          <button class="lyr-caret" title="Show legend & opacity">▶</button>
+          <input type="checkbox" ${l.visible ? "checked" : ""} title="Show / hide">
+          ${layerIcon(l)}
+          <span class="lyr-name" title="${esc(l.name)}${l.path ? "\n" + esc(l.path) : ""}">${esc(l.name)}<small>${esc(displayLabel(l))}</small></span>
+          ${l.busy ? '<span class="spinner"></span>' : ""}
+          <button class="lyr-zoom" title="Zoom to layer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M11 8v6M8 11h6"/></svg></button>
+          <button class="lyr-more" title="Layer options">⋯</button>
+        </div>
+        ${l.error ? `<div class="lyr-err">⚠ ${esc(l.error)}</div>` : ""}
+        <div class="lyr-body">
+          ${legendHtml(l)}
+          <label>Opacity <input type="range" min="0" max="100" value="${Math.round(l.opacity * 100)}" data-op></label>
+          ${l.path ? `<div class="lyr-meta">${esc(l.path)}${l.info ? ` · ${esc(l.info.crs)} · ${l.info.width}×${l.info.height}` : ""}</div>` : ""}
+        </div>
+      </div>`).join("");
+    $$("#layer-list .layer").forEach((el) => {
+      const l = getLayer(el.dataset.id);
+      el.onclick = (e) => { if (!e.target.closest("input, button")) selectLayer(l.id); };
+      el.ondblclick = (e) => { if (!e.target.closest("input, button")) zoomTo(l); };
+      el.oncontextmenu = (e) => { e.preventDefault(); selectLayer(l.id); showCtx(l, e.clientX, e.clientY); };
+      $("input[type=checkbox]", el).onchange = (e) => setVisible(l, e.target.checked);
+      $(".lyr-caret", el).onclick = () => { l.open = !l.open; el.classList.toggle("open", l.open); };
+      $(".lyr-zoom", el).onclick = (e) => { e.stopPropagation(); selectLayer(l.id); zoomTo(l); };
+      $(".lyr-more", el).onclick = (e) => { e.stopPropagation(); selectLayer(l.id); const r = e.currentTarget.getBoundingClientRect(); showCtx(l, r.right, r.bottom); };
+      $("[data-op]", el).oninput = (e) => setOpacity(l, e.target.value / 100);
+      // drag to reorder
+      el.ondragstart = (e) => { if (e.target.closest("input[type=range]")) { e.preventDefault(); return; } e.dataTransfer.setData("text/layer", l.id); el.classList.add("dragging"); };
+      el.ondragend = () => el.classList.remove("dragging");
+      el.ondragover = (e) => { if ([...e.dataTransfer.types].includes("text/layer")) { e.preventDefault(); el.classList.add("drag-over"); } };
+      el.ondragleave = () => el.classList.remove("drag-over");
+      el.ondrop = (e) => {
+        el.classList.remove("drag-over");
+        const id = e.dataTransfer.getData("text/layer");
+        if (!id || id === l.id) return;
+        e.preventDefault(); e.stopPropagation();
+        const target = layers.findIndex((x) => x.id === l.id), from = layers.findIndex((x) => x.id === id);
+        moveLayer(id, from < target ? target : target);
+      };
+    });
+    refreshAnalyzeInputs();
+    refreshClipPickers();
+    if (currentTool === "export") { refreshExportLayers(); if (!exportLayer()) renderExportForm(); }
+  }
+
+  function onLayerRemoved(l) {
+    if (l.id === "aoi") { state.aoi = null; $("#aoi-summary").classList.add("hidden"); $("#aoi-warn").classList.add("hidden"); }
+    if (an.layer?.id === l.id) resetAnalyze();
+    if (an.resultId === l.id) { an.resultId = null; an.sel = null; $("#an-result").classList.add("hidden"); renderIndexButtons(); }
+  }
+
+  // persistence: layer list survives reloads (preview images are not kept)
+  function saveLayers() {
+    try {
+      const keep = layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, ...rest }) => rest);
+      const text = JSON.stringify(keep);
+      if (text.length < 4e6) localStorage.setItem("lulc-layers", text);
+    } catch {}
+  }
+  function restoreLayers() {
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem("lulc-layers") || "[]"); } catch {}
+    for (const d of saved.reverse()) {  // bottom first, so each unshift puts the next one above
+      if (d.type === "vector") {
+        addLayer(d, { select: false });
+        if (d.id === "aoi") restoreAoi(d);
+      } else if (d.type === "raster") {
+        const l = addLayer(d, { select: false });
+        renderRaster(l).catch(() => {});
+      }
+    }
+    selectedId = null;
+    renderContents();
+  }
+
+  // ------------------------------------------------------------------ context menu
+  function showCtx(l, x, y) {
+    const isPoly = l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type));
+    const items = [
+      ["Zoom to layer", () => zoomTo(l)],
+      ["Properties…", () => openProps(l)],
+      l.type === "raster" && !l.derived ? ["Compute indices on this layer", () => analyzeLayer(l)] : null,
+      isPoly && l.id !== "aoi" ? ["Use as area of interest", () => useAsAoi(l)] : null,
+      "-",
+      ["Export / save to computer…", () => openExport(l)],
+      "-",
+      ["Move to top", () => moveLayer(l.id, 0)],
+      ["Move to bottom", () => moveLayer(l.id, layers.length)],
+      "-",
+      ["Remove", () => removeLayer(l.id), "danger"],
+    ].filter(Boolean);
+    const m = $("#ctx-menu");
+    m.innerHTML = `<div class="ctx-title">${esc(l.name)}</div>` + items.map((it, i) => it === "-" ? "<hr>" : `<button data-i="${i}" class="${it[2] || ""}">${esc(it[0])}</button>`).join("");
+    $$("button", m).forEach((b) => b.onclick = (e) => { e.stopPropagation(); hideCtx(); items[+b.dataset.i][1](); });
+    m.classList.remove("hidden");
+    const r = m.getBoundingClientRect();
+    m.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
+    m.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+  }
+  function hideCtx() { $("#ctx-menu").classList.add("hidden"); }
+
+  // ------------------------------------------------------------------ add data
+  async function addFiles(fileList) {
+    const files = [...fileList];
+    if (!files.length) return;
+    const rasters = files.filter((f) => /\.tiff?$/i.test(f.name));
+    const shpParts = files.filter((f) => /\.(shp|shx|dbf|prj|cpg)$/i.test(f.name));
+    const others = files.filter((f) => !rasters.includes(f) && !shpParts.includes(f));
+    status(`Adding ${files.length} file${files.length > 1 ? "s" : ""}…`, true);
+    for (const f of rasters) {
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        const r = await api("/api/rasters/upload", { method: "POST", body: fd });
+        await addRasterFromPath(r.path, { name: f.name });
+      } catch (e) { toast(`${f.name}: ${e.message}`, true); }
+    }
+    for (const group of [...(shpParts.length ? [shpParts] : []), ...others.map((f) => [f])]) {
+      try {
+        const fd = new FormData();
+        group.forEach((f) => fd.append("files", f));
+        const fc = await api("/api/aoi/upload", { method: "POST", body: fd });
+        const name = (group.find((f) => /\.shp$/i.test(f.name)) || group[0]).name.replace(/\.[^.]+$/, "");
+        addVectorLayer({ type: "FeatureCollection", features: fc.features }, name);
+        if (fc.warning) toast(`${name}: ${fc.warning}`, true);
+      } catch (e) { toast(`${group[0].name}: ${e.message}`, true); }
+    }
+    status(`Added ${files.length} file${files.length > 1 ? "s" : ""}`);
+  }
+  $("#btn-add-data").onclick = () => $("#add-file").click();
+  $("#add-file").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
+  $("#btn-add-ws").onclick = () => openWorkspace();
+
+  // drop files anywhere on the window
+  let dragDepth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  window.addEventListener("dragenter", (e) => { if (hasFiles(e)) { dragDepth++; $("#drop-overlay").classList.remove("hidden"); } });
+  window.addEventListener("dragleave", (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; $("#drop-overlay").classList.add("hidden"); } });
+  window.addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    $("#drop-overlay").classList.add("hidden");
+    if (e.target.closest("#drop, #an-drop")) return;  // the AOI upload box handles its own drops
+    addFiles(e.dataTransfer.files);
+  });
+
+  async function openWorkspace() {
+    const list = await api("/api/rasters");
+    const groups = {};
+    list.forEach((r) => (groups[r.group] ||= []).push(r));
+    $("#ws-list").innerHTML = list.length ? Object.entries(groups).map(([g, rs]) => `<div class="ws-group">${esc(g)}</div>` + rs.map((r) => {
+      const inMap = layers.some((l) => l.path === r.path && !l.derived);
+      return `<div class="ws-row"><span>${esc(r.name)}<small>${esc(r.path)} · ${r.size_mb < 1 ? "<1" : Math.round(r.size_mb)} MB</small></span>
+        <button class="btn small ${inMap ? "" : "primary"}" data-add="${esc(r.path)}">${inMap ? "Add again" : "Add"}</button></div>`;
+    }).join("")).join("") : '<p class="hint">No GeoTIFFs in the workspace yet.</p>';
+    $$("#ws-list [data-add]").forEach((b) => b.onclick = () => busy(b, "Adding…", async () => {
+      await addRasterFromPath(b.dataset.add);
+      b.textContent = "Added ✓";
+    }));
+    $("#dlg-ws").showModal();
+  }
+
+  // ------------------------------------------------------------------ Copernicus .SAFE products
+  // Sentinel-2 opens instantly (a VRT over the original JP2 bands); Sentinel-1 is calibrated and geocoded
+  // in a background job whose GeoTIFF is added to Contents when it finishes.
+  function safeCard(p, compact = false) {
+    const s1 = p.kind === "S1_GRD";
+    return `<div class="safe-card" data-path="${esc(p.path)}">
+      <div><span class="safe-kind ${s1 ? "s1" : ""}">${s1 ? "SAR" : "OPTICAL"}</span><b>${esc(p.title)}</b>
+        <small>${esc(p.date)} · ${esc(p.satellite)} · ${esc(p.detail)} · ${fmt(p.size_mb / 1000, 2)} GB${p.zipped ? " · zip" : ""}</small>
+        ${compact ? "" : `<small class="mono">${esc(p.path)}</small>`}</div>
+      ${s1 ? `<small>Converted to calibrated backscatter (σ⁰, dB) for ${esc(p.pols.join(" + "))}, geocoded to UTM. No terrain correction.</small>
+        <div class="row">
+          <label class="inline">Pixel size <select data-res><option value="20">20 m</option><option value="40" selected>40 m</option><option value="80">80 m</option></select></label>
+          <label class="inline" title="${state.aoi ? "Only process your area of interest" : "Set an area of interest in Find imagery first"}"><input type="checkbox" data-clip ${state.aoi ? "" : "disabled"}> Clip to area of interest</label>
+          <button class="btn small primary" data-open>Create backscatter layer</button>
+        </div>`
+      : `<small>All 12 bands at 10 m, read directly from the product (nothing is copied).</small>
+        <div class="row"><button class="btn small primary" data-open>Open as layer</button></div>`}
+    </div>`;
+  }
+  function wireSafeCards(root, products) {
+    $$(".safe-card", root).forEach((card) => {
+      const p = products.find((x) => x.path === card.dataset.path);
+      $("[data-open]", card).onclick = (e) => busy(e.currentTarget, p.kind === "S1_GRD" ? "Starting…" : "Opening…", async () => {
+        try {
+          const body = { path: p.path };
+          if (p.kind === "S1_GRD") {
+            body.res = +$("[data-res]", card).value;
+            if ($("[data-clip]", card).checked && state.aoi) body.aoi = state.aoi;
+          }
+          const r = await api("/api/products/open", { method: "POST", json: body });
+          $("#dlg-safe").open && $("#dlg-safe").close();
+          if (r.kind === "raster") {
+            status(`Opening ${r.name}…`, true);
+            await addRasterFromPath(r.path, { name: r.name });
+            status(`${r.name} added to Contents`);
+          } else {
+            toast("Sentinel-1 processing started. The layer appears in Contents when it's ready.");
+            switchTool("jobs");
+          }
+        } catch (err) { toast(err.message, true); }
+      });
+    });
+  }
+  async function openSafeDialog() {
+    const r = await api("/api/products");
+    $("#safe-folder").textContent = r.folder;
+    $("#safe-list").innerHTML = r.products.length ? r.products.map((p) => safeCard(p)).join("")
+      : '<p class="hint">No .SAFE products found. Copy Sentinel-1 / Sentinel-2 products (folders or .zip) into the data folder.</p>';
+    wireSafeCards($("#safe-list"), r.products);
+    $("#dlg-safe").showModal();
+  }
+  async function refreshHomeProducts() {
+    try {
+      const r = await api("/api/products");
+      $("#home-products").classList.toggle("hidden", !r.products.length);
+      $("#home-products-list").innerHTML = r.products.map((p) => safeCard(p, true)).join("");
+      wireSafeCards($("#home-products-list"), r.products);
+    } catch {}
+  }
+
+  // ------------------------------------------------------------------ identify (click map on selected raster)
+  map.on("click", (e) => { if (!picking && !activeDraw) identify(e.latlng); });
+  async function identify(latlng) {
+    const e = { latlng };
+    const l = selectedLayer();
+    if (!l || l.type !== "raster" || !l.visible) return;
+    try {
+      const r = await api("/api/analyze/pixel", { method: "POST", json: {
+        path: l.path, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0,
+        lat: e.latlng.lat, lon: e.latlng.lng, index: l.render?.index, formula: l.render?.formula } });
+      if (!r.inside) return;
+      let head = "";
+      if ("value" in r) head = `<div>${esc(r.name === "custom" ? "Formula" : r.name)}</div><div class="big">${fmtv(r.value)}</div>`;
+      else if (l.render?.band) {
+        const v = r.raw[l.render.band - 1]?.value;
+        const cls = l.legend?.classes?.find((c) => c.value === v);
+        head = `<div>${esc(r.raw[l.render.band - 1]?.description || "Band " + l.render.band)}</div><div class="big">${cls ? esc(cls.name) : fmtv(v)}</div>`;
+      }
+      const refl = Object.entries(r.reflectance || {});
+      const extra = r.raw.filter((b) => !Object.values(l.band_map || {}).includes(b.band));
+      L.popup({ maxWidth: 280 }).setLatLng(e.latlng).setContent(`<div class="pxpop">
+        <div class="small" style="color:#667085"><b>${esc(l.name)}</b></div>${head}
+        <div class="small" style="color:#667085">${fmt(e.latlng.lat, 5)}, ${fmt(e.latlng.lng, 5)} · row ${r.row}, col ${r.col}</div>
+        <table>${refl.map(([k, v]) => `<tr><td>${k}</td><td>${fmtv(v)}</td></tr>`).join("")}
+        ${extra.slice(0, 20).map((b) => `<tr><td>${esc(b.description)}</td><td>${fmtv(b.value)}</td></tr>`).join("")}</table></div>`).openOn(map);
+    } catch (err) { toast(err.message, true); }
+  }
+
+  // ------------------------------------------------------------------ export dialog
+  const safeName = (s) => String(s).replace(/[^A-Za-z0-9_.-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60) || "layer";
+  // Export lives in the "Export data" tool; right-click ▸ Export opens it with that layer selected.
+  function openExport(l) {
+    if (!l && !layers.length) return toast("Add a layer to Contents first", true);
+    switchTool("export");
+    refreshExportLayers(l?.id);
+    renderExportForm();
+  }
+  function refreshExportLayers(selectId) {
+    const sel = $("#lx-layer"), cur = selectId || sel.value || selectedId;
+    sel.innerHTML = layers.length ? layers.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")
+      : `<option value="">No layers in Contents</option>`;
+    if (cur && getLayer(cur)) sel.value = cur;
+  }
+  const exportLayer = () => getLayer($("#lx-layer").value);
+  function renderExportForm() {
+    const l = exportLayer();
+    if (!l) { $("#lx-formats").innerHTML = ""; $("#lx-layer-info").textContent = "Choose a layer from Contents."; return; }
+    const r = l.render || {};
+    let formats;
+    if (l.type === "vector") {
+      formats = [["shp", "Shapefile (.zip)", "Polygons / lines / points with attributes, WGS 84. Opens in QGIS, ArcGIS."],
+                 ["geojson", "GeoJSON", "Web-friendly vector format"],
+                 ["kml", "KML", "Google Earth"]];
+    } else if (l.type === "image") {
+      formats = [["png", "PNG image", "The preview picture as shown on the map"]];
+    } else {
+      const tifDesc = r.index || r.formula ? "Index values as float32, full resolution, original projection"
+        : r.composite ? "The 3 displayed bands as surface reflectance, full resolution"
+        : `Band ${r.band} with its original values${l.legend?.kind === "classes" ? " and colour table" : ""}`;
+      formats = [["tif", "GeoTIFF", tifDesc],
+                 ["png", "PNG image", "As displayed (colours), full resolution up to 8192 px"],
+                 ["pngw", "PNG + world file (.zip)", "Georeferenced PNG (.pgw + .prj) for QGIS / ArcGIS"],
+                 ["shp", "Shapefile (.zip)", r.composite ? "Not available for a colour composite. Choose an index or single band." : "Polygons of value classes, with class, range and area attributes"]];
+    }
+    $("#lx-layer-info").textContent = `${l.type === "vector" ? "Vector" : l.type === "image" ? "Preview image" : "Raster"} · ${displayLabel(l)}${l.path ? " · " + l.path : ""}`;
+    const prev = $('input[name="lxf"]:checked')?.value;
+    $("#lx-formats").innerHTML = formats.map(([k, t, d]) => `<label class="opt ${k === "shp" && r.composite ? "disabled" : ""}">
+      <input type="radio" name="lxf" value="${k}"><span><b>${t}</b><small>${esc(d)}</small></span></label>`).join("");
+    const keep = formats.find(([k]) => k === prev && !(k === "shp" && r.composite));
+    $(`input[name="lxf"][value="${keep ? prev : formats[0][0]}"]`).checked = true;
+    $("#lx-name").value = safeName(l.name);
+    $("#lx-error").classList.add("hidden");
+    const classMap = l.legend?.kind === "classes";
+    $("#lx-shp-note").textContent = classMap ? "Each map class becomes polygons and keeps its name." :
+      "Pixel values are grouped into classes, then neighbouring pixels of the same class are merged into polygons.";
+    $("#lx-shp-classes").classList.toggle("hidden", classMap);
+    const syncShp = () => $("#lx-shp").classList.toggle("hidden", $('input[name="lxf"]:checked')?.value !== "shp");
+    $$('input[name="lxf"]').forEach((i) => i.onchange = syncShp);
+    syncShp();
+    refreshClipPicker("lx-area");
+    $("#lx-area").disabled = l.type === "image";
+  }
+  $("#lx-layer").onchange = renderExportForm;
+  $("#lx-method").onchange = () => $("#lx-breaks-wrap").classList.toggle("hidden", $("#lx-method").value !== "custom");
+  $("#lx-go").onclick = (e) => {
+    const l = exportLayer(), fmtSel = $('input[name="lxf"]:checked')?.value, name = safeName($("#lx-name").value);
+    const clip = l?.type === "image" ? null : getClip("lx-area", l);
+    const err = (m) => { $("#lx-error").textContent = m; $("#lx-error").classList.remove("hidden"); };
+    if (!l || !fmtSel) return;
+    busy(e.currentTarget, "Exporting…", async () => {
+      try {
+        let r;
+        if (l.type === "image") { download(l.url, name + ".png"); return; }
+        if (l.type === "vector") {
+          r = await api("/api/vector/export", { method: "POST", json: { geojson: l.geojson, format: fmtSel, name, clip } });
+        } else {
+          const body = { path: l.path, format: fmtSel, name, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0, ...l.render, clip };
+          if (fmtSel === "shp") {
+            Object.assign(body, { method: $("#lx-method").value, classes: +$("#lx-classes").value || 5, sieve: +$("#lx-sieve").value || 0 });
+            if (body.method === "custom") body.breaks = $("#lx-breaks").value.split(/[,\s]+/).filter(Boolean).map(Number);
+            if (body.method === "equal" && l.legend?.kind === "continuous") { body.vmin = l.legend.vmin; body.vmax = l.legend.vmax; }
+          }
+          r = await api("/api/layers/export", { method: "POST", json: body });
+        }
+        download(r.url, r.name);
+        toast(`Exported ${r.name}${r.features ? ` · ${r.features.toLocaleString()} features` : ""}${r.size_mb ? ` · ${fmt(r.size_mb)} MB` : ""}`);
+        status(`Exported ${r.name}`);
+      } catch (ex) { err(ex.message); }
+    });
+  };
+
+  // ------------------------------------------------------------------ area picker (clip to an area of interest)
+  // Every tool can limit its work to an area: the whole layer, the Find-imagery AOI, the current map view,
+  // any polygon layer in Contents, or a rectangle / polygon drawn now (which is added to Contents too).
+  const clipPickers = {
+    "an-area": { what: "image is analysed", onChange: () => { if (an.sel && !an.sel.composite) compute(); } },
+    "lx-area": { what: "layer is exported", own: true, onChange: () => {} },
+  };
+  const polygonLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
+  function refreshClipPicker(id) {
+    const sel = $("#" + id), cfg = clipPickers[id];
+    if (!sel) return;
+    const cur = sel.value;
+    const opts = [["none", "Whole " + (id === "lx-area" ? "layer" : "image")]];
+    const lx = id === "lx-area" ? exportLayer() : null;
+    if (cfg.own && lx?.render?.clip) opts.push(["own", "Same area as the layer (its analysis area)"]);
+    const polys = polygonLayers();
+    polys.forEach((l) => opts.push([`layer:${l.id}`, (l.id === "aoi" ? "▣ " : "▢ ") + l.name]));
+    opts.push(["view", "⌖ Current map view"], ["draw-rect", "✎ Draw a rectangle…"], ["draw-poly", "✎ Draw a polygon…"]);
+    sel.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+    // a new export layer starts from its own analysis area (if any); otherwise keep the user's choice
+    const layerChanged = id === "lx-area" && sel.dataset.layer !== (lx?.id || "");
+    sel.dataset.layer = lx?.id || "";
+    const valid = !layerChanged && opts.some(([v]) => v === cur) && !cur.startsWith("draw") && cur !== "view";
+    sel.value = valid ? cur : (cfg.own && lx?.render?.clip ? "own" : "none");
+    updateClipHint(id);
+  }
+  function refreshClipPickers() { Object.keys(clipPickers).forEach(refreshClipPicker); }
+  function updateClipHint(id) {
+    const v = $("#" + id).value, cfg = clipPickers[id];
+    const g = getClip(id);
+    $(`#${id}-hint`).innerHTML = !g ? `The whole ${esc(cfg.what)}.`
+      : `Only the selected area (<b>${fmt(geomArea(g) / 1e6, geomArea(g) < 1e7 ? 2 : 0)} km²</b>) ${esc(cfg.what)}${v.startsWith("layer:") ? ` · <a href="#" data-zoomclip="${esc(v.slice(6))}">zoom to it</a>` : ""}.`;
+    $(`#${id}-hint [data-zoomclip]`)?.addEventListener("click", (e) => { e.preventDefault(); zoomTo(getLayer(e.target.dataset.zoomclip)); });
+  }
+  function getClip(id, forLayer = null) {
+    const v = $("#" + id)?.value || "none";
+    if (v === "own") return (forLayer || exportLayer())?.render?.clip || null;
+    if (!v.startsWith("layer:")) return null;
+    const l = getLayer(v.slice(6));
+    const polys = (l?.geojson?.features || []).map((f) => f.geometry).filter((g) => g && /Polygon/.test(g.type));
+    if (!polys.length) return null;
+    return polys.length === 1 ? polys[0] : { type: "MultiPolygon", coordinates: polys.flatMap((g) => g.type === "Polygon" ? [g.coordinates] : g.coordinates) };
+  }
+  let clipSeq = 0;
+  function addClipLayer(geometry, name) {
+    const l = addLayer({ type: "vector", name: name || `Clip area ${++clipSeq}`, color: "#dc2626", dash: "6 4", weight: 2, fillOpacity: 0.04,
+      geojson: { type: "FeatureCollection", features: [{ type: "Feature", geometry, properties: { name: name || "Clip area", area_km2: +(geomArea(geometry) / 1e6).toFixed(3) } }] } },
+      { select: false });
+    return l;
+  }
+  function pickClip(id) {
+    const sel = $("#" + id), v = sel.value;
+    const finish = (l) => { refreshClipPickers(); sel.value = `layer:${l.id}`; updateClipHint(id); clipPickers[id].onChange(); };
+    if (v === "view") {
+      const b = map.getBounds();
+      finish(addClipLayer(bboxPolygon(b.getWest(), b.getSouth(), b.getEast(), b.getNorth()), "Map view extent"));
+    } else if (v === "draw-rect" || v === "draw-poly") {
+      sel.value = "none";
+      updateClipHint(id);
+      startDraw(v === "draw-rect" ? L.Draw.Rectangle : L.Draw.Polygon, (geometry) => finish(addClipLayer(geometry)));
+    } else {
+      updateClipHint(id);
+      clipPickers[id].onChange();
+    }
+  }
+  Object.keys(clipPickers).forEach((id) => $("#" + id).onchange = () => pickClip(id));
+
+  // ------------------------------------------------------------------ layer properties
+  function openProps(l) {
+    if (!l) return toast("Select a layer in Contents first", true);
+    state.propsLayer = l;
+    $("#lp-title").textContent = `Properties · ${l.name}`;
+    $("#lp-name").value = l.name;
+    $("#lp-opacity").value = Math.round(l.opacity * 100);
+    $("#lp-raster").classList.toggle("hidden", l.type !== "raster");
+    $("#lp-vector").classList.toggle("hidden", l.type !== "vector");
+    const info = [];
+    if (l.type === "raster") {
+      const r = l.render || {}, bm = l.band_map || {}, c = state.catalog;
+      const comps = Object.entries(c.composites).filter(([, v]) => v.bands.every((b) => b in bm));
+      let opts = "";
+      if (r.index || r.formula) opts += `<optgroup label="Index"><option value="keep">${esc(r.index || "Formula: " + r.formula)}</option></optgroup>`;
+      if (comps.length) opts += `<optgroup label="Band combination">${comps.map(([k, v]) => `<option value="c:${k}">${esc(v.title)}</option>`).join("")}</optgroup>`;
+      opts += `<optgroup label="Single band">${(l.info?.bands || []).map((b) => `<option value="b:${b.index}">Band ${b.index}${b.description !== "Band " + b.index ? " · " + esc(b.description) : ""}</option>`).join("")}</optgroup>`;
+      $("#lp-display").innerHTML = opts;
+      $("#lp-display").value = r.index || r.formula ? "keep" : r.composite ? `c:${r.composite}` : `b:${r.band}`;
+      $("#lp-cmap").innerHTML = `<option value="">Default</option>` + Object.keys(c.colormaps).map((k) => `<option ${r.cmap === k ? "selected" : ""}>${k}</option>`).join("");
+      $("#lp-stretch").value = r.stretch || "fixed";
+      $("#lp-vmin").value = l.legend?.vmin != null ? +l.legend.vmin.toFixed(4) : "";
+      $("#lp-vmax").value = l.legend?.vmax != null ? +l.legend.vmax.toFixed(4) : "";
+      syncPropsUi();
+      if (l.info) info.push(["File", l.path], ["Size", `${l.info.width} × ${l.info.height} px · ${l.info.count} bands · ${/\.vrt$/i.test(l.path) ? "virtual (VRT over the original product)" : fmt(l.info.size_mb) + " MB"}`],
+        ["CRS", l.info.crs], ["Pixel size", `${fmt(l.info.res[0], 2)} × ${fmt(l.info.res[1], 2)}`], ["Data type", l.info.dtype]);
+    } else if (l.type === "vector") {
+      $("#lp-color").value = l.color || "#2563eb";
+      info.push(["Features", l.geojson.features.length], ["CRS", "EPSG:4326 (WGS 84)"]);
+    } else info.push(["Type", "Preview image (PNG)"]);
+    $("#lp-info").innerHTML = info.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
+    $("#dlg-lprops").showModal();
+  }
+  function syncPropsUi() {
+    const v = $("#lp-display").value;
+    $("#lp-style").classList.toggle("hidden", v.startsWith("c:"));
+    $("#lp-range").classList.toggle("hidden", v.startsWith("c:") || $("#lp-stretch").value !== "custom");
+  }
+  $("#lp-display").onchange = syncPropsUi;
+  $("#lp-stretch").onchange = syncPropsUi;
+  $("#lp-apply").onclick = async () => {
+    const l = state.propsLayer;
+    if (!l) return;
+    l.name = $("#lp-name").value.trim() || l.name;
+    setOpacity(l, $("#lp-opacity").value / 100);
+    if (l.type === "vector") { l.color = $("#lp-color").value; l.leaflet?.setStyle(vecStyle(l)); }
+    $("#dlg-lprops").close();
+    if (l.type === "raster") {
+      const v = $("#lp-display").value, style = { stretch: $("#lp-stretch").value, cmap: $("#lp-cmap").value || null };
+      if (style.stretch === "custom") { style.vmin = parseFloat($("#lp-vmin").value); style.vmax = parseFloat($("#lp-vmax").value); }
+      if (v.startsWith("c:")) l.render = { composite: v.slice(2) };
+      else if (v.startsWith("b:")) l.render = { band: +v.slice(2), ...style };
+      else l.render = { index: l.render.index, formula: l.render.formula, ...style };
+      try { await renderRaster(l); } catch (e) { toast(e.message, true); }
+      if (an.resultId === l.id && l.legend?.kind === "continuous") showResult(l.legend);
+    }
+    renderContents();
+    saveLayers();
+  };
+
+  // ------------------------------------------------------------------ help
+  function showHelp(which) {
+    $("#help-title").textContent = which === "guide" ? "Quick guide" : "Keyboard shortcuts";
+    $("#help-body").innerHTML = which === "guide" ? `<div class="help">
+      <h4>Workspace</h4><p><b>Contents</b> (left) lists every layer. <b>Tools</b> (menu) opens a tool in the right panel. The <b>status bar</b> shows the cursor position and the map scale. Type a scale such as <code>25000</code> and press Enter to zoom to it.</p>
+      <h4>Add data</h4><p>File ▸ Add data, the <b>+ Add data</b> button, or drag files onto the map: GeoTIFF, Shapefile (.zip, or .shp + .shx + .dbf + .prj together), GeoJSON, KML/KMZ. <b>Workspace</b> lists GeoTIFFs already downloaded or produced.</p>
+      <h4>Layers</h4><p>Tick to show or hide. Drag to reorder. Double-click to zoom. Right-click (or ⋯) for Properties, Export, Use as area of interest, and Compute indices. Select a raster and click the map to read its pixel values.</p>
+      <h4>Export</h4><p>Rasters: GeoTIFF (values), PNG (as displayed), PNG + world file, or Shapefile (value classes → polygons). Vectors: Shapefile, GeoJSON, KML.</p>
+      <h4>Your own Sentinel products</h4><p>File ▸ <b>Open Sentinel product (.SAFE)</b> lists products in the <code>data</code> folder. Sentinel-2 opens instantly with all bands. Sentinel-1 GRD is converted to calibrated backscatter (VV, VH in dB) in the background. Then use Index analysis (NDVI… for optical, RVI / CPR for radar).</p>
+      <h4>Tools</h4><ul><li><b>Find imagery</b>: area → dates → search → preview → download. Downloads are added as layers when they finish.</li>
+      <li><b>Index analysis</b>: pick an input raster, click an index. Each result is a new layer.</li></ul></div>`
+      : `<div class="help"><table>
+      <tr><td><kbd>Ctrl/⌘ O</kbd></td><td>Add data from computer</td></tr>
+      <tr><td><kbd>Ctrl/⌘ E</kbd></td><td>Export selected layer</td></tr>
+      <tr><td><kbd>Delete</kbd></td><td>Remove selected layer</td></tr>
+      <tr><td><kbd>Ctrl/⌘ 1</kbd></td><td>Show / hide Contents</td></tr>
+      <tr><td><kbd>Ctrl/⌘ 2</kbd></td><td>Show / hide tool panel</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Close menus</td></tr></table></div>`;
+    $("#dlg-help").showModal();
+  }
+
+  document.addEventListener("keydown", (e) => {
+    const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
+    if (e.key === "Escape") { toggleMenu(null); hideCtx(); }
+    if (mod && k === "o") { e.preventDefault(); runCmd("add-data"); }
+    else if (mod && k === "e") { e.preventDefault(); runCmd("export-layer"); }
+    else if (mod && e.key === "1") { e.preventDefault(); runCmd("toggle-contents"); }
+    else if (mod && e.key === "2") { e.preventDefault(); runCmd("toggle-tools"); }
+    else if (!typing && !mod && (e.key === "Delete" || e.key === "Backspace") && selectedId && !$("dialog[open]")) { e.preventDefault(); runCmd("remove-layer"); }
+  });
+
+  // ------------------------------------------------------------------ Find imagery: area of interest
+  const AOI_STYLE = { color: "#1f7a5a", weight: 2.5, fillOpacity: 0.08 };
 
   // ------------------------------------------------------------------ geometry helpers
   const R = 6378137;
@@ -96,13 +989,7 @@
     return bboxPolygon(lon - dLon, lat - dLat, lon + dLon, lat + dLat);
   }
 
-  // ------------------------------------------------------------------ AOI
-  function setAOI(geometry, label = "") {
-    if (!geometry || !/Polygon/.test(geometry.type)) { toast("The area must be a polygon", true); return; }
-    state.aoi = geometry;
-    aoiLayer.clearLayers();
-    L.geoJSON(geometry, { style: AOI_STYLE }).addTo(aoiLayer);
-    map.fitBounds(aoiLayer.getBounds(), { padding: [40, 40], maxZoom: 15 });
+  function updateAoiSummary(geometry, label) {
     const km2 = geomArea(geometry) / 1e6;
     const [w, s, e, n] = geomBounds(geometry);
     $("#aoi-area").textContent = `${km2 < 10 ? fmt(km2, 2) : Math.round(km2).toLocaleString()} km²${label ? " · " + label : ""}`;
@@ -113,19 +1000,34 @@
       warn.textContent = `This area is large (${Math.round(km2).toLocaleString()} km²). At 10 m one download is limited to ~6,000 km², so use 20–60 m pixels or split the area. Searching still works.`;
       warn.classList.remove("hidden");
     } else warn.classList.add("hidden");
-    clearResults();
   }
 
-  function clearAOI() {
-    state.aoi = null;
-    aoiLayer.clearLayers();
-    $("#aoi-summary").classList.add("hidden");
-    $("#aoi-warn").classList.add("hidden");
+  // The AOI is a regular layer in Contents (id "aoi"); removing that layer clears it.
+  function setAOI(geometry, label = "") {
+    if (!geometry || !/Polygon/.test(geometry.type)) { toast("The area must be a polygon", true); return; }
+    state.aoi = geometry;
+    const km2 = geomArea(geometry) / 1e6;
+    addLayer({ id: "aoi", type: "vector", name: `Area of interest${label ? " · " + label : ""}`, aoiLabel: label,
+      geojson: { type: "FeatureCollection", features: [{ type: "Feature", geometry, properties: { name: "Area of interest", area_km2: +km2.toFixed(3) } }] },
+      color: "#1f7a5a", weight: 2.5, fillOpacity: 0.08 }, { select: false });
+    zoomTo(getLayer("aoi"));
+    updateAoiSummary(geometry, label);
     clearResults();
   }
-
-  $("#aoi-zoom").onclick = () => aoiLayer.getLayers().length && map.fitBounds(aoiLayer.getBounds(), { padding: [40, 40] });
-  $("#aoi-clear").onclick = clearAOI;
+  function restoreAoi(d) {
+    const g = d.geojson?.features?.[0]?.geometry;
+    if (g) { state.aoi = g; updateAoiSummary(g, d.aoiLabel || ""); }
+  }
+  function useAsAoi(l) {
+    const polys = l.geojson.features.map((f) => f.geometry).filter((g) => g && /Polygon/.test(g.type));
+    if (!polys.length) return toast("This layer has no polygons", true);
+    const geometry = polys.length === 1 ? polys[0]
+      : { type: "MultiPolygon", coordinates: polys.flatMap((g) => g.type === "Polygon" ? [g.coordinates] : g.coordinates) };
+    setAOI(geometry, l.name);
+    switchTool("search");
+  }
+  $("#aoi-zoom").onclick = () => getLayer("aoi") && zoomTo(getLayer("aoi"));
+  $("#aoi-clear").onclick = () => removeLayer("aoi");
 
   // AOI method tabs
   $$("#aoi-tabs button").forEach((b) => b.onclick = () => {
@@ -136,14 +1038,24 @@
   // Draw
   const drawOpts = { shapeOptions: AOI_STYLE, showArea: false };
   let activeDraw = null;
-  function startDraw(Kind) {
+  let drawDone = null;  // callback for the current drawing; null = it sets the Find-imagery AOI
+  function startDraw(Kind, onDone = null) {
     activeDraw?.disable();
-    activeDraw = new Kind(map, drawOpts);
+    drawDone = onDone;
+    activeDraw = new Kind(map, onDone ? { shapeOptions: { color: "#dc2626", weight: 2, dashArray: "6 4", fillOpacity: 0.05 }, showArea: false } : drawOpts);
     activeDraw.enable();
+    $("#map-hint").textContent = Kind === L.Draw.Rectangle ? "Drag on the map to draw a rectangle (Esc to cancel)" : "Click to add points, click the first point to finish (Esc to cancel)";
+    $("#map-hint").classList.remove("hidden");
   }
+  map.on(L.Draw.Event.DRAWSTOP, () => { $("#map-hint").classList.add("hidden"); setTimeout(() => { activeDraw = null; }, 0); });
   $("#draw-rect").onclick = () => startDraw(L.Draw.Rectangle);
   $("#draw-poly").onclick = () => startDraw(L.Draw.Polygon);
-  map.on(L.Draw.Event.CREATED, (e) => { activeDraw = null; setAOI(e.layer.toGeoJSON().geometry, "drawn"); });
+  map.on(L.Draw.Event.CREATED, (e) => {
+    activeDraw = null;
+    const g = e.layer.toGeoJSON().geometry, done = drawDone;
+    drawDone = null;
+    if (done) done(g); else setAOI(g, "drawn");
+  });
 
   // Coordinates
   let coordMode = "point";
@@ -258,8 +1170,8 @@
   // ------------------------------------------------------------------ search & results
   function clearResults() {
     state.results = null;
-    footprintLayer.clearLayers();
-    removePreview();
+    removeLayer("footprints");
+    removePreviews();
     $("#results").innerHTML = "";
     $("#results-info").textContent = "Choose an area and dates, then search.";
   }
@@ -288,11 +1200,16 @@
   const cloudClass = (c) => (c < 10 ? "c0" : c < 40 ? "c1" : "c2");
   const weekday = (d) => new Date(d + "T00:00:00Z").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
+  function highlightScene(date) {
+    const fp = getLayer("footprints");
+    fp?.leaflet?.eachLayer((x) => x.setStyle(date && x.feature.properties.date === date
+      ? { color: "#4f46e5", weight: 3, opacity: 1, fillOpacity: 0.08 } : vecStyle(fp)));
+  }
+
   function renderResults() {
     const res = state.results;
     const box = $("#results");
     box.innerHTML = "";
-    footprintLayer.clearLayers();
     if (!res) return;
     const scenes = [...res.scenes].sort({
       cloud: (a, b) => a.cloud - b.cloud || b.date.localeCompare(a.date),
@@ -302,10 +1219,14 @@
     $("#results-info").textContent = scenes.length
       ? `${scenes.length} acquisition date${scenes.length === 1 ? "" : "s"} · ${res.count} tile${res.count === 1 ? "" : "s"} from ${$("#source").selectedOptions[0].text.split(" —")[0]}`
       : "Nothing found. Try a longer date range or a higher cloud limit.";
+    const feats = scenes.flatMap((sc) => sc.items.map((i) => ({ type: "Feature", geometry: i.footprint,
+      properties: { date: sc.date, tile: i.tile, cloud_pct: i.cloud != null ? +(+i.cloud).toFixed(2) : null, platform: i.platform, id: i.id } })));
+    if (feats.length) {
+      addLayer({ id: "footprints", type: "vector", name: `Scene footprints · ${res.count} tiles`,
+        geojson: { type: "FeatureCollection", features: feats }, color: "#6366f1", weight: 1, fillOpacity: 0 }, { select: false, below: "aoi" });
+    } else removeLayer("footprints");
 
     scenes.forEach((sc) => {
-      const fp = L.geoJSON({ type: "FeatureCollection", features: sc.items.map((i) => ({ type: "Feature", geometry: i.footprint })) },
-        { style: { color: "#6366f1", weight: 1, fillOpacity: 0, opacity: 0.35 } }).addTo(footprintLayer);
       const first = sc.items[0];
       const el = document.createElement("div");
       el.className = "scene";
@@ -325,8 +1246,8 @@
             <button class="btn small primary" data-a="dl">Download</button>
           </div>
         </div>`;
-      el.onmouseenter = () => fp.setStyle({ color: "#6366f1", weight: 2.5, opacity: 1, fillOpacity: 0.06 });
-      el.onmouseleave = () => sc !== state.activeScene && fp.setStyle({ weight: 1, opacity: 0.35, fillOpacity: 0 });
+      el.onmouseenter = () => highlightScene(sc.date);
+      el.onmouseleave = () => highlightScene(state.activeScene?.date);
       el.querySelector(".thumb")?.addEventListener("click", () => first.thumbnail && window.open(first.thumbnail, "_blank", "noopener"));
       el.querySelector('[data-a="preview"]').onclick = (e) => previewScene(sc, el, e.currentTarget);
       el.querySelector('[data-a="meta"]').onclick = () => showMetadata(sc);
@@ -336,17 +1257,13 @@
     });
   }
 
-  // ------------------------------------------------------------------ preview
-  function removePreview() {
-    previewImage?.remove(); previewClouds?.remove();
-    previewImage = previewClouds = null;
-    $("#preview-ctl").classList.add("hidden");
+  // ------------------------------------------------------------------ preview (added as image layers)
+  function removePreviews() {
+    layers.filter((l) => /^(preview|clouds)-/.test(l.id)).forEach((l) => removeLayer(l.id, { silent: true }));
+    renderContents();
     state.activeScene?._el?.classList.remove("active");
     state.activeScene = null;
   }
-  $("#pv-close").onclick = removePreview;
-  $("#pv-clouds").onchange = (e) => previewClouds && (e.target.checked ? previewClouds.addTo(map) : previewClouds.remove());
-  $("#pv-opacity").oninput = (e) => previewImage?.setOpacity(e.target.value / 100);
 
   async function previewScene(sc, el, btn) {
     await busy(btn, "Loading…", async () => {
@@ -354,26 +1271,19 @@
         const res = await api("/api/preview", { method: "POST", json: {
           source: state.results.source, item_ids: sc.items.map((i) => i.id), aoi: state.aoi,
         } });
-        removePreview();
+        removePreviews();
         state.activeScene = sc;
         el.classList.add("active");
-        previewImage = L.imageOverlay(res.image, res.bounds, { opacity: $("#pv-opacity").value / 100 }).addTo(map);
-        previewClouds = L.imageOverlay(res.clouds, res.bounds);
-        if ($("#pv-clouds").checked) previewClouds.addTo(map);
-        aoiLayer.bringToFront();
+        addLayer({ id: `preview-${sc.date}`, type: "image", name: `Preview ${sc.date} · true colour`, url: res.image, bounds: res.bounds },
+          { select: false, below: "footprints" });
+        addLayer({ id: `clouds-${sc.date}`, type: "image", name: `Cloud / shadow mask ${sc.date}`, url: res.clouds, bounds: res.bounds },
+          { select: false, below: "footprints" });
         map.fitBounds(res.bounds, { padding: [30, 30] });
         const s = res.stats;
-        $("#pv-title").textContent = `Preview · ${sc.date}`;
-        $("#pv-stats").innerHTML = `
-          <span>Clear in area</span><b>${fmt(s.clear_pct)}%</b>
-          <span style="color:#ca8a04">Cloud</span><b>${fmt(s.cloud_pct)}%</b>
-          <span style="color:#9333ea">Shadow</span><b>${fmt(s.shadow_pct)}%</b>
-          <span>Has data</span><b>${fmt(s.data_pct)}%</b>
-          <span>Preview pixel</span><b>${res.resolution_m} m</b>`;
-        $("#preview-ctl").classList.remove("hidden");
         const pv = el.querySelector(".pvstat");
-        pv.textContent = `Inside your area: ${fmt(s.clear_pct)}% clear · ${fmt(s.cloud_pct)}% cloud · ${fmt(s.shadow_pct)}% shadow`;
+        pv.textContent = `Inside your area: ${fmt(s.clear_pct)}% clear · ${fmt(s.cloud_pct)}% cloud · ${fmt(s.shadow_pct)}% shadow · ${res.resolution_m} m preview`;
         pv.classList.remove("hidden");
+        status(`Preview ${sc.date}: ${fmt(s.clear_pct)}% clear inside the area`);
       } catch (e) { toast(e.message, true); }
     });
   }
@@ -514,33 +1424,34 @@
       try {
         await api("/api/jobs", { method: "POST", json: body });
         $("#dlg-dl").close();
-        switchTab("jobs");
+        switchTool("jobs");
         refreshJobs();
       } catch (e) { showDlError(e.message); }
     });
   };
   function showDlError(msg) { const el = $("#dl-error"); el.textContent = msg; el.classList.remove("hidden"); }
 
-  // ------------------------------------------------------------------ jobs
-  function switchTab(name) {
-    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
-    $("#tab-search").classList.toggle("hidden", name !== "search");
-    $("#tab-jobs").classList.toggle("hidden", name !== "jobs");
-  }
-  $$(".tab").forEach((t) => t.onclick = () => switchTab(t.dataset.tab));
-
+  // ------------------------------------------------------------------ downloads & jobs
   const openLogs = new Set();
+  const addedJobs = new Set(prefs.get("addedJobs", []));
   async function refreshJobs() {
     let list;
     try { list = await api("/api/jobs"); } catch { return; }
     const running = list.filter((j) => j.status === "running" || j.status === "queued").length;
-    const badge = $("#jobs-badge");
-    badge.textContent = running || list.length;
-    badge.classList.toggle("hidden", !list.length);
+    $("#sb-jobs").classList.toggle("hidden", !running);
+    $("#sb-jobs").innerHTML = running ? `<span class="spinner"></span>${running} download${running > 1 ? "s" : ""} running` : "";
+    // finished downloads go straight into Contents
+    for (const j of list) {
+      if (j.status !== "done" || addedJobs.has(j.id)) continue;
+      addedJobs.add(j.id);
+      prefs.set("addedJobs", [...addedJobs].slice(-200));
+      j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
+        addRasterFromPath(`downloads/${j.id}/${f}`, { name: j.title }).then(() => toast(`Added “${j.title}” to Contents`)));
+    }
     $("#jobs-empty").classList.toggle("hidden", list.length > 0);
     $("#jobs").innerHTML = list.map((j) => {
       const elapsed = Math.round(((j.finished || Date.now() / 1000) - (j.started || j.created)));
-      const files = j.files.map((f) => `<a href="/api/jobs/${j.id}/files/${encodeURIComponent(f)}" download><span>⬇ ${esc(f)}</span></a>`).join("");
+      const files = j.files.map((f) => `<a href="/api/jobs/${j.id}/files/${encodeURIComponent(f)}" download><span>⬇ ${esc(f)}</span>${/\.tiff?$/i.test(f) ? `<button class="btn small" data-addmap="downloads/${j.id}/${esc(f)}" data-name="${esc(j.title)}">Add to map</button>` : ""}</a>`).join("");
       const png = j.files.find((f) => f.endsWith(".png"));
       const dist = j.result?.distribution ? `<div class="dist">${j.result.distribution.slice(0, 11).map((d) =>
         `<div><i style="background:${esc(d.color)}"></i><span>${esc(d.name)}</span><b>${fmt(d.pct)}%</b></div>`).join("")}</div>` : "";
@@ -560,6 +1471,7 @@
     }).join("");
     $$("#jobs details").forEach((d) => d.addEventListener("toggle", () => d.open ? openLogs.add(d.dataset.job) : openLogs.delete(d.dataset.job)));
     $$("#jobs pre").forEach((p) => p.scrollTop = p.scrollHeight);
+    $$("[data-addmap]").forEach((b) => b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); addRasterFromPath(b.dataset.addmap, { name: b.dataset.name }); });
     $$("[data-del]").forEach((b) => b.onclick = async () => { await api(`/api/jobs/${b.dataset.del}`, { method: "DELETE" }); refreshJobs(); });
     clearTimeout(state.polling);
     if (running) state.polling = setTimeout(refreshJobs, 1500);
@@ -615,8 +1527,447 @@
     d.addEventListener("click", (e) => e.target === d && d.close());
   });
 
+  // ------------------------------------------------------------------ index analysis tool
+  const an = { catalog: null, layer: null, info: null, bandMap: {}, cat: "All", sel: null, res: null,
+               reqId: 0, resultId: null, userSet: new Set(), pending: null };
+  const hasBands = (bands) => bands.every((b) => b in an.bandMap);
+
+  function refreshAnalyzeInputs() {
+    const sel = $("#an-input");
+    const rasters = layers.filter((l) => l.type === "raster" && !l.derived);
+    sel.innerHTML = `<option value="">${rasters.length ? "Choose a raster layer…" : "No raster layers yet"}</option>` +
+      rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+    if (an.layer && rasters.includes(an.layer)) sel.value = an.layer.id;
+  }
+  $("#an-input").onchange = () => { const l = getLayer($("#an-input").value); if (l) openInput(l); else resetAnalyze(); };
+
+  function resetAnalyze() {
+    Object.assign(an, { layer: null, info: null, bandMap: {}, sel: null, pending: null, resultId: null });
+    $("#an-input").value = "";
+    $("#an-info").classList.add("hidden");
+    $("#an-result").classList.add("hidden");
+    $("#an-setup").classList.add("hidden");
+    renderIndexButtons();
+  }
+
+  function openInput(l) {
+    const info = l.info;
+    Object.assign(an, { layer: l, info, bandMap: l.band_map, userSet: new Set(l.userSet || []), sel: null, pending: null, resultId: null });
+    $("#an-input").value = l.id;
+    $("#an-info").classList.remove("hidden");
+    $("#an-name").textContent = l.name;
+    $("#an-meta").textContent = `${info.width.toLocaleString()} × ${info.height.toLocaleString()} px · ${fmt(info.res[0], info.res[0] < 1 ? 2 : 1)} ${/^EPSG:4326$/.test(info.crs) ? "°" : "m"} · ${info.crs} · ${info.count} band${info.count > 1 ? "s" : ""} · ${/\.vrt$/i.test(l.path) ? "virtual, reads the original product" : fmt(info.size_mb) + " MB"}`;
+    $("#an-scale").value = l.scale ?? info.scale;
+    $("#an-offset").value = l.offset ?? info.offset;
+    const unchanged = (l.scale ?? info.scale) === info.scale && (l.offset ?? info.offset) === info.offset;
+    const match = unchanged ? [info.scale_preset] : Object.entries(an.catalog.scale_presets).find(([, p]) => Math.abs(p.scale - $("#an-scale").value) < 1e-12 && Math.abs(p.offset - $("#an-offset").value) < 1e-12);
+    $("#an-scale-preset").value = match ? match[0] : "";
+    $("#an-scalereason").textContent = `Detected: ${info.scale_reason}.`;
+    renderBandTable();
+    updateScaleSummary();
+    renderSetup();
+    renderIndexButtons();
+    $("#an-result").classList.add("hidden");
+    selectLayer(l.id);
+  }
+  function analyzeLayer(l) { switchTool("analyze"); openInput(l); }
+
+  // Band / scale fixes are stored on the input layer itself, so they persist and apply to its display.
+  function syncInputLayer() {
+    const l = an.layer;
+    if (!l) return;
+    l.userSet = [...an.userSet];
+    l.scale = parseFloat($("#an-scale").value) || 1;
+    l.offset = parseFloat($("#an-offset").value) || 0;
+    saveLayers();
+    if (l.render?.composite) renderRaster(l).catch(() => {});
+  }
+
+  function renderBandTable() {
+    const info = an.info, names = an.catalog.band_names;
+    const byIndex = Object.fromEntries(Object.entries(an.bandMap).map(([k, v]) => [v, k]));
+    $("#an-bandtable").innerHTML = info.bands.map((b) => `<tr><td>${b.index} · ${esc(b.description)}</td><td>
+      <select data-band="${b.index}"><option value="">— not used —</option>${names.map((n) =>
+        `<option ${byIndex[b.index] === n ? "selected" : ""}>${n}</option>`).join("")}</select></td></tr>`).join("");
+    $$("#an-bandtable select").forEach((s) => s.onchange = () => {
+      const idx = +s.dataset.band;
+      Object.keys(an.bandMap).forEach((k) => (an.bandMap[k] === idx || k === s.value) && delete an.bandMap[k]);
+      if (s.value) { an.bandMap[s.value] = idx; an.userSet.add(s.value); }
+      renderBandTable();
+      renderIndexButtons();
+      renderSetup();
+      syncInputLayer();
+      if (an.sel) compute();
+    });
+    const mapped = Object.keys(an.bandMap).sort();
+    $("#an-bandsum").textContent = mapped.length ? mapped.join(" ") : "none mapped. Open to set them.";
+    $("#an-bandsrc").textContent = `Detected from ${info.band_map_source}. Change a dropdown if a band is wrong.`;
+    $("#an-bands-details").open = !mapped.length;
+  }
+
+  function updateScaleSummary() {
+    const p = $("#an-scale-preset").selectedOptions[0];
+    $("#an-scalesum").textContent = p ? p.textContent : `× ${$("#an-scale").value} + ${$("#an-offset").value}`;
+  }
+
+  function renderIndexButtons() {
+    const c = an.catalog;
+    $("#an-composites").innerHTML = Object.entries(c.composites).map(([k, v]) =>
+      `<button class="chip ${an.sel?.composite === k ? "active" : ""}" data-comp="${k}" ${an.info ? "" : "disabled"} style="${an.info && !hasBands(v.bands) ? "border-style:dashed;opacity:.55" : ""}" title="${esc(v.bands.join(", "))}">${esc(v.title)}</button>`).join("");
+    $$("#an-composites [data-comp]").forEach((b) => b.onclick = () => select({ composite: b.dataset.comp }));
+    $("#an-cats").innerHTML = ["All", ...c.categories].map((k) => `<button class="chip ${an.cat === k ? "active" : ""}" data-cat="${esc(k)}">${esc(k)}</button>`).join("");
+    $$("#an-cats [data-cat]").forEach((b) => b.onclick = () => { an.cat = b.dataset.cat; renderIndexButtons(); });
+    const list = c.indices.filter((i) => an.cat === "All" || i.category === an.cat);
+    $("#an-index-grid").innerHTML = list.map((i) => {
+      const ok = an.info && hasBands(i.bands);
+      const missing = i.bands.filter((b) => !(b in an.bandMap));
+      return `<button class="idx ${an.sel?.index === i.name ? "active" : ""} ${an.info && !ok ? "needs" : ""}" data-idx="${i.name}" ${an.info ? "" : "disabled"}
+        title="${esc(i.title)}\n${esc(i.formula)}${ok ? "" : `\nNeeds ${missing.join(", ")}. Click to assign.`}"><b>${esc(i.name)}</b><small>${ok || !an.info ? esc(i.title) : "needs " + missing.join(", ")}</small></button>`;
+    }).join("");
+    $$("#an-index-grid [data-idx]").forEach((b) => b.onclick = () => select({ index: b.dataset.idx }));
+    $("#an-band-chips").innerHTML = Object.keys(an.bandMap).sort().map((b) => `<button class="chip" data-ins="${b}">${b}</button>`).join("");
+    $$("#an-band-chips [data-ins]").forEach((b) => b.onclick = () => {
+      const f = $("#an-formula"), pos = f.selectionStart ?? f.value.length;
+      f.value = f.value.slice(0, pos) + b.dataset.ins + f.value.slice(f.selectionEnd ?? pos);
+      f.focus();
+      f.selectionStart = f.selectionEnd = pos + b.dataset.ins.length;
+    });
+  }
+
+  // Choosing an index opens its setup (band assignment + hints) and computes it when every band is assigned.
+  function select(sel) {
+    $("#an-cmap").value = "";
+    an.pending = sel;
+    renderSetup();
+    const spec = selSpec(sel);
+    if (spec.bands.every((b) => b in an.bandMap)) compute(sel);
+    else $("#an-setup").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function analyzeBody() {
+    return { path: an.layer.path, band_map: an.bandMap, scale: parseFloat($("#an-scale").value) || 1, offset: parseFloat($("#an-offset").value) || 0 };
+  }
+
+  // Composites change how the input layer is displayed; indices / formulas create (or update) a result layer.
+  // `sel` only becomes the current selection once it renders, so a bad formula never sticks.
+  async function compute(sel = an.sel) {
+    if (!an.layer || !sel) return;
+    const id = ++an.reqId;
+    $("#an-busy").classList.remove("hidden");
+    try {
+      if (sel.composite) {
+        an.layer.render = { composite: sel.composite };
+        await renderRaster(an.layer);
+        if (id !== an.reqId) return;
+        an.sel = sel;
+        renderIndexButtons();
+        if (an.pending === sel) renderSetup();
+        $("#an-result").classList.add("hidden");
+        status(`${an.layer.name}: showing ${state.catalog.composites[sel.composite].title}`);
+        return;
+      }
+      const key = sel.index || "f:" + sel.formula;
+      let out = layers.find((l) => l.derived && l.sourceId === an.layer.id && l.key === key);
+      const isNew = !out;
+      if (isNew) {
+        out = addLayer({ type: "raster", derived: true, sourceId: an.layer.id, key, path: an.layer.path, info: an.layer.info,
+                         name: `${sel.index || "Formula"} · ${an.layer.name}`, render: {} });
+      }
+      const body = analyzeBody();
+      Object.assign(out, { band_map: { ...body.band_map }, scale: body.scale, offset: body.offset });
+      const clip = getClip("an-area");
+      out.render = { index: sel.index || null, formula: sel.formula || null, stretch: $("#an-stretch").value, cmap: $("#an-cmap").value || null, clip };
+      out.name = `${sel.index || "Formula"} · ${an.layer.name}${clip ? " · area" : ""}`;
+      if (out.render.stretch === "custom") { out.render.vmin = parseFloat($("#an-vmin").value); out.render.vmax = parseFloat($("#an-vmax").value); }
+      $("#an-result").classList.remove("hidden");
+      let res;
+      try {
+        res = await renderRaster(out);
+      } catch (e) {
+        if (isNew) { removeLayer(out.id, { silent: true }); renderContents(); saveLayers(); }
+        throw e;
+      }
+      if (id !== an.reqId) return;
+      const clipChanged = JSON.stringify(out.lastClip || null) !== JSON.stringify(clip || null);
+      out.lastClip = clip;
+      an.sel = sel;
+      an.resultId = out.id;
+      selectLayer(out.id);
+      if (clip && (isNew || clipChanged)) zoomTo(out);
+      if (sel.formula) an.lastFormula = sel.formula;
+      renderIndexButtons();
+      if (an.pending === sel) renderSetup();
+      showResult(res);
+      status(`${out.name} computed. It's in Contents.`);
+    } catch (e) {
+      if (id === an.reqId) toast(e.message, true);
+    } finally {
+      if (id === an.reqId) $("#an-busy").classList.add("hidden");
+    }
+  }
+
+  function showResult(res) {
+    const spec = an.catalog.indices.find((i) => i.name === an.sel.index);
+    const isComp = !!an.sel.composite;
+    $("#an-title").textContent = isComp ? res.title : spec ? `${spec.name} · ${spec.title}` : "Custom formula";
+    $("#an-desc").textContent = isComp ? `Red = ${res.bands[0]}, green = ${res.bands[1]}, blue = ${res.bands[2]} (2–98% stretch).` : spec?.description || "";
+    $("#an-formula-show").textContent = isComp ? "" : res.formula;
+    $("#an-formula-show").classList.toggle("hidden", isComp);
+    $("#an-legend-wrap").classList.toggle("hidden", isComp);
+    $("#an-export-one").classList.toggle("hidden", isComp);
+    if (isComp) return;
+    $("#an-cmap").value = res.cmap;
+    $("#an-legend").style.background = `linear-gradient(to right, ${res.colors.join(", ")})`;
+    $("#an-lmin").textContent = fmtv(res.vmin);
+    $("#an-lmid").textContent = fmtv((res.vmin + res.vmax) / 2);
+    $("#an-lmax").textContent = fmtv(res.vmax);
+    if ($("#an-stretch").value !== "custom") { $("#an-vmin").value = +res.vmin.toFixed(4); $("#an-vmax").value = +res.vmax.toFixed(4); }
+    const h = res.stats.histogram, max = Math.max(...h.counts, 1), n = h.counts.length, bw = 300 / n;
+    const colorAt = (t) => { // same interpolation as the server colormap
+      const c = res.colors, pos = t * (c.length - 1), lo = Math.min(Math.floor(pos), c.length - 2), f = pos - lo;
+      const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      const a = rgb(c[lo]), b = rgb(c[lo + 1]);
+      return `rgb(${a.map((v, i) => Math.round(v * (1 - f) + b[i] * f)).join(",")})`;
+    };
+    $("#an-hist").innerHTML = h.counts.map((cnt, i) => {
+      const hh = (cnt / max) * 58;
+      return `<rect x="${i * bw + 0.5}" y="${60 - hh}" width="${bw - 1}" height="${hh}" fill="${colorAt((i + 0.5) / n)}"><title>${fmtv(h.edges[i])} – ${fmtv(h.edges[i + 1])}: ${cnt.toLocaleString()} px</title></rect>`;
+    }).join("");
+    const s = res.stats;
+    $("#an-stats").innerHTML = [["Mean", s.mean], ["Median", s.median], ["Std dev", s.std], ["Min", s.min], ["Max", s.max],
+      ["Pixels", null, s.count.toLocaleString() + (res.decimated ? "*" : "")]].map(([k, v, txt]) =>
+      `<div>${k}<b>${txt ?? fmtv(v)}</b></div>`).join("");
+    $("#an-stats").title = res.decimated ? "* Stats are computed on the preview resolution. The GeoTIFF export is full resolution." : "";
+  }
+
+  // display options
+  $("#an-cmap").onchange = () => compute();
+  $("#an-stretch").onchange = () => { $("#an-custom-range").classList.toggle("hidden", $("#an-stretch").value !== "custom"); compute(); };
+  let rangeTimer;
+  ["#an-vmin", "#an-vmax"].forEach((s) => $(s).oninput = () => { clearTimeout(rangeTimer); rangeTimer = setTimeout(() => compute(), 500); });
+  $("#an-scale-preset").onchange = () => {
+    const p = an.catalog.scale_presets[$("#an-scale-preset").value];
+    if (p) { $("#an-scale").value = p.scale; $("#an-offset").value = p.offset; }
+    updateScaleSummary();
+    renderSetup();
+    syncInputLayer();
+    compute();
+  };
+  ["#an-scale", "#an-offset"].forEach((s) => $(s).onchange = () => {
+    const sc = parseFloat($("#an-scale").value), off = parseFloat($("#an-offset").value);
+    const match = Object.entries(an.catalog.scale_presets).find(([, p]) => Math.abs(p.scale - sc) < 1e-12 && Math.abs(p.offset - off) < 1e-12);
+    $("#an-scale-preset").value = match ? match[0] : "";
+    updateScaleSummary();
+    renderSetup();
+    syncInputLayer();
+    compute();
+  });
+  $("#an-formula-go").onclick = async () => {
+    const f = $("#an-formula").value.trim();
+    if (!f) return toast("Type a formula first", true);
+    const r = await checkFormula();
+    if (!r) return toast("Fix the formula first (see the message under it)", true);
+    select({ formula: f, bands: r.bands });
+  };
+  $("#an-formula").addEventListener("keydown", (e) => e.key === "Enter" && $("#an-formula-go").click());
+
+  // export: the result layer through the layer export dialog; several indices as one multi-band GeoTIFF
+  $("#an-export-one").onclick = () => { const l = getLayer(an.resultId); if (l) openExport(l); };
+  async function doExport(indices, formulas, btn) {
+    return busy(btn, "Computing…", async () => {
+      const r = await api("/api/analyze/export", { method: "POST", json: { ...analyzeBody(), indices, formulas, clip: getClip("an-area") } });
+      download(r.url, r.name);
+      toast(`Saved ${r.name} (${r.layers.length} band${r.layers.length > 1 ? "s" : ""})`);
+    });
+  }
+  $("#an-export-many").onclick = () => {
+    if (!an.info) return toast("Choose an image first", true);
+    $("#ex-list").innerHTML = an.catalog.indices.map((i) => {
+      const ok = hasBands(i.bands);
+      return `<label title="${esc(i.title)}"><input type="checkbox" value="${i.name}" ${ok ? "" : "disabled"} ${ok && an.sel?.index === i.name ? "checked" : ""}>${esc(i.name)}</label>`;
+    }).join("");
+    const f = an.lastFormula;  // last formula that computed successfully
+    $("#ex-custom-wrap").classList.toggle("hidden", !f);
+    $("#ex-custom-f").textContent = f || "";
+    $("#ex-custom").checked = !!an.sel?.formula;
+    $("#ex-error").classList.add("hidden");
+    $("#dlg-export").showModal();
+  };
+  $("#ex-all").onclick = () => $$("#ex-list input:not(:disabled)").forEach((i) => i.checked = true);
+  $("#ex-none").onclick = () => $$("#ex-list input").forEach((i) => i.checked = false);
+  $("#ex-go").onclick = async (e) => {
+    const indices = $$("#ex-list input:checked").map((i) => i.value);
+    const f = an.lastFormula;
+    const formulas = $("#ex-custom").checked && f ? [{ name: "custom", formula: f }] : [];
+    if (!indices.length && !formulas.length) { $("#ex-error").textContent = "Select at least one index"; $("#ex-error").classList.remove("hidden"); return; }
+    try { await doExport(indices, formulas, e.currentTarget); $("#dlg-export").close(); }
+    catch (err) { $("#ex-error").textContent = err.message; $("#ex-error").classList.remove("hidden"); }
+  };
+
+  // ------------------------------------------------------------------ index setup (band assignment + hints)
+  const BAND_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+  const FORMULA_ALIASES = { COASTAL: "B01", BLUE: "B02", GREEN: "B03", RED: "B04", RE1: "B05", RE2: "B06", RE3: "B07",
+    REDEDGE: "B05", NIR: "B08", NIR2: "B8A", NARROWNIR: "B8A", WV: "B09", SWIR1: "B11", SWIR2: "B12" };
+  function normBand(tok) { // mirror of lulc_fetch.indices.normalize_band
+    const up = tok.toUpperCase();
+    if (FORMULA_ALIASES[up]) return FORMULA_ALIASES[up];
+    const m = up.match(/^B0?(\d{1,2})(A?)$/);
+    if (!m) return null;
+    const cand = m[1] === "8" && m[2] ? "B8A" : `B${String(+m[1]).padStart(2, "0")}`;
+    return an.catalog.band_names.includes(cand) ? cand : null;
+  }
+  const bandLabel = (b) => an.catalog.band_info[b]?.short || b;
+  const refl = (bandIdx) => { // file band median converted to reflectance
+    const st = an.info.bands.find((x) => x.index === bandIdx);
+    if (!st || st.median == null) return null;
+    return st.median * (parseFloat($("#an-scale").value) || 1) + (parseFloat($("#an-offset").value) || 0);
+  };
+  const prettyFormula = (f) => f.replace(/\*\*/g, "^").replace(/\s*\*\s*/g, " × ").replace(/\s\/\s/g, " ÷ ");
+
+  function selSpec(sel) {
+    if (!sel) return null;
+    if (sel.index) {
+      const s = an.catalog.indices.find((i) => i.name === sel.index);
+      return { title: `${s.name} · ${s.title}`, bands: s.bands, formula: s.formula, category: s.category, desc: s.description };
+    }
+    if (sel.composite) {
+      const c = an.catalog.composites[sel.composite];
+      return { title: c.title, bands: c.bands, formula: `R = ${c.bands[0]}, G = ${c.bands[1]}, B = ${c.bands[2]}`, composite: true };
+    }
+    return { title: "Custom formula", bands: sel.bands || [], formula: sel.formula };
+  }
+
+  function bandWarnings(bands) {
+    const out = [], m = an.bandMap, info = an.info;
+    const unconfirmed = bands.filter((b) => !an.userSet?.has(b));
+    if (/^guessed/.test(info.band_map_source) && unconfirmed.length) {
+      out.push(["warn", `This file has no band names, so the band order was <b>guessed from the band count</b> (${info.count} bands). Check ${unconfirmed.join(", ")} below.`]);
+    } else if (/^unknown/.test(info.band_map_source)) {
+      out.push(["err", "The bands in this file couldn't be identified. Assign each band below."]);
+    }
+    const used = {};
+    bands.filter((b) => b in m).forEach((b) => (used[m[b]] ||= []).push(b));
+    Object.entries(used).filter(([, bs]) => bs.length > 1).forEach(([idx, bs]) =>
+      out.push(["err", `File band ${idx} is assigned to <b>${bs.join(" and ")}</b> at the same time. Each should usually be a different band.`]));
+    const r = (b) => (b in m ? refl(m[b]) : null);
+    const nir = r("B08") ?? r("B8A"), red = r("B04");
+    if (bands.some((b) => ["B08", "B8A", "B04"].includes(b)) && nir != null && red != null && nir < red * 0.8) {
+      out.push(["warn", `<b>NIR looks darker than Red</b> (median ${fmtv(nir)} vs ${fmtv(red)}). Land with any vegetation is normally brighter in NIR, so NIR and Red may be <b>swapped or assigned to the wrong bands</b>. (This can be normal for scenes that are mostly water or dense city.)`]);
+    }
+    const s1 = r("B11"), s2 = r("B12");
+    if (bands.some((b) => ["B11", "B12"].includes(b)) && s1 != null && s2 != null && s2 > s1 * 1.3) {
+      out.push(["warn", `SWIR2 (B12) is brighter than SWIR1 (B11) (${fmtv(s2)} vs ${fmtv(s1)}). That's unusual, so they may be swapped.`]);
+    }
+    const vals = bands.filter((b) => b in m).map((b) => [b, r(b)]).filter(([, v]) => v != null);
+    const high = vals.filter(([, v]) => v > 1.5), low = vals.filter(([, v]) => v > 0 && v < 0.002);
+    if (high.length) out.push(["err", `Values don't look like reflectance (median ${high.map(([b, v]) => `${b} = ${fmtv(v)}`).join(", ")}). Change <b>Pixel values</b> in step 1, e.g. to “Sentinel-2 DN (÷10000)” or “8-bit”.`]);
+    if (low.length) out.push(["warn", `Values are very small (${low.map(([b, v]) => `${b} = ${fmtv(v)}`).join(", ")}). Check the <b>Pixel values</b> scale in step 1.`]);
+    return out;
+  }
+
+  function renderSetup() {
+    const sel = an.pending, spec = selSpec(sel), card = $("#an-setup");
+    if (!spec || !an.info) { card.classList.add("hidden"); return; }
+    card.classList.remove("hidden");
+    const info = an.catalog.band_info, m = an.bandMap;
+    $("#su-title").textContent = spec.title;
+    const words = (f) => f.replace(BAND_RE, (t) => { const b = normBand(t); return b ? bandLabel(b) : t; });
+    const onFile = (f) => f.replace(BAND_RE, (t) => {
+      const b = normBand(t);
+      if (!b) return t;
+      return b in m ? `Band ${m[b]}` : `<span class="chk-err">[${b}?]</span>`;
+    });
+    $("#su-f-bands").textContent = prettyFormula(spec.formula);
+    $("#su-f-words").textContent = prettyFormula(words(spec.formula));
+    $("#su-f-file").innerHTML = prettyFormula(onFile(esc(spec.formula)));
+
+    const options = (cur) => `<option value="">— not assigned —</option>` + an.info.bands.map((b) => {
+      const v = refl(b.index);
+      const named = b.description !== `Band ${b.index}` ? ` · ${esc(b.description)}` : "";
+      return `<option value="${b.index}" ${cur === b.index ? "selected" : ""}>Band ${b.index}${named}${v != null ? ` · median ${fmtv(v)}` : ""}</option>`;
+    }).join("");
+    $("#su-rows").innerHTML = spec.bands.map((b) => {
+      const bi = info[b] || {}, cur = m[b], file = an.info.bands.find((x) => x.index === cur);
+      const named = file && normBand(file.description.replace(/\s/g, "")) === b;
+      const hint = cur == null
+        ? `Not assigned. Which band of your file is <b>${esc(bi.name)}</b> (~${bi.nm} nm)? Elsewhere it is ${esc(bi.equiv)}.`
+        : named ? `✓ Band ${cur} is named “${esc(file.description)}”, which matches.`
+        : `Band ${cur}${file.description !== `Band ${cur}` ? ` (“${esc(file.description)}”)` : ""} is assumed to be ${esc(bi.short)}. Change it if your file's order is different. Elsewhere this band is ${esc(bi.equiv)}.`;
+      return `<div class="su-row ${cur == null ? "missing" : "ok"}">
+        <div class="su-band"><b>${b} · ${esc(bi.short || "")}</b><small>${esc(bi.name || "")}<br>${bi.nm ? bi.nm + " nm" : ""}</small></div>
+        <select data-role="${b}">${options(cur)}</select>
+        <div class="su-hint">${hint}</div></div>`;
+    }).join("");
+    $$("#su-rows select").forEach((s) => s.onchange = () => {
+      if (s.value) an.bandMap[s.dataset.role] = +s.value; else delete an.bandMap[s.dataset.role];
+      an.userSet.add(s.dataset.role);
+      syncInputLayer();
+      renderBandTable();
+      renderIndexButtons();
+      renderSetup();
+      if (spec.bands.every((b) => b in an.bandMap)) compute(an.pending);
+    });
+
+    const missing = spec.bands.filter((b) => !(b in m));
+    const warns = bandWarnings(spec.bands);
+    if (missing.length) warns.unshift(["err", `Assign <b>${missing.join(", ")}</b> to compute this. If your image doesn't have ${missing.length > 1 ? "these bands" : "this band"}, pick one of the suggestions below.`]);
+    $("#su-warn").innerHTML = warns.map(([k, t]) => `<div class="warn ${k === "err" ? "err" : ""}">${t}</div>`).join("");
+    const go = $("#su-go");
+    go.disabled = missing.length > 0;
+    go.textContent = missing.length ? `Assign ${missing.join(", ")} first` : (an.sel && JSON.stringify(an.sel) === JSON.stringify(sel) ? "Recompute" : "Compute");
+
+    // suggestions: indices that work with the bands this image has
+    const avail = an.catalog.indices.filter((i) => hasBands(i.bands) && i.name !== sel.index);
+    let sugg = [];
+    if (spec.category) sugg = avail.filter((i) => i.category === spec.category);
+    if (missing.length && !sugg.length && spec.category === "Vegetation") sugg = avail.filter((i) => i.category === "RGB only");
+    if (!spec.category && !spec.composite) sugg = avail.slice(0, 6);
+    $("#su-suggest").innerHTML = sugg.length
+      ? `${missing.length ? "Works with your image instead:" : "Related indices for this image:"} ` +
+        sugg.slice(0, 8).map((i) => `<button class="chip sugg" data-sugg="${i.name}" title="${esc(i.title)}: ${esc(i.formula)}">${i.name}</button>`).join("")
+      : "";
+    $$("#su-suggest [data-sugg]").forEach((b) => b.onclick = () => select({ index: b.dataset.sugg }));
+  }
+  $("#su-go").onclick = () => compute(an.pending);
+  $("#su-close").onclick = () => $("#an-setup").classList.add("hidden");
+
+  // custom formula: live check + examples
+  let fcTimer;
+  async function checkFormula() {
+    const f = $("#an-formula").value.trim(), out = $("#an-formula-check");
+    if (!f) { out.innerHTML = ""; return null; }
+    const r = await api(`/api/formula/check?formula=${encodeURIComponent(f)}`);
+    if (!r.ok) { out.innerHTML = `<span class="chk-err">✗ ${esc(r.error)}</span>`; return null; }
+    out.innerHTML = "Uses " + r.bands.map((b) => b in an.bandMap
+      ? `<span class="chk-ok">${b} (${esc(bandLabel(b))}) → Band ${an.bandMap[b]} ✓</span>`
+      : `<span class="chk-err">${b} (${esc(bandLabel(b))}) → not assigned ✗</span>`).join(", ");
+    return r;
+  }
+  $("#an-formula").addEventListener("input", () => { clearTimeout(fcTimer); fcTimer = setTimeout(checkFormula, 350); });
+  $("#an-formula-examples").onchange = (e) => {
+    const s = an.catalog.indices.find((i) => i.name === e.target.value);
+    if (!s) return;
+    $("#an-formula").value = s.formula;
+    e.target.value = "";
+    checkFormula();
+    $("#an-formula").focus();
+  };
+
+  async function initAnalyze() {
+    an.catalog = state.catalog = await api("/api/indices");
+    $("#an-cmap").innerHTML = `<option value="">Index default</option>` + Object.keys(an.catalog.colormaps).map((k) => `<option>${k}</option>`).join("");
+    $("#an-scale-preset").innerHTML = Object.entries(an.catalog.scale_presets).map(([k, p]) => `<option value="${k}">${esc(p.title)}</option>`).join("") +
+      `<option value="">Custom</option>`;
+    $("#an-formula-examples").innerHTML = `<option value="">Choose a formula to edit…</option>` +
+      an.catalog.indices.map((i) => `<option value="${i.name}">${i.name}: ${esc(i.formula)}</option>`).join("");
+    renderIndexButtons();
+  }
+
   // ------------------------------------------------------------------ init
   (async () => {
+    applyTheme(prefs.get("theme", "auto"));
+    setPane("contents", prefs.get("contents", true));
+    buildToolsMenu();
     state.config = await api("/api/config");
     $("#source").innerHTML = Object.entries(state.config.sources).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("");
     $("#indices-list").textContent = `(${state.config.indices.join(", ")})`;
@@ -626,7 +1977,10 @@
     $("#dl-product").onchange = fillYears;
     fillYears();
     setRange(90);
+    await initAnalyze();
+    restoreLayers();
     loadCreds().catch(() => {});
+    setPane("tools", false);  // the tool panel opens only when a tool is chosen from the Tools menu
     refreshJobs();
   })().catch((e) => toast("Could not reach the server: " + e.message, true));
 })();

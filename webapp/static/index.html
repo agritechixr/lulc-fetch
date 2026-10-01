@@ -10,23 +10,112 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
-    <span>LULC Fetch</span>
-    <small>Sentinel-2 · land-cover labels · high-res</small>
+<!-- ================= menu bar ================= -->
+<header class="menubar">
+  <div class="brand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span>LULC Fetch</span></div>
+  <nav class="menus" id="menus">
+    <div class="menu"><button class="menu-btn">File</button>
+      <div class="menu-pop">
+        <button data-cmd="add-data">Add data from computer…<kbd>Ctrl+O</kbd></button>
+        <button data-cmd="add-workspace">Add GeoTIFF from workspace…</button>
+        <button data-cmd="open-safe">Open Sentinel product (.SAFE)…</button>
+        <hr>
+        <button data-cmd="export-layer">Export selected layer…<kbd>Ctrl+E</kbd></button>
+        <button data-cmd="layer-props">Selected layer properties…</button>
+        <button data-cmd="remove-layer">Remove selected layer<kbd>Del</kbd></button>
+        <button data-cmd="clear-layers">Remove all layers</button>
+        <hr>
+        <button data-cmd="credentials">Credentials…</button>
+      </div>
+    </div>
+    <div class="menu"><button class="menu-btn">Tools</button>
+      <div class="menu-pop wide" id="tools-menu"></div>
+    </div>
+    <div class="menu"><button class="menu-btn">View</button>
+      <div class="menu-pop">
+        <button data-cmd="toggle-contents" class="check" id="mi-contents">Contents panel<kbd>Ctrl+1</kbd></button>
+        <button data-cmd="toggle-tools" class="check" id="mi-tools">Tool panel<kbd>Ctrl+2</kbd></button>
+        <hr>
+        <div class="menu-label">Basemap</div>
+        <button data-cmd="basemap:streets" class="radio" data-group="basemap">Streets (OpenStreetMap)</button>
+        <button data-cmd="basemap:imagery" class="radio" data-group="basemap">Satellite (Esri)</button>
+        <button data-cmd="basemap:topo" class="radio" data-group="basemap">Topographic (OpenTopoMap)</button>
+        <button data-cmd="basemap:none" class="radio" data-group="basemap">No basemap</button>
+        <button data-cmd="toggle-labels" class="check" id="mi-labels">Place labels on top</button>
+        <hr>
+        <button data-cmd="zoom-all">Zoom to all layers</button>
+        <hr>
+        <div class="menu-label">Theme</div>
+        <button data-cmd="theme:auto" class="radio" data-group="theme">Match system</button>
+        <button data-cmd="theme:light" class="radio" data-group="theme">Light</button>
+        <button data-cmd="theme:dark" class="radio" data-group="theme">Dark</button>
+      </div>
+    </div>
+    <div class="menu"><button class="menu-btn">Help</button>
+      <div class="menu-pop">
+        <button data-cmd="guide">Quick guide</button>
+        <button data-cmd="start">Getting started</button>
+        <button data-cmd="shortcuts">Keyboard shortcuts</button>
+      </div>
+    </div>
+  </nav>
+  <div class="menubar-right">
+    <span class="active-tool" id="active-tool"></span>
+    <button id="btn-creds" class="btn ghost small"><span id="creds-dot" class="dot"></span>Credentials</button>
   </div>
-  <button id="btn-creds" class="btn ghost"><span id="creds-dot" class="dot"></span>Credentials</button>
 </header>
 
-<main class="layout">
-  <aside class="sidebar">
-    <nav class="tabs" role="tablist">
-      <button class="tab active" data-tab="search">Search</button>
-      <button class="tab" data-tab="jobs">Downloads <span id="jobs-badge" class="badge hidden">0</span></button>
-    </nav>
+<main class="gis" id="gis">
+  <!-- ================= Contents (layers) ================= -->
+  <aside class="pane contents" id="contents">
+    <div class="pane-head">
+      <h2>Contents</h2>
+      <div class="pane-actions">
+        <button class="btn small primary" id="btn-add-data" title="Add GeoTIFF, shapefile, GeoJSON or KML from your computer">+ Add data</button>
+        <button class="btn small" id="btn-add-ws" title="Add a GeoTIFF that is already in the workspace (downloads, results)">Workspace</button>
+        <button class="x" data-cmd="toggle-contents" title="Hide Contents (Ctrl+1)">×</button>
+      </div>
+    </div>
+    <div class="layer-list" id="layer-list"></div>
+    <div class="contents-empty" id="contents-empty">
+      <b>No layers yet</b>
+      Add your own files with <b>+ Add data</b> or drop them on the map, or use a tool from the <b>Tools</b> menu. Downloads and results appear here automatically.
+    </div>
+    <div class="pane-foot">Drag to reorder · double-click to zoom · right-click for options</div>
+    <input type="file" id="add-file" multiple hidden accept=".tif,.tiff,.zip,.shp,.shx,.dbf,.prj,.cpg,.geojson,.json,.kml,.kmz">
+  </aside>
 
-    <section id="tab-search" class="tabpanel">
+  <!-- ================= map ================= -->
+  <div class="mapwrap">
+    <div id="map"></div>
+    <div id="map-hint" class="map-hint hidden"></div>
+    <div id="drop-overlay" class="drop-overlay hidden"><div>Drop files to add them as layers<small>GeoTIFF · Shapefile (.zip or .shp + .shx + .dbf + .prj) · GeoJSON · KML / KMZ</small></div></div>
+  </div>
+
+  <!-- ================= tool panel ================= -->
+  <aside class="pane toolpanel" id="toolpanel">
+    <div class="pane-head">
+      <div><h2 id="tool-title">Tools</h2><p id="tool-sub"></p></div>
+      <button class="x" data-cmd="toggle-tools" title="Hide tool panel (Ctrl+2)">×</button>
+    </div>
+    <div class="tool-body">
+    <section id="tab-home" class="tabpanel">
+      <p class="hint" style="margin-top:0">Pick a tool from the <b>Tools</b> menu, or start here:</p>
+      <div class="tool-cards" id="tool-cards"></div>
+      <div id="home-products" class="hidden">
+        <div class="home-label">Sentinel products in your data folder</div>
+        <div id="home-products-list" class="ws-list"></div>
+      </div>
+      <div class="home-label">Typical workflow</div>
+      <ol class="workflow">
+        <li><b>Find imagery</b>: set the area and dates, preview clear scenes, download.</li>
+        <li>The download appears in <b>Contents</b> as a layer.</li>
+        <li><b>Index analysis</b>: compute NDVI, NDWI, NDBI… Each result is a new layer.</li>
+        <li>Right-click a layer → <b>Export</b> as GeoTIFF, PNG or Shapefile.</li>
+      </ol>
+    </section>
+
+    <section id="tab-search" class="tabpanel hidden">
       <!-- 1. AOI -->
       <div class="card">
         <h2><span class="step">1</span>Area of interest</h2>
@@ -133,23 +222,167 @@
       </div>
     </section>
 
+    <section id="tab-analyze" class="tabpanel hidden">
+      <!-- A1. Input layer -->
+      <div class="card">
+        <h2><span class="step">1</span>Input image</h2>
+        <select id="an-input"><option value="">Choose a raster layer…</option></select>
+        <p class="hint" id="an-input-hint">Uses a raster layer from <b>Contents</b>. Add one with <b>+ Add data</b>, <b>Workspace</b>, or download from <b>Find imagery</b>.</p>
+        <div class="area-pick">
+          <label>Area to analyse<select id="an-area"></select></label>
+          <p class="hint" id="an-area-hint">The whole image is analysed.</p>
+        </div>
+        <div id="an-info" class="hidden">
+          <div class="aoi-summary">
+            <div><strong id="an-name"></strong><span id="an-meta"></span></div>
+          </div>
+          <details class="an-details" id="an-bands-details">
+            <summary><span>Bands: </span><span id="an-bandsum"></span></summary>
+            <p class="hint" id="an-bandsrc"></p>
+            <table class="kv" id="an-bandtable"></table>
+          </details>
+          <details class="an-details">
+            <summary><span>Pixel values: </span><span id="an-scalesum"></span></summary>
+            <label>Conversion to reflectance<select id="an-scale-preset"></select></label>
+            <div class="grid2">
+              <label>Scale ×<input id="an-scale" type="number" step="any"></label>
+              <label>Offset +<input id="an-offset" type="number" step="any"></label>
+            </div>
+            <p class="hint" id="an-scalereason"></p>
+          </details>
+        </div>
+      </div>
+
+      <!-- A2. Indices -->
+      <div class="card" id="an-indices-card">
+        <h2><span class="step">2</span>Indices &amp; band combinations</h2>
+        <div class="hint" style="margin-top:0">Band combinations</div>
+        <div class="row presets" id="an-composites"></div>
+        <div class="hint">Spectral indices. Dashed buttons need a band that isn't assigned yet. Click one to assign it.</div>
+        <div class="row presets" id="an-cats"></div>
+        <div class="idx-grid" id="an-index-grid"></div>
+        <details class="an-details" id="an-custom">
+          <summary>Custom formula</summary>
+          <div class="row">
+            <input id="an-formula" class="mono" placeholder="(B08 - B04) / (B08 + B04)">
+            <button class="btn primary" id="an-formula-go">Apply</button>
+          </div>
+          <div id="an-formula-check" class="hint"></div>
+          <label>Start from an example<select id="an-formula-examples"><option value="">Choose a formula to edit…</option></select></label>
+          <div class="hint">Insert a band:</div>
+          <div class="row presets" id="an-band-chips" style="margin-top:4px"></div>
+          <p class="hint">Use band names (B02…B12, or BLUE, GREEN, RED, NIR, SWIR1, SWIR2), numbers, <code>+ − × ÷ ^</code>, brackets, and sqrt, abs, log, exp, min, max.</p>
+        </details>
+      </div>
+
+      <!-- A2b. Index setup: which file band feeds each formula band -->
+      <div class="card hidden" id="an-setup">
+        <div class="row between"><h2 style="margin:0"><span class="step">⚙</span><span id="su-title">Index setup</span></h2>
+          <button class="x" id="su-close" aria-label="Hide setup" title="Hide">×</button></div>
+        <div class="su-formulas">
+          <div><span class="su-k">Formula</span><code id="su-f-bands"></code></div>
+          <div><span class="su-k">In words</span><code id="su-f-words"></code></div>
+          <div><span class="su-k">On this file</span><code id="su-f-file"></code></div>
+        </div>
+        <div class="hint" id="su-help">Each band in the formula must come from the right band of your file. Check the choices below. If your file's bands are in a different order, pick the correct one.</div>
+        <div id="su-rows"></div>
+        <div id="su-warn"></div>
+        <div class="row" id="su-actions">
+          <button class="btn primary grow" id="su-go">Compute</button>
+        </div>
+        <div id="su-suggest" class="hint"></div>
+      </div>
+
+      <!-- A3. Result -->
+      <div class="card hidden" id="an-result">
+        <div class="row between"><h2 style="margin:0"><span class="step">3</span><span id="an-title">Result</span></h2>
+          <span class="status running hidden" id="an-busy"><span class="spinner"></span>computing</span></div>
+        <div id="an-desc" class="hint"></div>
+        <div id="an-formula-show" class="mono small formula"></div>
+        <div id="an-legend-wrap">
+          <div class="legend" id="an-legend"></div>
+          <div class="row between small"><span id="an-lmin"></span><span id="an-lmid"></span><span id="an-lmax"></span></div>
+          <svg id="an-hist" class="hist" viewBox="0 0 300 60" preserveAspectRatio="none"></svg>
+          <div class="statgrid" id="an-stats"></div>
+          <div class="grid2">
+            <label>Colour scale<select id="an-cmap"></select></label>
+            <label>Stretch<select id="an-stretch">
+              <option value="fixed">Standard range</option><option value="auto">Auto (2–98%)</option><option value="custom">Custom</option>
+            </select></label>
+          </div>
+          <div class="grid2 hidden" id="an-custom-range">
+            <label>Min<input id="an-vmin" type="number" step="any"></label>
+            <label>Max<input id="an-vmax" type="number" step="any"></label>
+          </div>
+        </div>
+        
+        <p class="hint">The result is a layer in <b>Contents</b> (left). Select it and click the map to read pixel values.</p>
+        <div class="row">
+          <button class="btn primary grow" id="an-export-one">Export layer…</button>
+          <button class="btn" id="an-export-many" title="Several indices in one multi-band GeoTIFF">Export several…</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-export" class="tabpanel hidden">
+      <div class="card">
+        <h2><span class="step">1</span>Layer</h2>
+        <select id="lx-layer"></select>
+        <p class="hint" id="lx-layer-info">Choose a layer from Contents (or right-click a layer ▸ Export / save to computer).</p>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Area</h2>
+        <div class="area-pick">
+          <label>Export only this area<select id="lx-area"></select></label>
+          <p class="hint" id="lx-area-hint">The whole layer is exported.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Format</h2>
+        <div class="opts" id="lx-formats"></div>
+        <div id="lx-shp" class="dl-section hidden">
+          <b>Polygon classes</b>
+          <p class="hint" id="lx-shp-note" style="margin-top:4px"></p>
+          <div id="lx-shp-classes">
+            <div class="grid2">
+              <label>Method<select id="lx-method"><option value="equal">Equal intervals</option><option value="quantile">Quantiles (equal area)</option><option value="custom">Custom breaks</option></select></label>
+              <label>Number of classes<input id="lx-classes" type="number" min="2" max="20" value="5"></label>
+            </div>
+            <label id="lx-breaks-wrap" class="hidden">Breaks (comma-separated)<input id="lx-breaks" class="mono" placeholder="-1, 0, 0.2, 0.5, 1"></label>
+          </div>
+          <label>Merge patches smaller than (pixels)<input id="lx-sieve" type="number" min="0" value="8"></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2><span class="step">4</span>Save to computer</h2>
+        <label>File name<input id="lx-name"></label>
+        <div id="lx-error" class="warn hidden"></div>
+        <div class="row"><button class="btn primary grow" id="lx-go">⬇ Export and download</button></div>
+        <p class="hint">The file goes to your browser's Downloads folder.</p>
+      </div>
+    </section>
+
     <section id="tab-jobs" class="tabpanel hidden">
       <div id="jobs-empty" class="empty">No downloads yet. Search, pick a date, then click <b>Download</b>.</div>
       <div id="jobs"></div>
     </section>
-  </aside>
-
-  <div class="mapwrap">
-    <div id="map"></div>
-    <div id="preview-ctl" class="map-panel hidden">
-      <div class="row between"><strong id="pv-title">Preview</strong><button class="x" id="pv-close" aria-label="Close">×</button></div>
-      <div id="pv-stats" class="pv-stats"></div>
-      <label class="inline"><input type="checkbox" id="pv-clouds" checked> Cloud / shadow mask</label>
-      <label>Opacity<input type="range" id="pv-opacity" min="0" max="100" value="100"></label>
     </div>
-    <div id="map-hint" class="map-hint hidden"></div>
-  </div>
+  </aside>
 </main>
+
+<!-- ================= status bar ================= -->
+<footer class="statusbar">
+  <span class="sb-item" id="sb-msg">Ready</span>
+  <button class="sb-item sb-btn hidden" id="sb-jobs" title="Open Downloads"></button>
+  <span class="sb-spacer"></span>
+  <button class="sb-item sb-btn mono" id="sb-coords" title="Cursor position (WGS 84). Click to switch decimal degrees / DMS">Lat –  Lon –</button>
+  <label class="sb-item sb-scale" title="Map scale. Pick or type a scale and press Enter">Scale 1 :
+    <input id="sb-scale" list="scale-list" inputmode="numeric" autocomplete="off">
+    <datalist id="scale-list"><option value="500"><option value="1,000"><option value="2,500"><option value="5,000"><option value="10,000"><option value="25,000"><option value="50,000"><option value="100,000"><option value="250,000"><option value="500,000"><option value="1,000,000"><option value="2,500,000"><option value="5,000,000"><option value="10,000,000"></datalist>
+  </label>
+  <span class="sb-item mono" id="sb-zoom">z 5</span>
+  <span class="sb-item" title="Map display projection: Web Mercator. Exports keep each file's own CRS.">EPSG:3857</span>
+</footer>
 
 <!-- Metadata modal -->
 <dialog id="dlg-meta" class="modal wide">
@@ -209,6 +442,20 @@
   </div>
 </dialog>
 
+
+<!-- Export several indices -->
+<dialog id="dlg-export" class="modal">
+  <div class="modal-head"><h3>Export indices</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <p class="hint" style="margin-top:0">The selected indices are computed at full resolution and saved as one multi-band GeoTIFF (one band per index).</p>
+    <div class="row between"><b>Indices</b><span class="row tight"><button class="chip" id="ex-all">All available</button><button class="chip" id="ex-none">None</button></span></div>
+    <div id="ex-list" class="ex-list"></div>
+    <label class="inline" id="ex-custom-wrap"><input type="checkbox" id="ex-custom"> Include custom formula <code id="ex-custom-f"></code></label>
+    <div id="ex-error" class="warn hidden"></div>
+  </div>
+  <div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="ex-go">Export GeoTIFF</button></div>
+</dialog>
+
 <!-- Credentials modal -->
 <dialog id="dlg-creds" class="modal">
   <div class="modal-head"><h3>Credentials</h3><button class="x" data-close>×</button></div>
@@ -220,6 +467,56 @@
   </div>
 </dialog>
 
+<!-- (layer export lives in the Export tool panel) -->
+
+<!-- Layer properties (raster display) -->
+<dialog id="dlg-lprops" class="modal">
+  <div class="modal-head"><h3 id="lp-title">Layer properties</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <label>Name<input id="lp-name"></label>
+    <div id="lp-raster">
+      <label>Display<select id="lp-display"></select></label>
+      <div class="grid2" id="lp-style">
+        <label>Colour scale<select id="lp-cmap"></select></label>
+        <label>Stretch<select id="lp-stretch"><option value="fixed">Standard range</option><option value="auto">Auto (2–98%)</option><option value="custom">Custom</option></select></label>
+      </div>
+      <div class="grid2 hidden" id="lp-range">
+        <label>Min<input id="lp-vmin" type="number" step="any"></label>
+        <label>Max<input id="lp-vmax" type="number" step="any"></label>
+      </div>
+    </div>
+    <div id="lp-vector" class="hidden"><label>Colour<input id="lp-color" type="color"></label></div>
+    <label>Opacity<input id="lp-opacity" type="range" min="0" max="100"></label>
+    <table class="kv" id="lp-info" style="margin-top:12px"></table>
+  </div>
+  <div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="lp-apply">Apply</button></div>
+</dialog>
+
+<!-- Add from workspace -->
+<dialog id="dlg-ws" class="modal">
+  <div class="modal-head"><h3>Add GeoTIFF from workspace</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body"><p class="hint" style="margin-top:0">Files already on this computer: your downloads, uploads, results and command-line output.</p><div id="ws-list" class="ws-list"></div></div>
+  <div class="modal-foot"><button class="btn" data-close>Close</button></div>
+</dialog>
+
+<!-- Open .SAFE products -->
+<dialog id="dlg-safe" class="modal">
+  <div class="modal-head"><h3>Open Sentinel product (.SAFE)</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <p class="hint" style="margin-top:0">Copernicus products (extracted <code>.SAFE</code> folders or <code>.SAFE.zip</code>) found in <code id="safe-folder"></code>. Put downloaded products there to open them here.</p>
+    <div id="safe-list" class="ws-list"></div>
+  </div>
+  <div class="modal-foot"><button class="btn" data-close>Close</button></div>
+</dialog>
+
+<!-- Help -->
+<dialog id="dlg-help" class="modal">
+  <div class="modal-head"><h3 id="help-title">Help</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body" id="help-body"></div>
+</dialog>
+
+<!-- Layer context menu -->
+<div class="ctx-menu hidden" id="ctx-menu"></div>
 <div id="toasts"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>

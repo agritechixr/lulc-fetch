@@ -1,45 +1,138 @@
 # lulc-fetch
 
-Fetch analysis-ready satellite imagery for land-use / land-cover (LULC) work over any area:
+A toolkit for land-use / land-cover (LULC) work with free satellite data. It has a **desktop GIS-style web app** and a **command-line tool**:
 
-- **Sentinel-2 L2A** (10 m, global, every ~5 days): from AWS Earth Search, Microsoft Planetary Computer or Copernicus Data Space. You get surface reflectance (0–1), cloud masking from the SCL layer, spectral indices, and cloud-free median composites.
+- **Find and download Sentinel-2 L2A** (10 m, global, every ~5 days) from AWS Earth Search, Microsoft Planetary Computer or Copernicus Data Space:
+  - surface reflectance, cloud masking, cloud-free median composites
+  - only the pixels inside your area of interest are downloaded
+- **Open your own Copernicus products** (`.SAFE`): Sentinel-2 L1C/L2A with all bands, and Sentinel-1 GRD converted to calibrated radar backscatter (VV/VH, dB).
+- **30 spectral and radar indices** (NDVI, SAVI, EVI, NDWI, NDBI, NBR, RVI…) or your own formula, on any GeoTIFF. Band-order checks catch mislabelled files.
 - **LULC reference maps** for training and validation: ESA WorldCover 10 m and Esri/Impact Observatory annual LULC 10 m.
-- **High-resolution / other imagery** from any Planetary Computer collection: NAIP 0.6 m aerial (USA only), Sentinel-1 radar, Copernicus DEM, and more.
+- **Other collections** from Planetary Computer: NAIP 0.6 m aerial (USA), Sentinel-1 RTC, Copernicus DEM, and more.
+- **Export any layer** as GeoTIFF, PNG (optionally georeferenced), Shapefile, GeoJSON or KML, for the whole layer or just an area you choose.
 
-Every layer is warped onto the same pixel grid (UTM, snapped to the resolution). Only the pixels inside your AOI are downloaded, not whole 110 km tiles.
-
-## Install
+## Install and run
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e .
-source .venv/bin/activate        # puts `lulc-fetch` on PATH
+.venv/bin/pip install -e ".[web]"     # use -e . for the command-line tool only
+.venv/bin/lulc-fetch-web              # web app → http://127.0.0.1:8000
+.venv/bin/lulc-fetch --help           # command-line tool
 ```
 
-You don't need an account for the default sources (`earth-search`, `planetary-computer`).
+Requires Python 3.10+. You don't need an account for the default sources (`earth-search`, `planetary-computer`). A Copernicus account is only needed for the `cdse` source and for full-product downloads.
 
 ## Web app
 
-```bash
-.venv/bin/pip install -e ".[web]"
-lulc-fetch-web            # opens http://127.0.0.1:8000
+A desktop GIS-style workspace, laid out like QGIS or ArcGIS:
+
+```
+┌ File  Tools ▾  View  Help ─────────────────────────────── Credentials ┐
+│ Contents        │                                    │ Tool panel     │
+│ ☑ NDVI · scene  │               map                  │ (the tool you  │
+│ ☑ AOI           │                                    │  picked in     │
+│ ☑ S2 scene      │                                    │  Tools)        │
+├─────────────────┴────────────────────────────────────┴────────────────┤
+│ Ready              Lat 12.96501  Lon 77.58500   Scale 1 : 25,000  z 14 │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Area of interest.** You can:
-   - draw a rectangle or polygon on the map
-   - type lat/long, as a point plus radius or a bounding box (or pick the point on the map)
-   - search an address or place name (OpenStreetMap). You can use the place's boundary, its bounding box, or a radius around it.
-   - upload a **shapefile** (.zip, or .shp + .shx + .dbf + .prj; projected CRSs are reprojected), **GeoJSON**, **KML** or **KMZ**
-2. **Dates and filters.** Choose the source (Earth Search, Planetary Computer or Copernicus), the date range and the maximum cloud %.
-3. **Results.** One card per acquisition date shows a thumbnail, the tile cloud %, and how much of your area the tiles cover. Footprints appear on the map.
-   - **Preview area** overlays the actual imagery for your area on the map, with a cloud/shadow mask and *clear % inside your area*.
-   - **Metadata** shows the key properties, all assets, all STAC properties and the raw JSON.
-   - **Download** offers four options: that date (clipped, cloud-masked bands + indices), a cloud-free composite of the range, an ESA WorldCover / Esri LULC label map on the same grid, or the original full .SAFE product from Copernicus.
-4. **Downloads tab.** Jobs run in the background with live logs, a result preview and download links. Files are saved to `./downloads/<job>/`.
+- **Menu bar**
+  - **File:** add data, add from the workspace, open a Sentinel product (.SAFE), export / properties / remove the selected layer, credentials.
+  - **Tools ▾:** Find imagery, Index analysis, Export data, Downloads & jobs. The right-hand panel only opens when you pick a tool; × closes it.
+  - **View:** show or hide the panels, choose the basemap (streets, satellite, topographic, none), place labels, zoom to all layers, theme.
+  - **Help:** getting started, quick guide, keyboard shortcuts (<kbd>Ctrl/⌘ O</kbd> add data, <kbd>Ctrl/⌘ E</kbd> export, <kbd>Del</kbd> remove layer, <kbd>Ctrl/⌘ 1</kbd> / <kbd>2</kbd> toggle panels).
+- **Contents (left)** holds every layer:
+  - **local files you add:** GeoTIFF, Shapefile (.zip, or .shp + .shx + .dbf + .prj; projected CRSs are reprojected), GeoJSON, KML/KMZ. Use **+ Add data**, File ▸ Add data, or drag them onto the map.
+  - GeoTIFFs already in the workspace (**Workspace** button)
+  - **finished downloads**, which are added automatically
+  - your area of interest, scene footprints, previews and index results
 
-**Credentials** (top-right) stores your Copernicus account, Copernicus S3 keys and an optional Planetary Computer key in the OS keychain (macOS Keychain on a Mac). Secrets are never sent back to the browser, and they only go to the provider they belong to. **Test** checks them against the provider.
+  Tick a layer to show or hide it and drag to reorder. Use **🔍 / double-click / right-click ▸ Zoom to layer** to zoom to it. Right-click (or ⋯) also has Properties, **Export / save to computer**, Use as area of interest, Compute indices, Move, and Remove. Select a raster and click the map to read its pixel values. The layer list and map view are restored when you reopen the page.
+- **Area picker (every tool):** Index analysis and Export can be limited to an area: the whole layer, the Find-imagery area of interest, any polygon layer in Contents, the current map view, or a rectangle / polygon you draw (which is added to Contents as a "Clip area" layer).
+  - Only that window of the image is read, so area-limited results are computed at full resolution and much faster.
+  - Stats and histograms describe only that area.
+  - Exports are cropped to it, with pixels outside the polygon set to no-data. Vector exports keep only the features inside it.
+- **Export any layer** (Tools ▸ Export data, or right-click ▸ Export / save to computer):
+  - **Rasters:** **GeoTIFF** (index values / band / composite, original projection), **PNG** (as displayed), **PNG + world file** (.pgw + .prj, georeferenced), or **Shapefile**. For a shapefile, the values are grouped into classes (equal intervals, quantiles or your own breaks), small patches are merged, and the result is converted to polygons with class, range and area attributes. Class maps such as WorldCover keep their class names.
+  - **Vectors:** **Shapefile**, **GeoJSON** or **KML**.
+- **Status bar (bottom):** the cursor's lat/long (click it to switch decimal degrees / DMS), a **map scale box** (pick 1:500 … 1:10,000,000 or type any scale and press Enter), the zoom level, and running downloads.
+
+### Find imagery
+1. **Area of interest.** Draw it, type lat/long (point + radius or bounding box), search an address (OpenStreetMap), or upload a shapefile / GeoJSON / KML. Any polygon layer can also become the area (right-click ▸ Use as area of interest).
+2. **Dates and filters:** source (Earth Search, Planetary Computer or Copernicus), date range, maximum cloud %.
+3. **Results:**
+   - One card per acquisition date shows a thumbnail, the tile cloud %, and how much of your area it covers. Footprints become a layer.
+   - **Preview area** adds the real imagery of your area, plus a cloud/shadow mask, as layers.
+   - **Metadata** shows the scene's full STAC metadata.
+   - **Download** offers that date, a cloud-free composite, ESA WorldCover / Esri land-cover labels, or the original Copernicus .SAFE product. Jobs run in the background (Downloads & jobs), and their output is added to Contents.
+
+### Your own Sentinel products (.SAFE)
+Copy Copernicus products (extracted `.SAFE` folders or `.SAFE.zip` files) into the `data/` folder. They then appear under **File ▸ Open Sentinel product (.SAFE)** and on **Help ▸ Getting started**:
+
+- **Sentinel-2 L1C / L2A:** opens instantly as one layer with all 12 bands at 10 m. It's a VRT that reads the original JPEG2000 files, so nothing is copied. Band names and the reflectance scale/offset (incl. the −0.1 offset of processing baseline ≥ 04.00) are taken from the product metadata, so every optical index works right away.
+- **Sentinel-1 GRD (IW/EW, dual-pol):** converted in the background to a GeoTIFF with VV, VH and VV−VH. The steps are radiometric calibration to σ⁰ using the product's calibration LUT, multilooking (power averaged over n×n pixels), dB conversion, and geocoding from the product's ground control points to UTM at 20/40/80 m, optionally clipped to your area of interest. There is no terrain correction, so expect geometric shifts in steep mountains.
+
+  Radar layers open as a **Radar RGB** (R = VV, G = VH, B = VV/VH). The **Radar (SAR)** index group adds **RVI** (radar vegetation index), **CPR** (VH − VV), **NDPI**, and VV / VH in dB.
+
+Example with the sample products in `data/`:
+
+| Product | Opened as | Time |
+|---|---|---|
+| `S2C_MSIL2A_20261001…_T33TUG` (central Italy, 1.2 GB) | 10980 × 10980 px, 12 bands | about 9 s to open, 4–5 s per map render |
+| `S1C_IW_GRDH_1SDV_20261001…` (Austria, 1.8 GB) | σ⁰ VV/VH at 40 m, 7314 × 5309 px | about 12 s |
+
+### Index analysis
+Pick an input raster layer, then click an index. **Each result is a new layer**, which you can style, identify and export.
+
+| Category | Indices |
+|---|---|
+| Vegetation | NDVI, SAVI, MSAVI, OSAVI, EVI, EVI2, GNDVI, NDRE, CIre, ARVI |
+| RGB only | VARI, GLI, ExG |
+| Water / moisture | NDWI, MNDWI, AWEI, NDMI, NDCI |
+| Built-up / soil | NDBI, UI, BSI, NDTI |
+| Fire | NBR, NBR2 |
+| Snow | NDSI |
+| Radar (Sentinel-1) | RVI, CPR (VH − VV), NDPI, VV dB, VH dB |
+
+- **Area to analyse:** the whole image or any area from the area picker. Results then cover only that area, at full resolution.
+- **Band combinations** (true colour, false colour, SWIR, agriculture, urban, radar RGB) change how the input layer is displayed.
+- **Custom formula:** e.g. `(NIR - SWIR1) / (NIR + SWIR1)`. You can use band names (`B08` or `NIR`), numbers, `+ - * / ^` and `sqrt abs log exp min max`. Formulas are parsed and checked, never executed as code.
+- **Index setup panel:** shows the formula with band numbers, in plain words, and as it will run on your file (`Band 4 − Band 1`). Each needed band has a dropdown to pick the matching band from your file.
+  - **Warnings** flag likely mistakes: a guessed band order, NIR darker than Red, swapped SWIR bands, the same band used twice, and values that don't look like reflectance.
+  - **Suggestions** list indices that work with the bands your image has.
+- **Automatic detection:** band mapping is detected from band names (Sentinel-2, Landsat `SR_B*`, NAIP) or the band count. Pixel values are converted to reflectance (S2 ×10000, Landsat C2, 8-bit). Both can be changed in the panel.
+
+### Credentials and security
+**Credentials** stores your Copernicus account, Copernicus S3 keys and an optional Planetary Computer key in the OS keychain (macOS Keychain on a Mac). Secrets are never sent back to the browser, and they only go to the provider they belong to.
 
 The server listens on `127.0.0.1` only and rejects requests from other websites. It is a personal, single-user tool. Hosting it for several people would need user accounts and per-user credential storage first.
+
+### Adding a tool
+1. Add a panel to `webapp/static/index.html`: `<section id="tab-mytool" class="tabpanel hidden">…</section>`.
+2. Add an entry to the `TOOLS` list in `webapp/static/app.js`: `{ id: "mytool", title, icon, subtitle }`. The Tools-menu item and the start-page card are generated from it.
+3. Put server endpoints in `webapp/server.py` and processing code in `lulc_fetch/`. Add results to Contents with `addRasterFromPath(path)` or `addVectorLayer(geojson, name)`, so they get layer styling and export for free.
+
+### Project layout
+
+```
+lulc_fetch/          core library (also used by the CLI)
+  sentinel2.py       STAC search, cloud masking, scenes, median composites
+  sources.py         Earth Search / Planetary Computer / Copernicus catalogs
+  pipeline.py        scene / composite / label exports
+  indices.py         index catalog + safe formula evaluator
+  analysis.py        rendering, band detection, clipping, GeoTIFF / PNG / shapefile export
+  safe.py            Sentinel-2 .SAFE → VRT, Sentinel-1 GRD → calibrated σ⁰ GeoTIFF
+  vector_io.py       shapefile / KML / GeoJSON writers
+  extras.py, cdse.py WorldCover / Esri labels, other collections, Copernicus product download
+webapp/
+  server.py          FastAPI backend (localhost only)
+  credentials.py     OS-keychain credential storage
+  jobs.py, aoi_io.py background jobs; shapefile / KML / geocoding input
+  static/            the web page (index.html, app.js, style.css)
+```
+
+Working folders, all git-ignored: `data/` (your .SAFE products), `imports/` (VRTs), `downloads/` (job output), `uploads/`, `analysis/`, `exports/`.
 
 ## Command line
 
@@ -104,8 +197,12 @@ Commercial providers (Planet 3 m, Maxar/Airbus <1 m) need paid access.
 
 ## Limits
 
-- One request is capped at 60 M pixels (≈77×77 km at 10 m). Tile larger regions or use `--res 20`.
+- One download request is capped at 60 M pixels (≈77×77 km at 10 m). Tile larger regions or use `--res 20`.
 - Composites keep about `n_scenes × H × W × 4` bytes per band group in memory, budgeted at about 1.5 GB.
+- Map previews of large rasters are drawn at reduced resolution (≈1400 px). Their stats are computed on that preview unless you pick an area. GeoTIFF exports are always full resolution.
+- Raster → shapefile works on at most 2000 px on the long side (pick an area for full detail). PNG export is capped at 8192 px.
+- Sentinel-1 backscatter is geocoded on the ellipsoid without terrain correction, and thermal noise is not removed.
+- The web app is a single-user tool for your own computer. It is not designed to be hosted for others.
 
 ## License
 

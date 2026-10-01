@@ -19,3 +19,8 @@ output/
 .DS_Store
 .vscode/
 .idea/
+uploads/
+analysis/
+exports/
+data/
+imports/
