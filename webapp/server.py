@@ -77,6 +77,14 @@ def _source(name: str):
     return get_source(name, **credentials.source_kwargs(name))
 
 
+def _clip(geometry: dict | None) -> dict | None:
+    """Validate an optional clip polygon (GeoJSON, EPSG:4326)."""
+    if not geometry:
+        return None
+    _aoi(geometry)
+    return geometry
+
+
 def _png_data_url(rgba: np.ndarray) -> str:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", NotGeoreferencedWarning)
@@ -393,6 +401,350 @@ def job_file(job_id: str, name: str):
     if not job or name not in job.files():  # also blocks path traversal
         raise HTTPException(404, "No such file")
     return FileResponse(job.dir / name, filename=name)
+
+
+
+# ------------------------------------------------------------------ analyze existing GeoTIFFs
+
+RASTER_ROOTS = {"imports": "Imported products", "downloads": "Downloads", "uploads": "Uploaded",
+                "analysis": "Analysis results", "output": "CLI output"}
+RASTER_EXTS = {".tif", ".tiff", ".vrt"}  # .vrt only as written by the .SAFE importer
+UPLOAD_EXTS = {".tif", ".tiff"}  # never accept uploaded VRTs: they can point at arbitrary files
+
+
+def _raster_path(rel: str, roots=RASTER_ROOTS) -> Path:
+    """Resolve a client-supplied relative path, refusing anything outside the allowed folders."""
+    path = (Path.cwd() / rel).resolve()
+    for root in roots:
+        base = (Path.cwd() / root).resolve()
+        if path.is_relative_to(base) and path.suffix.lower() in RASTER_EXTS and path.is_file():
+            return path
+    raise HTTPException(404, "No such GeoTIFF")
+
+
+@app.get("/api/indices")
+def index_catalog():
+    from lulc_fetch.analysis import COMPOSITES, SCALE_PRESETS
+    from lulc_fetch.indices import BAND_INFO, BAND_NAMES, CATALOG, CATEGORIES, COLORMAPS, required_bands
+
+    return {
+        "categories": CATEGORIES,
+        "indices": [{"name": i.name, "title": i.title, "formula": i.formula, "category": i.category,
+                     "description": i.description, "vmin": i.vmin, "vmax": i.vmax, "cmap": i.cmap,
+                     "bands": sorted(required_bands(i.formula))} for i in CATALOG.values()],
+        "composites": {k: {"title": t, "bands": list(b)} for k, (t, b) in COMPOSITES.items()},
+        "colormaps": COLORMAPS,
+        "scale_presets": {k: {"title": t, "scale": sc, "offset": off} for k, (t, sc, off) in SCALE_PRESETS.items()},
+        "band_names": list(BAND_NAMES),
+        "band_info": {k: {"name": n, "short": sh, "nm": nm, "equiv": eq} for k, (n, sh, nm, eq) in BAND_INFO.items()},
+    }
+
+
+@app.get("/api/formula/check")
+def formula_check(formula: str):
+    """Validate a custom formula and list the bands it needs (for live feedback while typing)."""
+    from lulc_fetch.indices import parse_formula
+
+    try:
+        _, bands = parse_formula(formula)
+        return {"ok": True, "bands": sorted(bands), "formula": formula.replace("^", "**")}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/rasters")
+def list_rasters():
+    out = []
+    for root, label in RASTER_ROOTS.items():
+        base = Path.cwd() / root
+        if not base.is_dir():
+            continue
+        for p in sorted(base.rglob("*"), key=lambda p: -p.stat().st_mtime):
+            if p.suffix.lower() in RASTER_EXTS and p.is_file() and len(p.relative_to(base).parts) <= 3:
+                out.append({"path": str(p.relative_to(Path.cwd())), "name": p.name, "group": label,
+                            "size_mb": p.stat().st_size / 1e6, "modified": p.stat().st_mtime,
+                            "deletable": root in ("uploads", "analysis")})
+    return out
+
+
+@app.post("/api/rasters/upload")
+async def upload_raster(file: UploadFile = File(...)):
+    import shutil
+    import uuid
+
+    name = Path(file.filename or "image.tif").name
+    if Path(name).suffix.lower() not in UPLOAD_EXTS:
+        raise HTTPException(400, "Upload a GeoTIFF (.tif / .tiff)")
+    dest = Path.cwd() / "uploads" / uuid.uuid4().hex[:8] / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f, length=8 << 20)
+    try:
+        from lulc_fetch.analysis import inspect
+        inspect(dest)
+    except Exception as e:
+        shutil.rmtree(dest.parent, ignore_errors=True)
+        raise HTTPException(400, f"Not a usable GeoTIFF: {e}")
+    return {"path": str(dest.relative_to(Path.cwd()))}
+
+
+@app.delete("/api/rasters")
+def delete_raster(path: str):
+    import shutil
+
+    p = _raster_path(path, roots=("uploads", "analysis"))
+    shutil.rmtree(p.parent, ignore_errors=True)
+    return {"ok": True}
+
+
+@app.get("/api/rasters/info")
+def raster_info(path: str):
+    from lulc_fetch.analysis import inspect
+
+    info = inspect(_raster_path(path))
+    info["path"] = path
+    return info
+
+
+@app.get("/api/rasters/file")
+def raster_file(path: str):
+    p = _raster_path(path)
+    return FileResponse(p, filename=p.name)
+
+
+class AnalyzeBase(BaseModel):
+    path: str
+    band_map: dict[str, int]
+    scale: float = 1.0
+    offset: float = 0.0
+    index: str | None = None
+    formula: str | None = Field(None, max_length=500)
+
+
+class RenderRequest(AnalyzeBase):
+    composite: str | None = None
+    band: int | None = None
+    clip: dict | None = None
+    stretch: str = "fixed"  # fixed | auto | custom
+    vmin: float | None = None
+    vmax: float | None = None
+    cmap: str | None = None
+
+
+@app.post("/api/analyze/render")
+def analyze_render(req: RenderRequest):
+    from lulc_fetch.analysis import render
+
+    res = render(_raster_path(req.path), band_map=req.band_map, scale=req.scale, offset=req.offset,
+                 index=req.index, formula=req.formula, composite=req.composite, band=req.band, clip=_clip(req.clip),
+                 stretch=req.stretch,
+                 vmin=req.vmin, vmax=req.vmax, cmap=req.cmap)
+    res["image"] = _png_data_url(res.pop("rgba"))
+    return res
+
+
+class PixelRequest(AnalyzeBase):
+    lat: float
+    lon: float
+
+
+@app.post("/api/analyze/pixel")
+def analyze_pixel(req: PixelRequest):
+    from lulc_fetch.analysis import pixel
+
+    return pixel(_raster_path(req.path), req.lon, req.lat, band_map=req.band_map, scale=req.scale,
+                 offset=req.offset, index=req.index, formula=req.formula)
+
+
+class ExportRequest(BaseModel):
+    path: str
+    band_map: dict[str, int]
+    scale: float = 1.0
+    offset: float = 0.0
+    indices: list[str] = Field(default_factory=list)
+    formulas: list[dict[str, str]] = Field(default_factory=list)  # [{"name", "formula"}]
+    clip: dict | None = None
+
+
+@app.post("/api/analyze/export")
+def analyze_export(req: ExportRequest):
+    import re
+    import uuid
+
+    from lulc_fetch.analysis import export
+    from lulc_fetch.indices import CATALOG
+
+    src = _raster_path(req.path)
+    items = []
+    for name in req.indices:
+        if name not in CATALOG:
+            raise HTTPException(400, f"Unknown index {name}")
+        items.append((name, CATALOG[name].formula))
+    for f in req.formulas:
+        label = re.sub(r"[^A-Za-z0-9_-]", "", f.get("name") or "") or "custom"
+        items.append((label, f.get("formula", "")))
+    suffix = "_".join(n for n, _ in items)[:60]
+    out = Path.cwd() / "analysis" / uuid.uuid4().hex[:8] / f"{src.stem}_{suffix}.tif"
+    export(src, out, items, band_map=req.band_map, scale=req.scale, offset=req.offset, clip=_clip(req.clip))
+    rel = str(out.relative_to(Path.cwd()))
+    from urllib.parse import quote
+    return {"path": rel, "name": out.name, "url": f"/api/rasters/file?path={quote(rel)}",
+            "layers": [n for n, _ in items]}
+
+
+# ------------------------------------------------------------------ Copernicus .SAFE products (Sentinel-1 / -2)
+
+PRODUCT_DIRS = ("data", ".")
+
+
+def _product(path: str) -> dict:
+    from lulc_fetch.safe import find_products
+
+    for p in find_products(*[Path.cwd() / d for d in PRODUCT_DIRS]):
+        if Path(p["path"]).resolve() == (Path.cwd() / path).resolve() or p["path"] == path:
+            return p
+    raise HTTPException(404, "No such product in the data folder")
+
+
+@app.get("/api/products")
+def list_products():
+    from lulc_fetch.safe import find_products
+
+    out = []
+    for p in find_products(*[Path.cwd() / d for d in PRODUCT_DIRS]):
+        rel = str(Path(p["path"]).resolve().relative_to(Path.cwd().resolve()))
+        out.append({**p, "path": rel})
+    return {"folder": str(Path.cwd() / "data"), "products": out}
+
+
+class ProductOpenRequest(BaseModel):
+    path: str
+    res: float = Field(40, ge=10, le=500)  # Sentinel-1 output pixel size
+    aoi: dict | None = None                 # optional clip for Sentinel-1
+
+
+@app.post("/api/products/open")
+def open_product(req: ProductOpenRequest):
+    from lulc_fetch import safe
+
+    p = _product(req.path)
+    src = Path.cwd() / req.path
+    if p["kind"].startswith("S2"):
+        out = Path.cwd() / "imports" / p["name"] / f"{p['name']}_10m.vrt"
+        safe.s2_to_vrt(src, out)
+        return {"kind": "raster", "path": str(out.relative_to(Path.cwd())),
+                "name": f"{p['title']} · {p['date']}"}
+    aoi = _aoi(req.aoi) if req.aoi else None
+    title = f"Sentinel-1 σ⁰ backscatter {p['date']} · {req.res:g} m{' · clipped' if aoi else ''}"
+
+    def run(job):
+        log.info("Processing %s", p["name"])
+        out = safe.s1_to_backscatter(src, job.dir / f"S1_{p['date']}_sigma0_dB_{req.res:g}m.tif", res=req.res, aoi=aoi)
+        return {"files": [str(out)]}
+
+    return {"kind": "job", "job": jobs.submit("s1", title, {"source": "Sentinel-1 GRD", "res": req.res}, run).to_dict()}
+
+
+# ------------------------------------------------------------------ layer export (GeoTIFF / PNG / shapefile / KML)
+
+EXPORT_DIR = Path.cwd() / "exports"
+
+
+def _export_target(name: str, ext: str) -> Path:
+    import re
+    import uuid
+
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("_.")[:80] or "layer"
+    return EXPORT_DIR / uuid.uuid4().hex[:8] / f"{safe}.{ext}"
+
+
+def _export_url(path: Path) -> dict:
+    return {"url": f"/api/exports/{path.parent.name}/{path.name}", "name": path.name,
+            "size_mb": path.stat().st_size / 1e6}
+
+
+class LayerExportRequest(BaseModel):
+    path: str
+    format: str  # tif | png | pngw | shp
+    name: str = "layer"
+    band_map: dict[str, int] = Field(default_factory=dict)
+    scale: float = 1.0
+    offset: float = 0.0
+    index: str | None = None
+    formula: str | None = Field(None, max_length=500)
+    composite: str | None = None
+    band: int | None = None
+    stretch: str = "fixed"
+    vmin: float | None = None
+    vmax: float | None = None
+    cmap: str | None = None
+    method: str = "equal"  # shapefile classes: equal | quantile | custom
+    classes: int = Field(5, ge=2, le=20)
+    breaks: list[float] | None = None
+    sieve: int = Field(8, ge=0, le=10000)
+    clip: dict | None = None
+
+
+@app.post("/api/layers/export")
+def export_layer(req: LayerExportRequest):
+    from urllib.parse import quote
+
+    from lulc_fetch import analysis
+
+    src = _raster_path(req.path)
+    spec = {"band_map": req.band_map, "scale": req.scale, "offset": req.offset, "index": req.index,
+            "formula": req.formula, "composite": req.composite, "band": req.band, "stretch": req.stretch,
+            "vmin": req.vmin, "vmax": req.vmax, "cmap": req.cmap, "clip": _clip(req.clip)}
+    plain = not (req.index or req.formula or req.composite or req.band) and not req.clip
+    if req.format == "tif":
+        if plain:  # the layer is the file itself
+            return {"url": f"/api/rasters/file?path={quote(req.path)}", "name": src.name,
+                    "size_mb": src.stat().st_size / 1e6}
+        out = analysis.export_layer_tif(src, _export_target(req.name, "tif"), **spec)
+    elif req.format in ("png", "pngw"):
+        if plain:
+            raise HTTPException(400, "Choose how to display the layer first")
+        out = analysis.export_png(src, _export_target(req.name, "png"), world_file=req.format == "pngw", **spec)
+    elif req.format == "shp":
+        out, n = analysis.polygonize(src, _export_target(req.name, "zip"), name=req.name, method=req.method,
+                                     classes=req.classes, breaks=req.breaks, sieve_px=req.sieve, **spec)
+        return {**_export_url(out), "features": n}
+    else:
+        raise HTTPException(400, f"Unknown format {req.format}")
+    return _export_url(out)
+
+
+class VectorExportRequest(BaseModel):
+    geojson: dict
+    format: str  # shp | geojson | kml
+    name: str = "layer"
+    clip: dict | None = None
+
+
+@app.post("/api/vector/export")
+def export_vector(req: VectorExportRequest):
+    from lulc_fetch import vector_io
+
+    feats = vector_io.features_from_geojson(req.geojson)
+    if req.clip:
+        feats = vector_io.clip_features(feats, _clip(req.clip))
+    if req.format == "shp":
+        out = vector_io.write_shapefile_zip(feats, "EPSG:4326", _export_target(req.name, "zip"), req.name)
+    elif req.format == "kml":
+        out = vector_io.write_kml(feats, _export_target(req.name, "kml"), req.name)
+    elif req.format == "geojson":
+        out = vector_io.write_geojson(feats, _export_target(req.name, "geojson"))
+    else:
+        raise HTTPException(400, f"Unknown format {req.format}")
+    return {**_export_url(out), "features": len(feats)}
+
+
+@app.get("/api/exports/{export_id}/{name}")
+def export_file(export_id: str, name: str):
+    path = (EXPORT_DIR / export_id / name).resolve()
+    if not path.is_relative_to(EXPORT_DIR.resolve()) or not path.is_file():
+        raise HTTPException(404, "No such export")
+    return FileResponse(path, filename=path.name)
 
 
 # ------------------------------------------------------------------ static UI
