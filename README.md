@@ -49,10 +49,9 @@ Across the app:
 | Your computer | Click this file |
 |---|---|
 | Mac with Apple Silicon (M1, M2, M3, M4), macOS 14 Sonoma or newer | **LULC-Fetch-macOS-AppleSilicon.dmg** |
-| Mac with an Intel processor, macOS 15 Sequoia or newer | **LULC-Fetch-macOS-Intel.dmg** |
 | Windows 10 / 11 (64-bit) | **LULC-Fetch-Windows.zip** |
 
-Not sure which Mac you have? Apple menu ▸ **About This Mac**: "Chip: Apple M…" means Apple Silicon, and "Processor: Intel…" means Intel.
+Not sure which Mac you have? Apple menu ▸ **About This Mac**: "Chip: Apple M…" means Apple Silicon. Macs with an Intel processor aren't supported by the ready-made app; they can [run from source](#run-from-source-for-development).
 
 The files are large (about 170–200 MB), because Python and all libraries are inside. Ignore the "Source code (zip / tar.gz)" files: those are for developers.
 
@@ -78,7 +77,7 @@ The files are large (about 170–200 MB), because Python and all libraries are i
 
 - **Mac:** `./packaging/build_mac.sh` → `dist/LULC Fetch.app` and `dist/LULC-Fetch.dmg`. Needs the source setup below and `brew install libomp`.
 - **Windows:** in PowerShell, `.\packaging\build_windows.ps1` → `dist\LULC Fetch\LULC Fetch.exe` and `dist\LULC-Fetch-Windows.zip`.
-- **GitHub builds them automatically:** push a version tag (`git tag v0.2.0 && git push origin v0.2.0`), and the *Build desktop apps* workflow builds both Mac versions and the Windows version, tests them, and publishes them on a Release. You can also run it by hand from the **Actions** tab.
+- **GitHub builds them automatically:** push a version tag (`git tag v0.2.0 && git push origin v0.2.0`), and the *Build desktop apps* workflow builds the Mac (Apple Silicon) and Windows versions, tests them, and publishes them on a Release. You can also run it by hand from the **Actions** tab.
 
 ## Run from source (for development)
 

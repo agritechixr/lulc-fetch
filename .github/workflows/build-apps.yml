@@ -1,4 +1,4 @@
-# Builds the LULC Fetch desktop apps (macOS Apple Silicon + Intel, Windows) and, for version tags (v1.2.3),
+# Builds the LULC Fetch desktop apps (macOS Apple Silicon, Windows) and, for version tags (v1.2.3),
 # publishes them on a GitHub Release.   Manual run: Actions ▸ Build desktop apps ▸ Run workflow.
 name: Build desktop apps
 
@@ -10,7 +10,7 @@ on:
       platforms:
         description: "Which apps to build"
         type: choice
-        options: [all, windows, macos, macos-arm, macos-intel]
+        options: [all, windows, macos]
         default: all
       release_tag:
         description: "Also add the apps to this existing release (e.g. v0.1.0); empty = don't"
@@ -28,7 +28,6 @@ jobs:
         include:
           # the oldest macOS version a build runs on is the build machine's version (set in the app)
           - { os: macos-14, name: macOS-AppleSilicon, family: macos, sub: macos-arm, min_macos: "14.0" }
-          - { os: macos-15-intel, name: macOS-Intel, family: macos, sub: macos-intel, min_macos: "15.0" }
           - { os: windows-latest, name: Windows, family: windows, sub: windows, min_macos: "" }
     runs-on: ${{ matrix.os }}
     steps:
@@ -97,7 +96,6 @@ jobs:
             | Computer | File |
             |---|---|
             | Mac with Apple Silicon (M1–M4), macOS 14 or newer | `LULC-Fetch-macOS-AppleSilicon.dmg` |
-            | Mac with Intel processor, macOS 15 or newer | `LULC-Fetch-macOS-Intel.dmg` |
             | Windows 10 / 11 (64-bit) | `LULC-Fetch-Windows.zip` |
 
             No Python or other software needed. See the README for first-start steps (the app isn't signed yet,
