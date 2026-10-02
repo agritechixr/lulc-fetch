@@ -1,4 +1,4 @@
-"""Runs deep-learning training / prediction in a separate process.
+"""Runs deep-learning training / prediction / object detection in a separate process.
 
 PyTorch ships its own OpenMP runtime, and XGBoost / LightGBM (used by the classical ML tools) load another one;
 two OpenMP runtimes in one process can crash it. A separate process also keeps the app alive if training fails
@@ -62,6 +62,12 @@ def cli(argv: list[str]) -> int:
             res = dl.train(**req["kwargs"])
         elif req["action"] == "predict":
             res = dl.predict(**req["kwargs"])
+        elif req["action"] == "detect":
+            from . import detect
+            res = detect.detect(**req["kwargs"])
+        elif req["action"] == "train_detector":
+            from . import dettrain
+            res = dettrain.train(**req["kwargs"])
         elif req["action"] == "status":
             res = dl.status()
         else:
@@ -94,8 +100,8 @@ def run(action: str, **kwargs) -> dict:
         for line in proc.stdout:
             line = line.rstrip("\r\n")
             if not line.startswith('{"type"'):
-                text = line.split("\r")[-1].strip()
-                if text and "%|" not in text:
+                text = line.split("\r")[-1].replace("\x1b[K", "").strip()
+                if text and "%|" not in text and "━" not in text:   # skip tqdm / ultralytics progress bars
                     log.info(text[:300])
                 continue
             try:

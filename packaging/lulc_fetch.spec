@@ -61,9 +61,10 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    # PyTorch is an optional add-on installed by the app itself (Deep learning tools), never bundled
+    # PyTorch and ultralytics (YOLO & SAM, AGPL-3.0) are optional add-ons installed by the app itself, never bundled
     excludes=["matplotlib", "IPython", "jupyter", "notebook", "pytest", "PyQt5", "PySide6", "playwright",
               "torch", "torchvision", "segmentation_models_pytorch", "timm", "huggingface_hub", "safetensors", "PIL",
+              "ultralytics", "cv2", "polars",
               # PyTorch's own dependencies: never half-bundled (they would hide the add-on's complete copies)
               "tqdm", "jinja2", "markupsafe", "sympy", "mpmath", "networkx", "fsspec", "filelock", "hf_xet", "httpx2", "httpcore2", "yaml"],
     noarchive=False,
