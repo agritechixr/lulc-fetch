@@ -103,12 +103,28 @@ def _control_window(url: str, app_dir: Path, stop):
     root.mainloop()
 
 
+def _use_addons():
+    """Make the deep-learning add-on (installed with pip --target next to the data folder) importable."""
+    if not getattr(sys, "frozen", False):
+        return
+    from webapp import workspace as ws
+    d = ws.APP_DIR / "addons" / f"py{sys.version_info.major}{sys.version_info.minor}"
+    if d.is_dir() and str(d) not in sys.path:
+        sys.path.append(str(d))
+
+
 def main():
     multiprocessing.freeze_support()
     if len(sys.argv) > 1 and sys.argv[1] == "--lulc-pyrunner":   # the Python editor's separate process
         from lulc_fetch import pyrunner
         pyrunner.cli(sys.argv[2:6])
         return
+    if len(sys.argv) > 1 and sys.argv[1] == "--lulc-pip":   # installs the deep-learning add-on (frozen app)
+        import runpy
+        sys.argv = ["pip"] + sys.argv[2:]
+        runpy.run_module("pip", run_name="__main__")
+        return
+    _use_addons()
     headless = "--headless" in sys.argv
 
     from webapp import workspace as ws

@@ -19,6 +19,8 @@ A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your 
 | **Raster → table** | Turn any image into a CSV / Parquet table, with ground-truth labels as the last column |
 | **Classical ML for raster** | Train straight from an image and its ground truth (polygons, points or a class raster) and get a classified map in one step. No table needed. SVM (RBF / linear), Maximum Likelihood, Spectral Angle Mapper, Minimum Distance, Random Forest, k-NN (cosine) and more, for **RGB, multispectral, hyperspectral (100+ bands) and pixel embeddings** (AlphaEarth, TESSERA). The kind of data is detected, with suggested settings. |
 | **Make training data** | Cut a large image (one or several stacked layers) and its ground truth (class raster, shapefile or GeoJSON) into matching **image / label patches for deep learning**. Patch size and overlap in metres, ROI, edge padding, `classes.txt` and `dataset.json`. |
+| **Deep learning: train a model** | Semantic segmentation on your Make-training-data patches: **U-Net, U-Net++, DeepLabV3 / V3+, PSPNet, FPN, LinkNet, SegFormer, FCN, LR-ASPP** with **MobileNetV2 / V3, ResNet or EfficientNet** backbones (ImageNet-pretrained, any number of bands). Epochs, batch size, learning rate, early stopping, spatial-block validation split, losses for rare classes (Dice, focal, class weights), augmentation, live training curves, Cancel keeps the best model, resume. Writes the model plus an **HTML report** (curves, confusion matrix, per-class IoU / F1, example predictions). Runs on the Apple GPU, an NVIDIA GPU or the CPU. |
+| **Deep learning: classify an image** | Map a whole image with a trained model: seamless tiled prediction with blended overlaps, area of interest, confidence layer. |
 | **Classical ML: supervised** | Train 16 models (Random Forest, XGBoost, LightGBM, SVM, Maximum Likelihood…) for classification or regression: choose the target and each column's role and type (numeric / categorical), preprocess (missing values, outlier clipping, skew transforms, scaling, removing redundant columns), tune hyperparameters with cross-validation, compare all models on a leaderboard, get honest spatially independent accuracy and an **HTML evaluation report** (confusion matrices, ROC / PR curves, residual plots…), then **classify an image** into a land-cover map |
 | **Classical ML: unsupervised** | **Clustering** with K-means, hierarchical (dendrogram), DBSCAN, HDBSCAN, spectral clustering and Gaussian mixture: automatic choice of k, quality scores, cluster profiles, comparison with known labels, and **unsupervised classification of images**. **t-SNE maps** to see how classes or clusters separate. |
 | **Export data** | Save any layer as GeoTIFF, PNG, Shapefile, GeoJSON or KML, for the whole layer or just an area |
@@ -73,6 +75,7 @@ The files are large (about 170–200 MB), because Python and all libraries are i
 - LULC Fetch opens in your web browser, and a small window lets you reopen it, open your data folder, or quit. Closing that window stops the app.
 - Everything runs on your own computer. The internet is only used to find and download satellite images, for background maps and for address search. All analysis and machine learning work offline.
 - Your files are kept in **Documents ▸ LULC Fetch**. Put Copernicus `.SAFE` products in its `data` folder. Projects can live in any folder.
+- **Deep-learning tools:** the first time you open one, it offers to install the free **PyTorch add-on** (about 0.8 GB on Mac; on Windows about 1.1 GB for CPU only or 3.5 GB with NVIDIA GPU support). It is downloaded once into the data folder; everything else works without it.
 
 ## Build the apps yourself
 
@@ -92,11 +95,15 @@ python3 -m venv .venv
 
 On macOS, also run `brew install libomp` (needed by XGBoost and LightGBM).
 
+Deep-learning tools: `.venv/bin/pip install -e ".[web,dl]"` (or click *Install the deep-learning add-on* in the app). For an NVIDIA GPU on Windows / Linux, install PyTorch from [pytorch.org](https://pytorch.org/get-started/locally/) first.
+
 No account is needed to search and download imagery. Accounts are only needed for original Copernicus or USGS product downloads.
 
 ## Typical workflow
 
 **Find imagery** (or open a `.SAFE` product) → **Training samples** → **Stack layers** (optional) → **Raster → table** → **Train a model** → **Classify an image** → **Export**
+
+Deep learning: **Make training data** (image + ground truth → patches) → **Deep learning: train a model** → **Deep learning: classify an image** → **Export**
 
 ## Command line
 

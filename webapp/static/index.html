@@ -386,7 +386,7 @@
       </div>
       <div class="card">
         <h2><span class="step">3</span>Method <button type="button" class="tip" data-tip="The algorithm from scikit-learn. Standard PCA is the right choice for most work. The others are for special cases. Each has its own hint." aria-label="Help">i</button></h2>
-        <div class="opts" id="pca-methods"></div>
+        <div id="pca-methods"></div>
       </div>
       <div class="card">
         <div class="row between"><h2 style="margin:0"><span class="step">6</span>Parameters</h2><button class="chip" id="pca-reset">Reset to defaults</button></div>
@@ -457,10 +457,10 @@
         <div class="card">
           <h2><span class="step">5</span>Model <button type="button" class="tip" data-tip="All models come from scikit-learn, XGBoost and LightGBM, with defaults tuned for pixel data. Random Forest is the safest first choice. Stars show typical accuracy and speed on pixel tables." aria-label="Help">i</button></h2>
           <div class="seg small" id="mt-family" style="margin-bottom:8px"></div>
-          <div class="model-grid" id="mt-models"></div>
+          <div id="mt-models"></div>
         </div>
         <div class="card">
-          <div class="row between"><h2 style="margin:0"><span class="step">5</span>Parameters</h2><button class="chip" id="mt-reset">Reset to defaults</button></div>
+          <div class="row between"><h2 style="margin:0"><span class="step">6</span>Parameters</h2><button class="chip" id="mt-reset">Reset to defaults</button></div>
           <div id="mt-params"></div>
           <details class="an-details" id="mt-adv-wrap"><summary>Advanced (validation, cross-validation, seed…)</summary><div id="mt-adv"></div></details>
         </div>
@@ -511,7 +511,7 @@
         </div>
         <div class="card">
           <h2><span class="step">3</span>Method <button type="button" class="tip" data-tip="K-means is the safest first choice. DBSCAN / HDBSCAN find any shape and mark outliers as noise. Hierarchical shows a dendrogram. Spectral finds non-round groups. Gaussian mixture gives soft memberships." aria-label="Help">i</button></h2>
-          <div class="model-grid" id="uc-methods"></div>
+          <div id="uc-methods"></div>
         </div>
         <div class="card">
           <div class="row between"><h2 style="margin:0"><span class="step">4</span>Settings</h2><button class="chip" id="uc-reset">Reset to defaults</button></div>
@@ -688,7 +688,7 @@
       </div>
       <div class="card">
         <h2><span class="step">3</span>Model <button type="button" class="tip" data-tip="Classical (non-deep-learning) classifiers. Models marked ★ suit the kind of image detected above. Every model handles any number of bands." aria-label="Help">i</button></h2>
-        <div class="model-grid" id="rm-models"></div>
+        <div id="rm-models"></div>
       </div>
       <div class="card">
         <div class="row between"><h2 style="margin:0"><span class="step">4</span>Settings</h2><button class="chip" id="rm-reset">Recommended settings</button></div>
@@ -765,6 +765,78 @@
         <div id="pt-error" class="warn err hidden"></div>
       </div>
       <div id="pt-result" class="hidden"></div>
+    </section>
+
+    <section id="tab-dltrain" class="tabpanel hidden">
+      <div class="dl-addon card hidden" data-addon></div>
+      <div class="dl-body">
+      <div class="card">
+        <h2><span class="step">1</span>Training data <span class="req">required</span> <button type="button" class="tip" data-tip="A folder made with Make training data: images/ and labels/ patches plus dataset.json. Datasets made in this project are listed; Browse… opens any other." aria-label="Help">i</button></h2>
+        <div class="row tight"><select id="dt-ds" style="flex:1"></select><button class="btn" id="dt-ds-browse">Browse…</button></div>
+        <div id="dt-ds-info" class="hint"></div>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Model <button type="button" class="tip" data-tip="The segmentation architecture and its backbone (the encoder that extracts features). U-Net + MobileNetV3 is fast and a good start; DeepLabV3+ or U-Net++ with ResNet / EfficientNet are usually more accurate but slower." aria-label="Help">i</button></h2>
+        <div id="dt-archs"></div>
+        <div class="grid2" style="margin-top:8px">
+          <label>Backbone <button type="button" class="tip" data-tip="MobileNet = fast and light; ResNet / EfficientNet = more accurate, slower. Bigger backbones need more memory and more data." aria-label="Help">i</button><select id="dt-enc"></select></label>
+          <label class="inline" style="align-self:end"><input type="checkbox" id="dt-pre" checked> ImageNet-pretrained <button type="button" class="tip" data-tip="Start from weights trained on millions of photos (downloaded once, 10–100 MB). Learns faster and better with small datasets; works with any number of bands." aria-label="Help">i</button></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Training</h2>
+        <div id="dt-basic" class="dl-params"></div>
+        <details class="an-details"><summary>Advanced (loss, optimiser, schedule, augmentation, device…)</summary><div id="dt-adv" class="dl-params"></div></details>
+      </div>
+      <div class="card">
+        <h2><span class="step">4</span>Output</h2>
+        <label>Model name<input id="dt-name" maxlength="80" value="dl_model"></label>
+        <label>Save in folder <button type="button" class="tip" data-tip="A model folder is created inside it with best_model.pt, last_model.pt, model_config.json, training_log.csv and report.html. Empty = the project's models folder." aria-label="Help">i</button></label>
+        <div class="row tight"><input id="dt-folder" placeholder="Project folder ▸ models" style="flex:1"><button class="btn" id="dt-browse">Browse…</button></div>
+        <label>Continue training <button type="button" class="tip" data-tip="Resume a model trained earlier on this dataset from its last epoch (e.g. after you stopped it, or with more epochs). Its settings are kept; raise Epochs above what it already ran." aria-label="Help">i</button><select id="dt-resume"><option value="">No: train a new model</option></select></label>
+        <button class="btn primary big-btn" id="dt-run">Train model</button>
+        <div id="dt-error" class="warn err hidden"></div>
+      </div>
+      <div id="dt-live" class="card hidden"></div>
+      <div id="dt-result" class="hidden"></div>
+      </div>
+    </section>
+
+    <section id="tab-dlpredict" class="tabpanel hidden">
+      <div class="dl-addon card hidden" data-addon></div>
+      <div class="dl-body">
+      <div class="card">
+        <h2><span class="step">1</span>Model <span class="req">required</span> <button type="button" class="tip" data-tip="A model trained with Deep learning: train a model. Models from other projects or computers: Browse… to their folder (with model_config.json and best_model.pt)." aria-label="Help">i</button></h2>
+        <div class="row tight"><select id="dp-model" style="flex:1"></select><button class="btn" id="dp-browse">Browse…</button></div>
+        <div id="dp-model-info" class="hint"></div>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The image to classify: the same bands, in the same order, as the training data (e.g. the same Sentinel-2 bands). Tick several layers to stack them like in Make training data." aria-label="Help">i</button></h2>
+        <div id="dp-layers"></div>
+        <p class="hint" id="dp-check"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Area &amp; settings</h2>
+        <div class="area-pick" style="border-top:0;margin-top:0;padding-top:0">
+          <label>Area <button type="button" class="tip" data-tip="Classify only part of the image." aria-label="Help">i</button><select id="dp-area"></select></label>
+          <p class="hint" id="dp-area-hint">The whole image is used.</p>
+        </div>
+        <div class="grid2">
+          <label>Tile overlap <button type="button" class="tip" data-tip="The image is classified in tiles of the training patch size. Overlapping tiles are blended, so no seams show; more overlap = smoother but slower." aria-label="Help">i</button>
+            <select id="dp-overlap"><option value="0">None (fastest)</option><option value="0.25" selected>25 % (recommended)</option><option value="0.5">50 % (smoothest)</option></select></label>
+          <label>Batch size<input type="number" id="dp-batch" value="8" min="1" max="256"></label>
+          <label>Device<select id="dp-device"><option value="auto">Auto</option><option value="mps">Apple GPU (MPS)</option><option value="cuda">NVIDIA GPU (CUDA)</option><option value="cpu">CPU</option></select></label>
+        </div>
+        <label class="inline" style="margin-top:6px"><input type="checkbox" id="dp-conf" checked> Also make a confidence layer <button type="button" class="tip" data-tip="A second band with how sure the model is (0–100 %) at every pixel." aria-label="Help">i</button></label>
+      </div>
+      <div class="card">
+        <h2><span class="step">4</span>Output</h2>
+        <label>Map name<input id="dp-name" maxlength="80" value="dl_map"></label>
+        <button class="btn primary big-btn" id="dp-run">Classify image</button>
+        <div id="dp-error" class="warn err hidden"></div>
+      </div>
+      <div id="dp-result" class="hidden"></div>
+      </div>
     </section>
 
     <section id="tab-raster2table" class="tabpanel hidden">
