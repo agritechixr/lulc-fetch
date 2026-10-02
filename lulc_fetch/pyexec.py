@@ -22,8 +22,11 @@ def run(in_parquet: Path, code: str, timeout: int = MAX_SECONDS) -> dict:
     tmp = Path(tempfile.mkdtemp(prefix="lulc_py_"))
     script, out, meta = tmp / "script.py", tmp / "out.parquet", tmp / "meta.json"
     script.write_text(code, encoding="utf-8")
-    proc = subprocess.Popen([sys.executable, "-m", "lulc_fetch.pyrunner", str(in_parquet), str(script), str(out), str(meta)],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # inside the packaged app there is no separate python: the app runs itself in runner mode
+    cmd = [sys.executable, "--lulc-pyrunner"] if getattr(sys, "frozen", False) else [sys.executable, "-m", "lulc_fetch.pyrunner"]
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform.startswith("win") else 0   # no console window on Windows
+    proc = subprocess.Popen(cmd + [str(in_parquet), str(script), str(out), str(meta)],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", creationflags=flags)
     t0 = time.time()
     try:
         while proc.poll() is None:

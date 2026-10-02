@@ -631,8 +631,9 @@ def tsne(table_path, *, features: list[str], categorical: list[str] | None = Non
         Xs = PCA(n_components=50, random_state=seed).fit_transform(Xs)
         reduced = 50
     perp = min(p["perplexity"], (len(sidx) - 1) / 3)
+    init = p["init"] if Xs.shape[1] >= 2 else "random"   # a PCA start needs at least two columns
     est = TSNE(n_components=2, perplexity=perp, max_iter=p["max_iter"], learning_rate=p["learning_rate"] or "auto",
-               early_exaggeration=p["early_exaggeration"], init=p["init"], metric=p["metric"], random_state=seed, verbose=2)
+               early_exaggeration=p["early_exaggeration"], init=init, metric=p["metric"], random_state=seed, verbose=2)
     progress.update(0.15, f"Running t-SNE on {len(sidx):,} rows")
     orig = sys.stdout
     with contextlib.redirect_stdout(_TsneProgress(p["max_iter"], orig)), warnings.catch_warnings():
