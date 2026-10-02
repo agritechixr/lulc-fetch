@@ -33,6 +33,7 @@ class Job:
     finished: float | None = None
     logs: list[str] = field(default_factory=list)
     result: dict | None = None
+    live: dict | None = None   # live data published by the work (lulc_fetch.progress.live), e.g. training curves
     error: str | None = None
     base: Path = field(default_factory=lambda: DOWNLOAD_DIR.path)   # fixed when the job is created
 
@@ -49,7 +50,7 @@ class Job:
         return {"id": self.id, "kind": self.kind, "title": self.title, "params": self.params,
                 "status": self.status, "progress": round(self.progress, 4), "message": self.message,
                 "created": self.created, "started": self.started,
-                "finished": self.finished, "logs": self.logs[-200:], "result": self.result,
+                "finished": self.finished, "logs": self.logs[-200:], "result": self.result, "live": self.live,
                 "error": self.error, "files": self.files()}
 
 
@@ -99,6 +100,7 @@ class JobManager:
                 job.message = message
 
         progress.set_handler(on_progress)
+        progress.set_live_handler(lambda data: setattr(job, "live", data))
         try:
             job.result = fn(job)
             job.status, job.progress = "done", 1.0
@@ -115,6 +117,7 @@ class JobManager:
             logging.getLogger(__name__).debug(traceback.format_exc())
         finally:
             progress.set_handler(None)
+            progress.set_live_handler(None)
             job.finished = time.time()
             _current.job = None
 

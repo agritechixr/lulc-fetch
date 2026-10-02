@@ -91,6 +91,65 @@ def _rgba_hex(c):
     return "#%02x%02x%02x" % tuple(int(v) for v in c[:3])
 
 
+def open_inputs(inputs: list[dict], ref) -> tuple[list[dict], list[str], list, list]:
+    """Open input layers on the reference layer's grid (the first input is the reference itself).
+
+    Returns (readers, band names, open files, warped views); the caller closes the last two."""
+    band_names, plan_in, srcs, vrts = [], [], [], []
+    try:
+        for k, it in enumerate(inputs):
+            s = rasterio.open(it["path"])
+            srcs.append(s)
+            bands = it.get("bands") or list(range(1, s.count + 1))
+            for b in bands:
+                if not 1 <= b <= s.count:
+                    raise ValueError(f"{it.get('name') or Path(it['path']).name} has no band {b}")
+            classes = all(_palette(s, b) for b in bands)
+            if k == 0 and Path(it["path"]).resolve() == Path(ref.name).resolve():
+                rd = s
+            else:
+                rd = WarpedVRT(s, crs=ref.crs, transform=ref.transform, width=ref.width, height=ref.height,
+                               resampling=Resampling.nearest if classes else Resampling.bilinear, src_nodata=s.nodata, nodata=s.nodata)
+                vrts.append(rd)
+            layer = re.sub(r"[^A-Za-z0-9]+", "_", it.get("name") or Path(it["path"]).stem).strip("_")[:24] or f"layer{k + 1}"
+            for b in bands:
+                d = s.descriptions[b - 1]
+                band_names.append(d if d and not re.fullmatch(r"(band_?\d*|data|layer|value|elevation|)", d, re.I) else (layer if len(bands) == 1 else f"{layer}_{b}"))
+            plan_in.append({"reader": rd, "bands": bands, "scale": float(it.get("scale", 1) or 1), "offset": float(it.get("offset", 0) or 0),
+                            "nodata": s.nodata, "dtype": s.dtypes[0]})
+    except BaseException:
+        for v in vrts:
+            v.close()
+        for s in srcs:
+            s.close()
+        raise
+    return plan_in, _column_names(band_names), srcs, vrts
+
+
+def read_stack(plan_in: list[dict], window: Window, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """All input bands for a window as float32 (bands, h, w) and a valid-pixel mask; parts outside the image are invalid."""
+    h, w = shape
+    nb = sum(len(p["bands"]) for p in plan_in)
+    ref = plan_in[0]["reader"]
+    out = np.full((nb, h, w), np.nan, "float32")
+    valid = np.zeros((h, w), bool)
+    inter = window.intersection(Window(0, 0, ref.width, ref.height)) if window.col_off < ref.width and window.row_off < ref.height \
+        and window.col_off + window.width > 0 and window.row_off + window.height > 0 else None
+    if inter is None:
+        return out, valid
+    ci, ri = int(inter.col_off - window.col_off), int(inter.row_off - window.row_off)
+    iw, ih = int(inter.width), int(inter.height)
+    valid[ri:ri + ih, ci:ci + iw] = True
+    b0 = 0
+    for p in plan_in:
+        data = p["reader"].read(p["bands"], window=inter, masked=True)
+        arr = np.ma.filled(data.astype("float32") * p["scale"] + p["offset"], np.nan)
+        out[b0:b0 + len(p["bands"]), ri:ri + ih, ci:ci + iw] = arr
+        b0 += len(p["bands"])
+    valid &= np.isfinite(out).all(axis=0)
+    return out, valid
+
+
 def dataset_folder(parent: str | Path, name: str) -> Path:
     """The folder a dataset called `name` is written to (a file-safe version of the name)."""
     return Path(parent) / (re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")[:60] or "training_patches")
@@ -118,28 +177,7 @@ def make(inputs: list[dict], out_parent: str | Path, *, name: str = "training_pa
             raise ValueError(f"{len(cells):,} patches is too many (max {MAX_PATCHES:,}). Use bigger patches, less overlap or a smaller area.")
 
         # ---- inputs on the reference grid
-        band_names, plan_in = [], []
-        for k, it in enumerate(inputs):
-            s = rasterio.open(it["path"])
-            srcs.append(s)
-            bands = it.get("bands") or list(range(1, s.count + 1))
-            for b in bands:
-                if not 1 <= b <= s.count:
-                    raise ValueError(f"{it.get('name') or Path(it['path']).name} has no band {b}")
-            classes = all(_palette(s, b) for b in bands)
-            if k == 0:
-                rd = s
-            else:
-                rd = WarpedVRT(s, crs=ref.crs, transform=ref.transform, width=ref.width, height=ref.height,
-                               resampling=Resampling.nearest if classes else Resampling.bilinear, src_nodata=s.nodata, nodata=s.nodata)
-                vrts.append(rd)
-            layer = re.sub(r"[^A-Za-z0-9]+", "_", it.get("name") or Path(it["path"]).stem).strip("_")[:24] or f"layer{k + 1}"
-            for b in bands:
-                d = s.descriptions[b - 1]
-                band_names.append(d if d and not re.fullmatch(r"(band_?\d*|data|layer|value|elevation|)", d, re.I) else (layer if len(bands) == 1 else f"{layer}_{b}"))
-            plan_in.append({"reader": rd, "bands": bands, "scale": float(it.get("scale", 1) or 1), "offset": float(it.get("offset", 0) or 0),
-                            "nodata": s.nodata, "dtype": s.dtypes[0]})
-        band_names = _column_names(band_names)
+        plan_in, band_names, srcs, vrts = open_inputs(inputs, ref)
         scaled = any(p["scale"] != 1 or p["offset"] != 0 for p in plan_in)
         dtypes = {p["dtype"] for p in plan_in}
         out_dtype = dtypes.pop() if len(dtypes) == 1 and not scaled else "float32"
@@ -204,6 +242,7 @@ def make(inputs: list[dict], out_parent: str | Path, *, name: str = "training_pa
                 c["color"] = c["color"] or FALLBACK_COLORS[n % len(FALLBACK_COLORS)]
                 col = c["color"].lstrip("#")
                 cmap_out[int(c["value"])] = (int(col[0:2], 16), int(col[2:4], 16), int(col[4:6], 16), 255)
+        class_tag = json.dumps({str(int(c["value"])): c["name"] for c in classes}) if gt else "{}"
         for k, (i, j, win) in enumerate(cells):
             if k % 25 == 0:
                 progress.update(0.05 + 0.9 * k / len(cells), f"Patch {k + 1:,} of {len(cells):,}")
@@ -274,12 +313,14 @@ def make(inputs: list[dict], out_parent: str | Path, *, name: str = "training_pa
                 for b, nm in enumerate(band_names, start=1):
                     dst.set_band_description(b, nm)
             if lab_out is not None:
+                extra = {"photometric": "palette"} if label_dtype == "uint8" else {}
                 with rasterio.open(out / "labels" / fname, "w", driver="GTiff", width=pw, height=ph, count=1, dtype=label_dtype,
-                                   crs=ref.crs, transform=wt, compress="deflate") as dst:
-                    dst.write(lab_out, 1)
+                                   crs=ref.crs, transform=wt, compress="deflate", **extra) as dst:
                     if label_dtype == "uint8":
-                        dst.write_colormap(1, cmap_out)
+                        dst.write_colormap(1, cmap_out)   # before the pixels, or GDAL can't set the palette tag
                     dst.set_band_description(1, "label")
+                    dst.update_tags(classes=class_tag)
+                    dst.write(lab_out, 1)
             x0, y0 = wt * (0, ph)
             x1, y1 = wt * (pw, 0)
             rows_csv.append({"file": fname, "row": i, "col": j, "x_min": round(x0, 3), "y_min": round(y0, 3), "x_max": round(x1, 3),

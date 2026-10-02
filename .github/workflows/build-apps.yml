@@ -88,6 +88,8 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: ${{ github.ref_type == 'tag' && format('LULC Fetch {0}', github.ref_name) || '' }}
+          make_latest: true
           files: artifacts/*
           fail_on_unmatched_files: false
           body: |

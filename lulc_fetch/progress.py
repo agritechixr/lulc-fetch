@@ -40,6 +40,18 @@ def update(fraction: float | None = None, message: str | None = None) -> None:
     fn(fraction, message)
 
 
+def set_live_handler(fn) -> None:
+    """Install `fn(data)` for the current thread: receives live data from `live()` (None to remove)."""
+    _local.live = fn
+
+
+def live(data: dict) -> None:
+    """Publish live data for the UI (e.g. training curves so far). A no-op without a handler."""
+    fn = getattr(_local, "live", None)
+    if fn is not None:
+        fn(data)
+
+
 @contextmanager
 def span(start: float, end: float):
     spans = getattr(_local, "spans", None)

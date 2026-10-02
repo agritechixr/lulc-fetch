@@ -7,6 +7,9 @@ import sys
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
+import re as _re
+# macOS wants a plain number: "v0.0.1-beta" → "0.0.1" (the full tag is kept in the info string)
+APP_VERSION = (_re.match(r"\d+(\.\d+)*", os.environ.get("LULC_VERSION", "0.1.0").lstrip("v")) or _re.match(r".*", "0.1.0")).group(0)
 WIN, MAC = sys.platform.startswith("win"), sys.platform == "darwin"
 datas = [(os.path.join(ROOT, "webapp", "static"), os.path.join("webapp", "static")),
          (os.path.join(SPECPATH, "LULC Fetch.ico"), "packaging")]
@@ -21,6 +24,26 @@ for pkg in ("rasterio", "xgboost", "lightgbm", "sklearn", "pystac_client", "plan
     binaries += b
     hiddenimports += h
 datas += collect_data_files("certifi")
+# the whole standard library: add-ons installed later (PyTorch) import modules LULC Fetch itself never uses
+import importlib.util
+_SKIP = {"test", "idlelib", "turtledemo", "lib2to3", "pydoc_data", "ensurepip", "antigravity", "this", "__phello__"}
+for _m in sorted(sys.stdlib_module_names):
+    if _m in _SKIP or _m.startswith("_test"):
+        continue
+    try:
+        _spec = importlib.util.find_spec(_m)
+    except (ImportError, ValueError):
+        _spec = None
+    if _spec is None:
+        continue
+    hiddenimports.append(_m)
+    if _spec.submodule_search_locations:
+        hiddenimports += [x for x in collect_submodules(_m, on_error="ignore") if ".test" not in x and not x.startswith(("tkinter.test", "unittest.test"))]
+# pip is bundled so the app can install the optional deep-learning add-on (PyTorch) into its data folder
+d, b, h = collect_all("pip")
+datas += d
+binaries += b
+hiddenimports += h
 if WIN:   # Windows wheels keep their DLLs in "<package>.libs" folders (delvewheel)
     try:
         from PyInstaller.utils.hooks import collect_delvewheel_libs_directory
@@ -38,7 +61,11 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    excludes=["matplotlib", "IPython", "jupyter", "notebook", "pytest", "PyQt5", "PySide6", "playwright"],
+    # PyTorch is an optional add-on installed by the app itself (Deep learning tools), never bundled
+    excludes=["matplotlib", "IPython", "jupyter", "notebook", "pytest", "PyQt5", "PySide6", "playwright",
+              "torch", "torchvision", "segmentation_models_pytorch", "timm", "huggingface_hub", "safetensors", "PIL",
+              # PyTorch's own dependencies: never half-bundled (they would hide the add-on's complete copies)
+              "tqdm", "jinja2", "markupsafe", "sympy", "mpmath", "networkx", "fsspec", "filelock", "hf_xet", "httpx2", "httpcore2", "yaml"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
@@ -55,8 +82,9 @@ if MAC:
         info_plist={
             "CFBundleName": "LULC Fetch",
             "CFBundleDisplayName": "LULC Fetch",
-            "CFBundleShortVersionString": os.environ.get("LULC_VERSION", "0.1.0").lstrip("v"),
-            "CFBundleVersion": os.environ.get("LULC_VERSION", "0.1.0").lstrip("v"),
+            "CFBundleShortVersionString": APP_VERSION,
+            "CFBundleVersion": APP_VERSION,
+            "CFBundleGetInfoString": f"LULC Fetch {os.environ.get('LULC_VERSION', APP_VERSION).lstrip('v')}",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": os.environ.get("LULC_MIN_MACOS") or "14.0",
             "NSHumanReadableCopyright": "Apache License 2.0",

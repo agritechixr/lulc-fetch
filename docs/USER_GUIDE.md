@@ -21,15 +21,17 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 15. [Classical ML: t-SNE map (unsupervised)](#15-classical-ml-t-sne-map-unsupervised)
 16. [Classical ML for raster](#16-classical-ml-for-raster)
 17. [Make training data](#17-make-training-data)
-18. [Export data](#18-export-data)
-19. [Downloads & jobs](#19-downloads--jobs)
-20. [Credentials](#20-credentials)
-21. [Command-line tool](#21-command-line-tool)
-22. [Data sources and band conventions](#22-data-sources-and-band-conventions)
-23. [Files and folders](#23-files-and-folders)
-24. [Limits and known issues](#24-limits-and-known-issues)
-25. [Troubleshooting](#25-troubleshooting)
-26. [For developers: adding a tool](#26-for-developers-adding-a-tool)
+18. [Deep learning: train a model](#18-deep-learning-train-a-model)
+19. [Deep learning: classify an image](#19-deep-learning-classify-an-image)
+20. [Export data](#20-export-data)
+21. [Downloads & jobs](#21-downloads--jobs)
+22. [Credentials](#22-credentials)
+23. [Command-line tool](#23-command-line-tool)
+24. [Data sources and band conventions](#24-data-sources-and-band-conventions)
+25. [Files and folders](#25-files-and-folders)
+26. [Limits and known issues](#26-limits-and-known-issues)
+27. [Troubleshooting](#27-troubleshooting)
+28. [For developers: adding a tool](#28-for-developers-adding-a-tool)
 
 ---
 
@@ -303,6 +305,9 @@ Renamed or deleted band / label columns are updated in a table's description, so
 
 ## 4. Things every tool shares
 
+### Choosing a model or method
+Wherever you choose a model or method (Train a model, Clustering, Classical ML for raster, PCA, Deep learning), a dropdown lists one row per option with its accuracy / speed stars. Click **ⓘ** on a row to read what it does; it doesn't select the row. Every setting also has an ⓘ with its explanation.
+
 ### Finding a tool
 The **Tools** menu and the Start page list the tools in alphabetical order. The Classical ML sub-tools are listed A–Z under *Classical ML (tabular data)*. To read what a tool does, click the 👁 **eye** next to it (click again to hide it), or hover over the eye. The open tool has the same eye next to its title in the tool panel.
 
@@ -565,7 +570,7 @@ Band names are kept (B04, VV, NDVI…), so the stack still opens in true colour 
    | **Target transform** *(regression only)* | none (default) · log(1 + y) · Yeo-Johnson | Skewed targets such as biomass, yield or counts. Predictions are converted back automatically. |
 
    Every step is learned from the **training rows only** and refitted inside each cross-validation and tuning fold, so no information leaks from the test split. The steps are saved inside the model, so Classify an image repeats them exactly. The results and the evaluation report list the steps that were applied, and which columns were removed and why.
-5. **Model:** cards with typical accuracy / speed ratings, filterable by family.
+5. **Model:** a dropdown with one row per model, grouped by family, showing typical accuracy / speed ratings. The ⓘ on each row explains the model.
 
 | Family | Models |
 |---|---|
@@ -849,7 +854,92 @@ img = rasterio.open("images/my_dataset_r0003_c0007.tif").read()     # (bands, H,
 lab = rasterio.open("labels/my_dataset_r0003_c0007.tif").read(1)    # (H, W), 0 = ignore
 ```
 
-## 18. Export data
+## 18. Deep learning: train a model
+
+**Tools ▸ Deep learning: train a model** trains a semantic-segmentation network on a folder made with **Make training data**.
+
+**The add-on.** The deep-learning tools use PyTorch and segmentation-models-pytorch (free, open source). The first time you open one of them, it offers **Install the deep-learning add-on**.
+- It is installed once from the internet: about 0.8 GB on Mac.
+- On Windows you choose **NVIDIA GPU (CUDA)**, about 3.5 GB, or **CPU only**, about 1.1 GB.
+- It goes into the app's data folder (`addons/`), or into the Python environment when running from source. Everything else in LULC Fetch works without it.
+
+1. **Training data.** Pick a dataset; the project's `training_data/` folder and folders used before are listed, and **Browse…** opens any other.
+   - The summary shows the number of patches, the patch size, the band count and each class's share.
+   - It warns when there are very few patches.
+2. **Model.** Choose an architecture from the dropdown (ⓘ on each row explains it) and a backbone.
+
+   | Architecture | Notes |
+   |---|---|
+   | **U-Net** | Default. Sharp boundaries, works with little data |
+   | U-Net++ | A little more accurate, slower |
+   | **DeepLabV3+** / DeepLabV3 | Objects of many sizes |
+   | **PSPNet** | Fast; large uniform regions |
+   | FPN, LinkNet | Fast alternatives |
+   | SegFormer | Transformer-style decoder |
+   | **FCN** (torchvision) | Classic baseline; ResNet-50 / 101 |
+   | **LR-ASPP** (torchvision) | Tiny and fast; MobileNetV3 |
+
+   - **Backbones:** MobileNetV2, MobileNetV3 large / small (fast), ResNet-18 / 34 / 50, EfficientNet-B0 / B2 / B4.
+   - **ImageNet-pretrained** (on by default) downloads the backbone's weights once, 10–100 MB. They are adapted to any number of bands, so 3, 10, 16 or 64 bands all work. Without internet, training starts from random weights, and the report says so.
+3. **Training.**
+   - **Epochs** (50), **batch size** (8) and **learning rate** (0.001).
+   - **Validation %** (20) and an optional **test %**. The test patches are scored once at the end with the best model.
+   - **Split:**
+     - **Spatial blocks** (default): neighbouring patches stay together. Training patches that overlap a validation or test patch are dropped, so no pixel is in two splits.
+     - **Random:** optimistic when patches overlap.
+   - **Early stopping** (on): **patience** (10 epochs), what to **watch** (validation mIoU or loss) and the **minimum improvement**. The best epoch's weights are kept.
+   - **Advanced:**
+     - **Loss:** cross-entropy + Dice (default), weighted cross-entropy, cross-entropy, Dice or focal. **Class weights** (auto) make rare classes count more.
+     - Optimiser (AdamW, Adam, SGD), weight decay, learning-rate schedule (cosine, reduce-on-plateau, one-cycle, constant).
+     - Augmentation (flips, 90° rotations, brightness, noise).
+     - Freeze the backbone for the first N epochs, mixed precision, device (Auto = NVIDIA GPU → Apple GPU → CPU), seed.
+4. **Output.**
+   - **Model name** and **Save in folder** (empty = the project's `models/` folder).
+   - **Continue training** resumes a model trained earlier from its last epoch. Raise *Epochs* above what it already ran.
+
+**While training**, the panel shows live curves: training and validation loss, and mIoU, with the best epoch marked. Below them is a table of the latest epochs and the time left.
+- **Cancel** stops training and keeps the best model so far.
+- If memory runs out, the batch size is halved automatically.
+
+**The model folder:**
+
+```
+best_model.pt        weights of the best epoch (+ everything needed to use the model)
+last_model.pt        weights, optimiser and epoch of the last epoch (Continue training uses it)
+model_config.json    architecture, bands, normalisation (per-band mean / std), classes and colours, patch size, settings, scores
+training_log.csv     one row per epoch: losses, mIoU, accuracy, learning rate, seconds
+report.html          the evaluation report
+```
+
+**The HTML report** is one file that opens offline; **Open report** / **Download report**.
+- Headline scores: mIoU, pixel accuracy, macro F1, kappa, best epoch.
+- Curves: loss, mIoU, accuracy and learning rate, with the best and early-stop epochs marked.
+- Confusion matrices: pixel counts and row %, with producer's / user's accuracy.
+- IoU per class, plus precision / recall / F1 per class and a per-class table with training pixel counts.
+- **Example predictions:** image | ground truth | prediction for six patches.
+- All the settings.
+
+The result card also links to **Show in folder** and **Classify an image with it**.
+
+## 19. Deep learning: classify an image
+
+**Tools ▸ Deep learning: classify an image** maps a whole image with a trained model.
+
+1. **Model.** Pick a model; **Browse…** adds a model folder from elsewhere. The card shows its architecture, score, the bands it needs, its classes and a link to its report.
+2. **Image.** Tick the layer, or several layers to stack them like in Make training data. They must give the same bands in the same order as the training data.
+   - ✓ means the band count and names match.
+   - ⚠ means the names differ.
+   - ✗ means the band count is wrong.
+3. **Area & settings.**
+   - Area of interest.
+   - **Tile overlap:** none, 25 % (default) or 50 %. Overlapping tiles are blended, so no seams show.
+   - Batch size and device.
+   - **Confidence layer:** band 2 holds how sure the model is (0–100 %).
+4. **Output.** A map name, and optionally **Also save to a folder on my computer**.
+
+The map is added to Contents with the class colours and names, and the result card shows the share of each class. The image is processed in strips, so very large scenes (a full Sentinel-2 tile) work with modest memory.
+
+## 20. Export data
 
 **Tools ▸ Export data**, or right-click a layer ▸ **Export / save to computer**.
 
@@ -869,7 +959,7 @@ Files are saved to your browser's Downloads folder.
 
 ---
 
-## 19. Downloads & jobs
+## 21. Downloads & jobs
 
 **Tools ▸ Downloads & jobs** lists background jobs (downloads, composites, product downloads, Sentinel-1 processing, …). Each job shows:
 - its progress, current step and **Cancel**
@@ -882,7 +972,7 @@ Downloads that finish while the app is open are added to Contents automatically.
 
 ---
 
-## 20. Credentials
+## 22. Credentials
 
 Click **Credentials** (top right). Secrets are stored in your **operating-system keychain** (macOS Keychain, Windows Credential Locker, Linux Secret Service). They're never shown again or sent back to the browser, and are only used with the service they belong to. Each entry has a **Test** button.
 
@@ -897,7 +987,7 @@ Click **Credentials** (top right). Secrets are stored in your **operating-system
 
 ---
 
-## 21. Command-line tool
+## 23. Command-line tool
 
 `lulc-fetch` does the downloading parts without the web app. An area can be given as `--bbox minlon,minlat,maxlon,maxlat`, `--geojson file.geojson`, `--point lon,lat --buffer-km 5`, or `--match existing.tif` (reuse a raster's exact grid).
 
@@ -927,7 +1017,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 22. Data sources and band conventions
+## 24. Data sources and band conventions
 
 | Source | Login | Notes |
 |---|---|---|
@@ -942,7 +1032,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 23. Files and folders
+## 25. Files and folders
 
 With a project open, these folders are inside the project folder (next to `lulc_project.json`). Without a project they are in the app's folder (the temporary workspace). `data/` is always also read from the app's folder. The list of recent projects is stored in `~/.lulc-fetch/recent.json`.
 
@@ -953,7 +1043,8 @@ With a project open, these folders are inside the project folder (next to `lulc_
 | `imports/` | Lightweight VRTs for opened Sentinel-2 products |
 | `downloads/` | Job outputs (downloads, maps, stacks…), one folder per job |
 | `tables/` | Tables you added, clustering results (with a `cluster` column), t-SNE maps (`tsne_1`, `tsne_2`), (CSV, TSV and Excel are converted to CSV; Parquet is kept) and Raster → table outputs (with a `.json` description) |
-| `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports |
+| `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports; deep-learning models as folders (`best_model.pt`, `model_config.json`, `report.html`…) |
+| `addons/` | (desktop app) the deep-learning add-on (PyTorch), if installed |
 | `training_data/` | Datasets made with Make training data when no folder is chosen (images/, labels/, classes.txt, dataset.json…) |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files, index exports, other exports |
 
@@ -961,7 +1052,7 @@ All of these are excluded from git.
 
 ---
 
-## 24. Limits and known issues
+## 26. Limits and known issues
 
 - **Download size:** one download is capped at 60 M pixels (≈77 × 77 km at 10 m). Use a coarser pixel size or split the area.
 - **Map previews** of large rasters are drawn at reduced resolution (≈1400 px), and their statistics come from that preview unless you pick an area. **GeoTIFF exports are always full resolution.**
@@ -979,7 +1070,7 @@ All of these are excluded from git.
 
 ---
 
-## 25. Troubleshooting
+## 27. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -994,7 +1085,7 @@ All of these are excluded from git.
 
 ---
 
-## 26. For developers: adding a tool
+## 28. For developers: adding a tool
 
 The web app is a FastAPI backend (`webapp/server.py`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package.
 
