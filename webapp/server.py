@@ -734,6 +734,328 @@ def pca_run(req: PcaRequest):
     return jobs.submit("pca", title, {"source": pca.METHODS[req.method]["full"]}, run).to_dict()
 
 
+# ------------------------------------------------------------------ Classical ML: tables (raster → table and future sub-tools)
+
+TABLE_DIR = Path.cwd() / "tables"
+TABLE_EXTS = {".csv", ".parquet"}
+
+
+def _table_path(rel: str) -> Path:
+    p = (Path.cwd() / rel).resolve()
+    if not p.is_relative_to(TABLE_DIR.resolve()) or p.suffix.lower() not in TABLE_EXTS or not p.is_file():
+        raise HTTPException(404, "No such table")
+    return p
+
+
+@app.get("/api/tables")
+def list_tables():
+    import json as _json
+
+    out = []
+    if TABLE_DIR.is_dir():
+        for p in sorted(TABLE_DIR.iterdir(), key=lambda p: -p.stat().st_mtime):
+            if p.suffix.lower() in TABLE_EXTS:
+                meta = {}
+                side = p.with_suffix(p.suffix + ".json")
+                if side.exists():
+                    try:
+                        meta = _json.loads(side.read_text())
+                    except ValueError:
+                        pass
+                out.append({"path": str(p.relative_to(Path.cwd())), "name": p.name, "size_mb": p.stat().st_size / 1e6,
+                            "modified": p.stat().st_mtime, "rows": meta.get("rows"), "columns": meta.get("columns"),
+                            "target": meta.get("target"), "class_counts": meta.get("class_counts"),
+                            "source": Path(meta.get("source", "")).name})
+    return out
+
+
+@app.get("/api/tables/preview")
+def table_preview(path: str, n: int = 20):
+    p = _table_path(path)
+    if p.suffix.lower() == ".parquet":
+        import pyarrow.parquet as pq
+        f = pq.ParquetFile(p)
+        t = next(f.iter_batches(batch_size=n)).to_pylist() if f.metadata.num_rows else []
+        return {"columns": f.schema_arrow.names, "rows": [list(r.values()) for r in t], "total": f.metadata.num_rows}
+    import csv
+    with open(p, newline="", encoding="utf-8") as fh:
+        rd = csv.reader(fh)
+        cols = next(rd, [])
+        rows = [r for _, r in zip(range(n), rd)]
+    return {"columns": cols, "rows": rows}
+
+
+@app.get("/api/tables/file")
+def table_file(path: str):
+    p = _table_path(path)
+    return FileResponse(p, filename=p.name)
+
+
+@app.delete("/api/tables")
+def delete_table(path: str):
+    p = _table_path(path)
+    p.unlink(missing_ok=True)
+    p.with_suffix(p.suffix + ".json").unlink(missing_ok=True)
+    return {"ok": True}
+
+
+class RasterTableRequest(BaseModel):
+    path: str
+    bands: list[int] | None = None
+    clip: dict | None = None
+    factor: int = Field(1, ge=1, le=64)
+    scale: float = 1.0
+    offset: float = 0.0
+    ground_truth: dict | None = None  # {"type": "raster", "path", "band"} | {"type": "vector", "geojson", "field"}
+    label_name: str = Field("label", max_length=40)
+    labelled_only: bool = True
+    sampling: str = "all"  # all | random | stratified
+    sample_size: int = Field(100_000, ge=10, le=50_000_000)
+    per_class: int = Field(5_000, ge=1, le=10_000_000)
+    xy: bool = True
+    lonlat: bool = True
+    rowcol: bool = False
+    drop_nodata: bool = True
+    format: str = "csv"
+    name: str = "table"
+    class_colors: dict[str, str] | None = None
+
+
+@app.post("/api/tables/from-raster")
+def raster_to_table_job(req: RasterTableRequest):
+    import re
+    import shutil
+
+    from lulc_fetch.tabular import raster_to_table
+
+    src = _raster_path(req.path)
+    if req.format not in ("csv", "parquet"):
+        raise HTTPException(400, "Format must be csv or parquet")
+    if req.sampling not in ("all", "random", "stratified"):
+        raise HTTPException(400, "Unknown sampling")
+    gt = dict(req.ground_truth) if req.ground_truth else None
+    if gt and gt.get("type") == "raster":
+        gt["path"] = str(_raster_path(gt.get("path", "")))
+    elif gt and gt.get("type") == "vector":
+        if not isinstance(gt.get("geojson"), dict):
+            raise HTTPException(400, "Vector ground truth needs GeoJSON")
+    elif gt:
+        raise HTTPException(400, "Ground truth must be a raster or vector layer")
+    clip = _clip(req.clip)
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:80] or "table"
+
+    def run(job):
+        tmp = job.dir / f"{stem}.{req.format}"
+        rep = raster_to_table(src, tmp, bands=req.bands, clip=clip, factor=req.factor, scale=req.scale, offset=req.offset,
+                              ground_truth=gt, label_name=req.label_name, labelled_only=req.labelled_only,
+                              sampling=req.sampling, sample_size=req.sample_size, per_class=req.per_class,
+                              xy=req.xy, lonlat=req.lonlat, rowcol=req.rowcol, drop_nodata=req.drop_nodata, fmt=req.format,
+                              class_colors=req.class_colors)
+        TABLE_DIR.mkdir(exist_ok=True)
+        dest = TABLE_DIR / tmp.name
+        i = 2
+        while dest.exists():  # never overwrite an earlier table
+            dest = TABLE_DIR / f"{stem}_{i}.{req.format}"
+            i += 1
+        shutil.move(tmp, dest)
+        shutil.move(str(tmp) + ".json", str(dest) + ".json")
+        rep.update(path=str(dest.relative_to(Path.cwd())), name=dest.name)
+        import json as _json
+        Path(str(dest) + ".json").write_text(_json.dumps({k: v for k, v in rep.items() if k != "preview"}, indent=1))
+        return rep
+
+    return jobs.submit("table", f"Raster → table · {req.name}", {"source": "Raster → table"}, run).to_dict()
+
+
+# ------------------------------------------------------------------ Classical ML: train models and apply them
+
+MODEL_DIR = Path.cwd() / "models"
+
+
+def _model_path(rel: str) -> Path:
+    p = (Path.cwd() / rel).resolve()
+    if not p.is_relative_to(MODEL_DIR.resolve()) or p.suffix != ".joblib" or not p.is_file():
+        raise HTTPException(404, "No such model")
+    return p
+
+
+@app.get("/api/ml/schema")
+def ml_schema():
+    from lulc_fetch import ml
+
+    return ml.schema()
+
+
+@app.get("/api/tables/describe")
+def table_describe(path: str):
+    from lulc_fetch import ml
+
+    return ml.describe_table(_table_path(path))
+
+
+class TrainRequest(BaseModel):
+    table: str
+    target: str
+    features: list[str]
+    model: str = "rf"
+    task: str = "auto"
+    params: dict = Field(default_factory=dict)
+    common: dict = Field(default_factory=dict)
+    name: str = Field("model", max_length=80)
+
+
+@app.post("/api/ml/train")
+def ml_train(req: TrainRequest):
+    import shutil
+
+    from lulc_fetch import ml
+
+    table = _table_path(req.table)
+    if req.model not in ml.MODELS:
+        raise HTTPException(400, f"Unknown model {req.model}")
+    if req.task not in ("auto", "classification", "regression"):
+        raise HTTPException(400, "Unknown task")
+
+    def run(job):
+        rep = ml.train(table, job.dir, target=req.target, features=req.features, model=req.model, task=req.task,
+                       params=req.params, common=req.common, name=req.name)
+        MODEL_DIR.mkdir(exist_ok=True)
+        tmp = Path(rep["path"])
+        dest, i = MODEL_DIR / tmp.name, 2
+        while dest.exists():
+            dest = MODEL_DIR / f"{tmp.stem}_{i}.joblib"
+            i += 1
+        shutil.move(tmp, dest)
+        rep["path"] = str(dest.relative_to(Path.cwd()))
+        rep["table"] = str(table.relative_to(Path.cwd()))
+        import json as _json
+        Path(str(dest) + ".json").write_text(_json.dumps(rep, indent=1, default=str))
+        Path(str(tmp) + ".json").unlink(missing_ok=True)
+        return rep
+
+    title = f"Train {ml.MODELS[req.model]['title']} · {req.name}"
+    return jobs.submit("train", title, {"source": ml.MODELS[req.model]["title"]}, run).to_dict()
+
+
+@app.get("/api/models")
+def list_models():
+    import json as _json
+
+    out = []
+    if MODEL_DIR.is_dir():
+        for p in sorted(MODEL_DIR.glob("*.joblib"), key=lambda p: -p.stat().st_mtime):
+            rep = {}
+            side = Path(str(p) + ".json")
+            if side.exists():
+                try:
+                    rep = _json.loads(side.read_text())
+                except ValueError:
+                    pass
+            out.append({"path": str(p.relative_to(Path.cwd())), "name": p.stem, "size_mb": p.stat().st_size / 1e6,
+                        "modified": p.stat().st_mtime, **{k: rep.get(k) for k in (
+                            "model", "model_title", "task", "target", "features", "accuracy", "kappa", "f1_macro", "r2", "rmse",
+                            "classes", "table", "train_rows", "has_proba", "source")}})
+    return out
+
+
+@app.get("/api/models/report")
+def model_report(path: str):
+    import json as _json
+
+    p = _model_path(path)
+    return _json.loads(Path(str(p) + ".json").read_text())
+
+
+@app.get("/api/models/file")
+def model_file(path: str):
+    p = _model_path(path)
+    return FileResponse(p, filename=p.name)
+
+
+@app.delete("/api/models")
+def delete_model(path: str):
+    p = _model_path(path)
+    p.unlink(missing_ok=True)
+    Path(str(p) + ".json").unlink(missing_ok=True)
+    return {"ok": True}
+
+
+class PredictRequest(BaseModel):
+    model: str
+    path: str
+    band_map: dict[str, int]
+    scale: float = 1.0
+    offset: float = 0.0
+    clip: dict | None = None
+    resolution: str = "auto"
+    confidence: bool = True
+    name: str = Field("classified", max_length=80)
+
+
+@app.post("/api/ml/predict")
+def ml_predict(req: PredictRequest):
+    import re
+
+    from lulc_fetch import ml
+
+    model = _model_path(req.model)
+    raster = _raster_path(req.path)
+    clip = _clip(req.clip)
+    if req.resolution not in ("auto", "1", "2", "4", "8", "16"):
+        raise HTTPException(400, "Unknown resolution")
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:80] or "classified"
+
+    def run(job):
+        rep = ml.predict_raster(model, raster, job.dir / f"{stem}.tif", band_map=req.band_map, scale=req.scale,
+                                offset=req.offset, clip=clip, resolution=req.resolution, confidence=req.confidence)
+        rep["path"] = str((job.dir / f"{stem}.tif").relative_to(Path.cwd()))
+        return rep
+
+    return jobs.submit("predict", f"Classify · {req.name}", {"source": "Classical ML"}, run).to_dict()
+
+
+# ------------------------------------------------------------------ stack layers onto one grid
+
+class StackItem(BaseModel):
+    path: str
+    name: str = "layer"
+    bands: list[int] | None = None
+    index: str | None = None
+    formula: str | None = Field(None, max_length=500)
+    band_map: dict[str, int] = Field(default_factory=dict)
+    scale: float = 1.0
+    offset: float = 0.0
+
+
+class StackRequest(BaseModel):
+    items: list[StackItem]
+    ref: str
+    clip: dict | None = None
+    factor: int = Field(1, ge=1, le=64)
+    name: str = Field("stack", max_length=80)
+
+
+@app.post("/api/stack")
+def stack_job(req: StackRequest):
+    import re
+
+    from lulc_fetch.stack import stack
+
+    if not req.items:
+        raise HTTPException(400, "Choose at least one layer")
+    items = [{**it.model_dump(), "path": str(_raster_path(it.path))} for it in req.items]
+    ref = _raster_path(req.ref)
+    clip = _clip(req.clip)
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:80] or "stack"
+
+    def run(job):
+        rep = stack(items, ref, job.dir / f"{stem}.tif", clip=clip, factor=req.factor)
+        rep["path"] = str((job.dir / f"{stem}.tif").relative_to(Path.cwd()))
+        return rep
+
+    return jobs.submit("stack", f"Stack layers · {req.name}", {"source": "Stack layers"}, run).to_dict()
+
+
 # ------------------------------------------------------------------ layer export (GeoTIFF / PNG / shapefile / KML)
 
 EXPORT_DIR = Path.cwd() / "exports"

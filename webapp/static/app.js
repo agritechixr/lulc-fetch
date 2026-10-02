@@ -173,6 +173,10 @@
     analyze: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5" opacity=".5"/>',
     jobs: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/>',
     export: '<path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 14v6h16v-6"/>',
+    samples: '<path d="M4 20l5-12 6 4 5-8"/><circle cx="9" cy="8" r="1.6"/><circle cx="15" cy="12" r="1.6"/><path d="M14 20h7M17.5 16.5v7" opacity=".7"/>',
+    stack: '<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5"/><path d="M3 16.5l9 4.5 9-4.5"/>',
+    table: '<path d="M4 6l4-3 4 3 4-3 4 3v6"/><path d="M4 6v6"/><rect x="3" y="14" width="18" height="7" rx="1"/><path d="M3 17.5h18M9 14v7M15 14v7"/>',
+    ml: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M9 4v16"/>',
     pca: '<circle cx="7" cy="16" r="1.4"/><circle cx="11" cy="12" r="1.4"/><circle cx="15" cy="10" r="1.4"/><circle cx="9" cy="17" r="1.4"/><circle cx="17" cy="7" r="1.4"/><path d="M3 21L21 3"/><path d="M8 6l10 10" opacity=".5"/>',
     home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     raster: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
@@ -184,6 +188,10 @@
     { id: "search", title: "Find imagery", icon: "search", subtitle: "Search, preview and download Sentinel-2, composites and land-cover labels" },
     { id: "analyze", title: "Index analysis", icon: "analyze", subtitle: "NDVI, SAVI, EVI, NDWI and 21 more indices or your own formula" },
     { id: "pca", title: "PCA & dimensionality reduction", icon: "pca", subtitle: "PCA, Kernel PCA, NMF, ICA and more (scikit-learn) on any multiband image" },
+    { id: "samples", title: "Training samples", icon: "samples", subtitle: "Draw labelled polygons and points for each class on the map" },
+    { id: "stack", title: "Stack layers", icon: "stack", subtitle: "Combine bands from several layers (S2, S1, DEM, indices…) onto one grid" },
+    { id: "raster2table", title: "Raster → table", icon: "table", subtitle: "Turn any image (multispectral, hyperspectral, SAR) into a table, with optional ground-truth labels" },
+    { id: "ml", title: "Classical ML (tabular data)", icon: "ml", subtitle: "Machine-learning tools that work on tables" },
     { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
   ];
@@ -191,9 +199,10 @@
 
   function buildToolsMenu() {
     $("#tools-menu").innerHTML = TOOLS.map((t) => `<button class="tool-item" data-tool="${t.id}">
-        <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>`).join("") +
+        <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>` +
+        (t.id === "ml" ? ML_SUBTOOLS.map((st) => `<button class="tool-item sub" data-tool="ml" data-sub="${st.id}"><span><b>${esc(st.title)}</b></span></button>`).join("") : "")).join("") +
       "";
-    $$("#tools-menu [data-tool]").forEach((b) => b.onclick = () => { switchTool(b.dataset.tool); toggleMenu(null); });
+    $$("#tools-menu [data-tool]").forEach((b) => b.onclick = () => { switchTool(b.dataset.tool); if (b.dataset.tool === "ml") openMlSub(b.dataset.sub || null); toggleMenu(null); });
     $("#tool-cards").innerHTML = TOOLS.map((t) => `<button class="tool-card" data-tool="${t.id}">
         <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>`).join("");
     $$("#tool-cards [data-tool]").forEach((b) => b.onclick = () => switchTool(b.dataset.tool));
@@ -215,6 +224,10 @@
     if (tool.id === "home") refreshHomeProducts();
     if (tool.id === "export") { refreshExportLayers(); renderExportForm(); }
     if (tool.id === "pca" && pcaState.schema) refreshPcaInputs();
+    if (tool.id === "ml") { openMlSub(mlSub); }
+    if (tool.id === "raster2table") refreshRtInputs();
+    if (tool.id === "samples") renderSamples();
+    if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
   }
 
@@ -334,8 +347,9 @@
   const selectedLayer = () => layers.find((l) => l.id === selectedId) || null;
   const getLayer = (id) => layers.find((l) => l.id === id) || null;
 
-  function vecStyle(l) {
-    return { color: l.color || "#2563eb", weight: l.weight ?? 2, opacity: l.opacity,
+  function vecStyle(l, f) {
+    const color = (f && l.classColors?.[f.properties?.class]) || l.color || "#2563eb";
+    return { color, fillColor: color, weight: l.weight ?? 2, opacity: l.opacity,
              fillOpacity: (l.fillOpacity ?? 0.12) * l.opacity, dashArray: l.dash || null };
   }
 
@@ -351,8 +365,8 @@
     if (l.type === "vector") {
       l.leaflet = L.geoJSON(l.geojson, {
         bubblingMouseEvents: false,
-        style: () => vecStyle(l),
-        pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 5, ...vecStyle(l), fillOpacity: 0.8 * l.opacity, bubblingMouseEvents: false }),
+        style: (f) => vecStyle(l, f),
+        pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 6, ...vecStyle(l, f), fillOpacity: 0.85 * l.opacity, bubblingMouseEvents: false }),
         // A selected raster wins: clicking on top of a polygon still reads the raster's pixel values.
         onEachFeature: (f, lyr) => lyr.on("click", (e) => {
           if (picking || activeDraw) return;
@@ -407,7 +421,7 @@
   }
   function setOpacity(l, o) {
     l.opacity = o;
-    if (l.type === "vector") l.leaflet?.setStyle(vecStyle(l));
+    if (l.type === "vector") l.leaflet?.setStyle((f) => vecStyle(l, f));
     else l.leaflet?.setOpacity(o);
     saveLayers();
   }
@@ -503,6 +517,9 @@
 
   function legendHtml(l) {
     const g = l.legend;
+    if (l.type === "vector" && l.classes?.length) {
+      return `<div class="lyr-classes">${l.classes.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span><span>${l.geojson.features.filter((f) => f.properties.class === c.name).length}</span></div>`).join("")}</div>`;
+    }
     if (l.type === "vector") return `<div class="lyr-meta">${displayLabel(l)} · EPSG:4326</div>`;
     if (!g) return "";
     if (g.kind === "continuous") {
@@ -571,6 +588,10 @@
     });
     refreshAnalyzeInputs();
     if (pcaState.schema) refreshPcaInputs();
+    if (currentTool === "raster2table") refreshRtInputs();
+    if (currentTool === "samples") renderSamples();
+    if (currentTool === "stack") refreshStack();
+    if (currentTool === "ml" && mlSub === "predict" && mlx.schema) refreshPredictRasters();
     refreshClipPickers();
     if (currentTool === "export") { refreshExportLayers(); if (!exportLayer()) renderExportForm(); }
   }
@@ -882,6 +903,9 @@
     "an-area": { what: "image is analysed", onChange: () => { if (an.sel && !an.sel.composite) compute(); } },
     "lx-area": { what: "layer is exported", own: true, onChange: () => {} },
     "pca-area": { what: "image is used", onChange: () => {} },
+    "rt-area": { what: "image is converted", onChange: () => updateRtEstimate() },
+    "mp-area": { what: "image is classified", onChange: () => {} },
+    "st-area": { what: "reference extent is used", onChange: () => {} },
   };
   const polygonLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
   function refreshClipPicker(id) {
@@ -996,7 +1020,7 @@
     if (!l) return;
     l.name = $("#lp-name").value.trim() || l.name;
     setOpacity(l, $("#lp-opacity").value / 100);
-    if (l.type === "vector") { l.color = $("#lp-color").value; l.leaflet?.setStyle(vecStyle(l)); }
+    if (l.type === "vector") { l.color = $("#lp-color").value; l.leaflet?.setStyle((f) => vecStyle(l, f)); }
     $("#dlg-lprops").close();
     if (l.type === "raster") {
       const v = $("#lp-display").value, style = { stretch: $("#lp-stretch").value, cmap: $("#lp-cmap").value || null };
@@ -1130,12 +1154,14 @@
   const drawOpts = { shapeOptions: AOI_STYLE, showArea: false };
   let activeDraw = null;
   let drawDone = null;  // callback for the current drawing; null = it sets the Find-imagery AOI
-  function startDraw(Kind, onDone = null) {
+  function startDraw(Kind, onDone = null, color = null) {
     activeDraw?.disable();
     drawDone = onDone;
-    activeDraw = new Kind(map, onDone ? { shapeOptions: { color: "#dc2626", weight: 2, dashArray: "6 4", fillOpacity: 0.05 }, showArea: false } : drawOpts);
+    const shape = color ? { color, weight: 2, fillOpacity: 0.3 } : { color: "#dc2626", weight: 2, dashArray: "6 4", fillOpacity: 0.05 };
+    activeDraw = new Kind(map, onDone ? { shapeOptions: shape, showArea: false, color, fillColor: color, fillOpacity: 0.8, radius: 6 } : drawOpts);
     activeDraw.enable();
-    $("#map-hint").textContent = Kind === L.Draw.Rectangle ? "Drag on the map to draw a rectangle (Esc to cancel)" : "Click to add points, click the first point to finish (Esc to cancel)";
+    $("#map-hint").textContent = Kind === L.Draw.Rectangle ? "Drag on the map to draw a rectangle (Esc to stop)"
+      : Kind === L.Draw.CircleMarker ? "Click the map to place a point (Esc to stop)" : "Click to add points, click the first point to finish (Esc to stop)";
     $("#map-hint").classList.remove("hidden");
   }
   map.on(L.Draw.Event.DRAWSTOP, () => { $("#map-hint").classList.add("hidden"); setTimeout(() => { activeDraw = null; }, 0); });
@@ -1561,7 +1587,8 @@
       jobsSeen = true;
     }
     for (const j of list) {
-      if (j.status !== "done" || addedJobs.has(j.id) || j.kind === "pca" || j.kind === "export") continue;
+      // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
+      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
@@ -2297,6 +2324,719 @@
     renderPcaBands();
   }
 
+  // ------------------------------------------------------------------ Classical ML (tabular data) hub
+  // Sub-tools are registered here; each has a <div id="ml-sub-<id>" class="ml-sub"> in index.html.
+  const ML_SUBTOOLS = [  // ← add sub-tools here (and a <div id="ml-sub-<id>" class="ml-sub"> in index.html)
+    { id: "train", title: "Train a model", icon: "ml",
+      subtitle: "Random Forest, XGBoost, LightGBM, SVM, Maximum Likelihood and more, with accuracy assessment" },
+    { id: "predict", title: "Classify an image", icon: "analyze",
+      subtitle: "Apply a trained model to a raster to make a land-cover (or value) map" },
+  ];
+  let mlSub = null;
+  function openMlSub(id) {
+    mlSub = id;
+    $("#ml-home").classList.toggle("hidden", !!id);
+    $$(".ml-sub").forEach((d) => d.classList.toggle("hidden", d.id !== `ml-sub-${id}`));
+    const st = ML_SUBTOOLS.find((t) => t.id === id);
+    $("#tool-sub").textContent = st ? st.title + " · " + st.subtitle : TOOLS.find((t) => t.id === "ml").subtitle;
+    if (!id) { refreshTables(); refreshModels(); }
+    if (id === "train" && mlx.schema) refreshTrainTables();
+    if (id === "predict") refreshPredict();
+    document.querySelector(".tool-body").scrollTop = 0;
+  }
+  function renderMlHub() {
+    $("#ml-subtools").innerHTML = ML_SUBTOOLS.map((t) => `<button class="tool-card" data-mlsub="${t.id}">
+      <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>`).join("") +
+      "";
+    $$("#ml-subtools [data-mlsub]").forEach((b) => b.onclick = () => openMlSub(b.dataset.mlsub));
+    $$(".ml-back").forEach((b) => b.onclick = () => openMlSub(null));
+    $("#ml-goto-rt").onclick = (e) => { e.preventDefault(); switchTool("raster2table"); };
+  }
+  async function refreshTables() {
+    let list = [];
+    try { list = await api("/api/tables"); } catch { return; }
+    $("#ml-tables").innerHTML = list.length ? list.map((t) => `<div class="ws-row"><span>${esc(t.name)}
+        <small>${t.rows != null ? `${t.rows.toLocaleString()} rows × ${t.columns.length} columns` : ""}${t.target ? ` · label: ${esc(t.target)}` : ""}${t.source ? ` · from ${esc(t.source)}` : ""} · ${fmt(t.size_mb, t.size_mb < 1 ? 2 : 1)} MB</small></span>
+        <span class="row tight"><button class="btn small" data-tprev="${esc(t.path)}">Preview</button><a class="btn small" href="/api/tables/file?path=${encodeURIComponent(t.path)}" download>⬇</a><button class="btn small danger" data-tdel="${esc(t.path)}" title="Delete">×</button></span></div>`).join("")
+      : '<p class="hint">No tables yet. Use <b>Raster → table</b> to create one.</p>';
+    $$("[data-tprev]").forEach((b) => b.onclick = () => previewTable(b.dataset.tprev));
+    $$("[data-tdel]").forEach((b) => b.onclick = async () => {
+      if (!confirm("Delete this table file?")) return;
+      await api(`/api/tables?path=${encodeURIComponent(b.dataset.tdel)}`, { method: "DELETE" });
+      refreshTables();
+    });
+  }
+  function tableHtml(columns, rows, labelCols = []) {
+    const isLbl = (c) => labelCols.includes(c);
+    return `<table class="data-table"><tr>${columns.map((c) => `<th class="${isLbl(c) ? "lbl" : ""}">${esc(c)}</th>`).join("")}</tr>
+      ${rows.map((r) => `<tr>${r.map((v, i) => `<td class="${isLbl(columns[i]) ? "lbl" : ""}">${v == null || v === "" ? "–" : esc(v)}</td>`).join("")}</tr>`).join("")}</table>`;
+  }
+  async function previewTable(path) {
+    const r = await api(`/api/tables/preview?path=${encodeURIComponent(path)}`);
+    $("#tbl-title").textContent = `${path.split("/").pop()} · first ${r.rows.length} rows${r.total ? ` of ${r.total.toLocaleString()}` : ""}`;
+    $("#tbl-body").innerHTML = tableHtml(r.columns, r.rows, r.columns.slice(-1));
+    $("#dlg-table").showModal();
+  }
+
+  // ---------------- Raster → table
+  const rt = { layer: null };
+  function refreshRtInputs() {
+    const rasters = layers.filter((l) => l.type === "raster" && !l.derived);
+    const sel = $("#rt-input");
+    sel.innerHTML = `<option value="">${rasters.length ? "Choose a raster layer…" : "No raster layers yet"}</option>` +
+      rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+    if (rt.layer && rasters.includes(rt.layer)) sel.value = rt.layer.id; else { rt.layer = null; renderRt(); }
+    // ground truth: any other raster, or any vector layer
+    const gtSel = $("#rt-gt"), cur = gtSel.value;
+    const vecs = layers.filter((l) => l.type === "vector");
+    gtSel.innerHTML = `<option value="">None. Just the image values</option>` +
+      (rasters.length ? `<optgroup label="Raster (e.g. land-cover map)">${rasters.filter((l) => l !== rt.layer).map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")}</optgroup>` : "") +
+      (vecs.length ? `<optgroup label="Vector (shapefile / GeoJSON / KML)">${vecs.map((l) => `<option value="${esc(l.id)}">${esc(l.name)} (${l.geojson.features.length} features)</option>`).join("")}</optgroup>` : "");
+    gtSel.value = [...gtSel.options].some((o) => o.value === cur) ? cur : "";
+    renderGt();
+  }
+  function renderRt() {
+    const l = rt.layer;
+    if (!l) { $("#rt-bands").innerHTML = ""; $("#rt-info").textContent = ""; updateRtEstimate(); return; }
+    const info = l.info;
+    $("#rt-info").textContent = `${info.count} bands · ${info.width.toLocaleString()} × ${info.height.toLocaleString()} px · pixel ${fmt(info.res[0], info.res[0] < 1 ? 3 : 1)} ${/4326/.test(info.crs) ? "°" : "m"} · ${info.crs}`;
+    $("#rt-bands").innerHTML = info.bands.map((b) => `<label title="Band ${b.index}: ${esc(b.description)}"><input type="checkbox" value="${b.index}" checked>${esc(b.description !== `Band ${b.index}` ? b.description : String(b.index))}</label>`).join("");
+    $$("#rt-bands input").forEach((i) => i.onchange = updateRtEstimate);
+    const identity = (l.scale ?? 1) === 1 && (l.offset ?? 0) === 0;
+    $("#rt-refl").checked = !identity;
+    $("#rt-refl").disabled = identity;
+    const r0 = info.res[0], unit = /4326/.test(info.crs) ? "°" : " m";
+    $("#rt-factor").innerHTML = [1, 2, 4, 8, 16].map((f) => `<option value="${f}">${f === 1 ? `Native (${fmt(r0, r0 < 1 ? 3 : 0)}${unit}): one row per pixel` : `${f}× coarser (${fmt(r0 * f, r0 < 1 ? 3 : 0)}${unit})`}</option>`).join("");
+    $("#rt-name").value = safeName(l.name.replace(/\.(tiff?|vrt)$/i, "")).slice(0, 50);
+    updateRtEstimate();
+  }
+  function renderGt() {
+    const l = getLayer($("#rt-gt").value);
+    $("#rt-gt-raster").classList.toggle("hidden", l?.type !== "raster");
+    $("#rt-gt-vector").classList.toggle("hidden", l?.type !== "vector");
+    $("#rt-gt-opts").classList.toggle("hidden", !l);
+    $("#rt-strat-opt").classList.toggle("disabled", !l);
+    if (!l && $('input[name="rts"]:checked').value === "stratified") $('input[name="rts"][value="all"]').checked = true;
+    if (l?.type === "raster") {
+      $("#rt-gt-band").innerHTML = l.info.bands.map((b) => `<option value="${b.index}">Band ${b.index}${b.description !== `Band ${b.index}` ? " · " + esc(b.description) : ""}</option>`).join("");
+    } else if (l?.type === "vector") {
+      const keys = [...new Set(l.geojson.features.flatMap((f) => Object.keys(f.properties || {})))];
+      const pref = keys.find((k) => /^(class|label|lulc|lc|landcover|type|category|code|id)$/i.test(k)) || keys[0];
+      $("#rt-gt-field").innerHTML = keys.length ? keys.map((k) => `<option ${k === pref ? "selected" : ""}>${esc(k)}</option>`).join("")
+        : `<option value="">(no attributes: every feature = 1)</option>`;
+      showGtClasses();
+    }
+    updateRtEstimate();
+  }
+  function showGtClasses() {
+    const l = getLayer($("#rt-gt").value), field = $("#rt-gt-field").value;
+    if (l?.type !== "vector") return;
+    const vals = l.geojson.features.map((f) => (f.properties || {})[field]).filter((v) => v != null);
+    const uniq = [...new Set(vals.map(String))];
+    $("#rt-gt-classes").textContent = !field ? "" : `${uniq.length} distinct value${uniq.length === 1 ? "" : "s"}: ${uniq.slice(0, 8).join(", ")}${uniq.length > 8 ? " …" : ""}` +
+      (vals.every((v) => typeof v === "number") ? " (numeric)" : " (text: a numeric code column is added too)");
+  }
+  function updateRtEstimate() {
+    const l = rt.layer, est = $("#rt-est");
+    if (!l) { est.textContent = "Choose an image to see how big the table will be."; return; }
+    const f = +$("#rt-factor").value || 1, nb = $$("#rt-bands input:checked").length;
+    let px = l.info.width * l.info.height;
+    const clip = getClip("rt-area");
+    if (clip && !/4326/.test(l.info.crs)) px = Math.min(px, geomArea(clip) / (l.info.res[0] * l.info.res[1]));
+    px /= f * f;
+    const samp = $('input[name="rts"]:checked').value;
+    const gt = !!getLayer($("#rt-gt").value);
+    let rows = samp === "random" ? Math.min(px, +$("#rt-n").value || 0) : px;
+    const cols = nb + ($("#rt-xy").checked ? 2 : 0) + ($("#rt-ll").checked ? 2 : 0) + ($("#rt-rc").checked ? 2 : 0) + (gt ? 1 : 0);
+    const bytes = rows * cols * ($("#rt-fmt").value === "csv" ? 9 : 3.5);
+    const note = samp === "stratified" ? `up to ${(+$("#rt-pc").value || 0).toLocaleString()} rows per class` :
+      gt && $("#rt-labelled").checked && samp === "all" ? `only labelled pixels (at most ${Math.round(rows).toLocaleString()} rows)` :
+      `≈ ${Math.round(rows).toLocaleString()} rows`;
+    est.innerHTML = `${note} × ${cols} columns${samp !== "stratified" ? ` · up to ~${bytes > 1e9 ? fmt(bytes / 1e9, 1) + " GB" : Math.max(1, Math.round(bytes / 1e6)) + " MB"}` : ""}` +
+      (rows > 5e6 && samp === "all" && !(gt && $("#rt-labelled").checked) ? ` <span style="color:var(--warn)">· large: consider an area, a coarser pixel size, or a random sample</span>` : "");
+  }
+  $("#rt-input").onchange = () => { rt.layer = getLayer($("#rt-input").value); refreshRtInputs(); renderRt(); if (rt.layer) selectLayer(rt.layer.id); };
+  $("#rt-bands-all").onclick = () => { $$("#rt-bands input").forEach((i) => i.checked = true); updateRtEstimate(); };
+  $("#rt-bands-none").onclick = () => { $$("#rt-bands input").forEach((i) => i.checked = false); updateRtEstimate(); };
+  $("#rt-gt").onchange = renderGt;
+  $("#rt-gt-field").onchange = showGtClasses;
+  ["#rt-factor", "#rt-fmt", "#rt-n", "#rt-pc", "#rt-xy", "#rt-ll", "#rt-rc", "#rt-labelled"].forEach((s) => $(s).addEventListener("input", updateRtEstimate));
+  $$('input[name="rts"]').forEach((r) => r.onchange = updateRtEstimate);
+
+  $("#rt-run").onclick = async () => {
+    const l = rt.layer, err = $("#rt-error");
+    err.classList.add("hidden");
+    if (!l) return toast("Choose an image first (it is required)", true);
+    const bands = $$("#rt-bands input:checked").map((i) => +i.value);
+    if (!bands.length) return toast("Select at least one band", true);
+    const gl = getLayer($("#rt-gt").value);
+    let ground_truth = null;
+    if (gl?.type === "raster") ground_truth = { type: "raster", path: gl.path, band: +$("#rt-gt-band").value || 1 };
+    else if (gl?.type === "vector") ground_truth = { type: "vector", geojson: gl.geojson, field: $("#rt-gt-field").value || null };
+    const refl = $("#rt-refl").checked;
+    const body = {
+      path: l.path, bands, clip: getClip("rt-area"), factor: +$("#rt-factor").value || 1,
+      scale: refl ? (l.scale ?? 1) : 1, offset: refl ? (l.offset ?? 0) : 0,
+      ground_truth, label_name: $("#rt-label").value || "label", labelled_only: $("#rt-labelled").checked,
+      sampling: $('input[name="rts"]:checked').value, sample_size: +$("#rt-n").value || 100000, per_class: +$("#rt-pc").value || 5000,
+      xy: $("#rt-xy").checked, lonlat: $("#rt-ll").checked, rowcol: $("#rt-rc").checked, drop_nodata: $("#rt-drop").checked,
+      format: $("#rt-fmt").value, name: $("#rt-name").value || "table",
+      class_colors: gl?.samples ? gl.classColors : null,
+    };
+    const btn = $("#rt-run");
+    btn.disabled = true;
+    $("#rt-result").classList.add("hidden");
+    try {
+      const job = await api("/api/tables/from-raster", { method: "POST", json: body });
+      const done = await trackJob(job, { tool: "raster2table", title: `Raster → table · ${body.name}` });
+      showRtResult(done.result);
+      refreshTables();
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+  function showRtResult(r) {
+    const box = $("#rt-result");
+    const counts = Object.entries(r.class_counts || {});
+    const max = Math.max(1, ...counts.map(([, n]) => n));
+    box.innerHTML = `<div class="pca-sum"><b>${r.rows.toLocaleString()} rows × ${r.columns.length} columns</b> · ${esc(r.name)} · ${fmt(r.size_mb, r.size_mb < 1 ? 2 : 1)} MB · ${r.seconds} s<br>
+        Pixel ${fmt(r.pixel_size[0], r.pixel_size[0] < 1 ? 3 : 1)} · ${esc(r.crs)}${r.factor > 1 ? ` · aggregated ${r.factor}×${r.factor}` : ""} · sampling: ${esc(r.sampling)}${r.target ? ` · label column: <b>${esc(r.target)}</b>` : ""}</div>
+      ${counts.length ? `<div class="home-label" style="margin-top:12px">Rows per class</div><div class="dist">${counts.slice(0, 20).map(([k, n]) =>
+        `<div style="grid-template-columns:1fr 3fr auto"><span>${esc(k)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * n / max)}%"></span></span><b>${n.toLocaleString()}</b></div>`).join("")}</div>` : ""}
+      <div class="home-label" style="margin-top:12px">First rows</div>
+      <div class="load-wrap">${tableHtml(r.columns, r.preview, r.label_columns || [])}</div>
+      <div class="row"><a class="btn small primary" href="/api/tables/file?path=${encodeURIComponent(r.path)}" download>⬇ Download ${esc(r.format.toUpperCase())}</a>
+        <button class="btn small" data-tp>Preview more</button></div>
+      <p class="hint">Saved as <code>${esc(r.path)}</code>. It's also listed under <a href="#" data-goml>Classical ML ▸ Your tables</a>.</p>`;
+    box.classList.remove("hidden");
+    $("[data-tp]", box).onclick = () => previewTable(r.path);
+    $("[data-goml]", box).onclick = (e) => { e.preventDefault(); switchTool("ml"); openMlSub(null); };
+  }
+
+  // ------------------------------------------------------------------ Classical ML: train a model / classify an image
+  const mlx = { schema: null, desc: null, model: "rf", family: "All", report: null };
+  const stars = (n) => "★".repeat(n) + "☆".repeat(3 - n);
+  const pct = (v) => v == null ? "–" : `${(v * 100).toFixed(1)}%`;
+  const COORDS = ["x", "y", "lon", "lat", "row", "col"];
+
+  function mlField(p, value, scope) {
+    let input;
+    if (p.type === "bool") input = `<input type="checkbox" data-p="${p.name}" data-scope="${scope}" ${value ? "checked" : ""}>`;
+    else if (p.type === "select") input = `<select data-p="${p.name}" data-scope="${scope}">${p.options.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+    else if (p.type === "text") input = `<input type="text" data-p="${p.name}" data-scope="${scope}" value="${esc(value ?? "")}" maxlength="${p.maxlength || 60}">`;
+    else input = `<input type="number" data-p="${p.name}" data-scope="${scope}" step="${p.type === "int" ? 1 : "any"}" ${p.min != null ? `min="${p.min}"` : ""} ${p.max != null ? `max="${p.max}"` : ""} value="${value ?? ""}" placeholder="${esc(p.placeholder || "")}">`;
+    return `<div class="pca-field"><span>${esc(p.label)}${tipBtn(p.tip)}</span>${input}</div>`;
+  }
+  const mlCollect = (scope) => {
+    const out = {};
+    $$(`#mt-params [data-scope="${scope}"], #mt-adv [data-scope="${scope}"]`).forEach((i) => {
+      out[i.dataset.p] = i.type === "checkbox" ? i.checked : i.type === "number" ? (i.value === "" ? null : +i.value) : i.value;
+    });
+    return out;
+  };
+
+  // ---------------- train: table, label, features
+  async function refreshTrainTables(select) {
+    const list = await api("/api/tables").catch(() => []);
+    const sel = $("#mt-table"), cur = select || sel.value;
+    sel.innerHTML = list.length ? list.map((t) => `<option value="${esc(t.path)}">${esc(t.name)}${t.rows != null ? ` · ${t.rows.toLocaleString()} rows` : ""}</option>`).join("")
+      : `<option value="">No tables yet</option>`;
+    if (cur && list.some((t) => t.path === cur)) sel.value = cur;
+    if (sel.value) await loadTableDesc(sel.value); else { mlx.desc = null; renderTargetAndFeatures(); }
+  }
+  async function loadTableDesc(path) {
+    $("#mt-table-info").innerHTML = `<span class="spinner"></span>Reading table…`;
+    try { mlx.desc = await api(`/api/tables/describe?path=${encodeURIComponent(path)}`); }
+    catch (e) { mlx.desc = null; toast(e.message, true); }
+    renderTargetAndFeatures();
+  }
+  function renderTargetAndFeatures() {
+    const d = mlx.desc;
+    if (!d) { $("#mt-target").innerHTML = ""; $("#mt-feats").innerHTML = ""; $("#mt-table-info").innerHTML = `No tables yet? Create one with <a href="#" class="goto-rt"><b>Raster → table</b></a>.`; wireGotoRt(); return; }
+    const meta = d.meta || {};
+    $("#mt-table-info").innerHTML = `${d.rows.toLocaleString()} rows × ${d.columns.length} columns${meta.source ? ` · from ${esc(String(meta.source).split("/").pop())}` : ""}${meta.crs ? ` · ${esc(meta.crs)}` : ""}`;
+    const labelGuess = meta.target && d.columns.some((c) => c.name === meta.target) ? meta.target : d.columns[d.columns.length - 1].name;
+    $("#mt-target").innerHTML = d.columns.map((c) => `<option value="${esc(c.name)}" ${c.name === labelGuess ? "selected" : ""}>${esc(c.name)} (${c.type}${c.type !== "number" ? `, ${c.unique} values` : ""})</option>`).join("");
+    renderFeatureBoxes(true);
+    renderTargetInfo();
+    $("#mt-name").value = `${MODEL_TITLE()}_${(meta.source ? String(meta.source).split("/").pop() : "table").replace(/\.[^.]+$/, "")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 60);
+  }
+  const MODEL_TITLE = () => (mlx.schema?.models[mlx.model]?.title || "model").replace(/[^A-Za-z0-9]+/g, "");
+  function renderFeatureBoxes(useDefaults) {
+    const d = mlx.desc, target = $("#mt-target").value, meta = d.meta || {};
+    const labelCols = new Set([...(meta.label_columns || []), target]);
+    const bandCols = new Set(meta.band_columns || []);
+    const prev = new Set($$("#mt-feats input:checked").map((i) => i.value));
+    $("#mt-feats").innerHTML = d.columns.filter((c) => c.name !== target).map((c) => {
+      const numeric = c.type !== "text";
+      const def = numeric && !COORDS.includes(c.name) && !labelCols.has(c.name) && !["poly_id", "sample_id"].includes(c.name);
+      const on = useDefaults ? def : prev.has(c.name);
+      return `<label title="${esc(c.name)} · ${c.type}" ${numeric ? "" : 'style="opacity:.45"'}><input type="checkbox" value="${esc(c.name)}" data-band="${bandCols.has(c.name) ? 1 : 0}" ${numeric ? "" : "disabled"} ${on && numeric ? "checked" : ""}>${esc(c.name)}</label>`;
+    }).join("");
+    $$("#mt-feats input").forEach((i) => i.onchange = updateFeatHint);
+    updateFeatHint();
+  }
+  function updateFeatHint() {
+    const n = $$("#mt-feats input:checked").length;
+    const coords = $$("#mt-feats input:checked").filter((i) => COORDS.includes(i.value) || ["poly_id", "sample_id"].includes(i.value)).length;
+    $("#mt-feats-hint").innerHTML = n ? `${n} feature${n > 1 ? "s" : ""} selected${coords ? ` · <span style="color:var(--warn)">coordinates included: the model may learn locations rather than spectra</span>` : ""}` : "Select at least one feature.";
+  }
+  function detectTask() {
+    const d = mlx.desc, col = d?.columns.find((c) => c.name === $("#mt-target").value);
+    if ($("#mt-task").value !== "auto") return $("#mt-task").value;
+    if (!col) return "classification";
+    return col.type === "text" || (col.type === "integer" && col.unique <= 100) ? "classification" : "regression";
+  }
+  function renderTargetInfo() {
+    const d = mlx.desc, target = $("#mt-target").value, task = detectTask();
+    const col = d?.columns.find((c) => c.name === target);
+    const counts = d?.meta?.target === target ? d.meta.class_counts : null;
+    let html = `<span class="task-badge">${task === "classification" ? `Classification${col ? ` · ${col.unique} classes` : ""}` : "Regression (continuous values)"}</span>`;
+    if (task === "classification" && counts) {
+      const entries = Object.entries(counts), max = Math.max(...entries.map(([, n]) => n));
+      const minN = Math.min(...entries.map(([, n]) => n));
+      html += `<div class="dist" style="margin-top:6px">${entries.slice(0, 12).map(([k, n]) => `<div style="grid-template-columns:1fr 3fr auto"><span>${esc(k)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * n / max)}%"></span></span><b>${n.toLocaleString()}</b></div>`).join("")}</div>` +
+        (max / Math.max(1, minN) > 5 ? `<p class="hint">Classes are unbalanced (${max.toLocaleString()} vs ${minN.toLocaleString()}). Consider <b>Class balancing → Balanced</b> under Parameters.</p>` : "");
+    }
+    if (task === "classification" && col && col.unique > 50) html += `<p class="hint" style="color:var(--warn)">${col.unique} distinct values: is this really a class column? Choose Task → Regression for continuous values.</p>`;
+    $("#mt-target-info").innerHTML = html;
+    renderModelCards();
+  }
+  $("#mt-table").onchange = () => loadTableDesc($("#mt-table").value);
+  $("#mt-target").onchange = () => { renderFeatureBoxes(true); renderTargetInfo(); };
+  $("#mt-task").onchange = renderTargetInfo;
+  $("#mt-feats-bands").onclick = () => { const any = $$("#mt-feats input[data-band='1']").length; $$("#mt-feats input:not(:disabled)").forEach((i) => i.checked = any ? i.dataset.band === "1" : !COORDS.includes(i.value)); updateFeatHint(); };
+  $("#mt-feats-all").onclick = () => { $$("#mt-feats input:not(:disabled)").forEach((i) => i.checked = true); updateFeatHint(); };
+  $("#mt-feats-none").onclick = () => { $$("#mt-feats input").forEach((i) => i.checked = false); updateFeatHint(); };
+
+  // ---------------- train: model cards + parameters
+  function renderModelCards() {
+    const sc = mlx.schema, task = detectTask();
+    const fams = ["All", ...new Set(Object.values(sc.models).map((m) => m.family))];
+    $("#mt-family").innerHTML = fams.map((f) => `<button class="${f === mlx.family ? "active" : ""}" data-fam="${esc(f)}">${esc(f)}</button>`).join("");
+    $$("#mt-family [data-fam]").forEach((b) => b.onclick = () => { mlx.family = b.dataset.fam; renderModelCards(); });
+    const usable = (k, m) => m.tasks.includes(task) && !sc.unavailable.includes(k);
+    if (!usable(mlx.model, sc.models[mlx.model])) mlx.model = "rf";
+    $("#mt-models").innerHTML = Object.entries(sc.models).filter(([, m]) => mlx.family === "All" || m.family === mlx.family).map(([k, m]) => {
+      const ok = usable(k, m);
+      const why = !m.tasks.includes(task) ? `Not for ${task}` : sc.unavailable.includes(k) ? "Not installed" : "";
+      return `<button type="button" class="model-card ${k === mlx.model ? "on" : ""} ${ok ? "" : "off"}" data-model="${k}" ${ok ? "" : "disabled"} title="${esc(why)}">
+        ${m.recommended ? '<span class="rec">RECOMMENDED</span>' : ""}
+        <span class="fam">${esc(m.family)}</span>
+        <span class="mc-top"><b>${esc(m.title)}</b>${tipBtn(m.tip)}</span>
+        <span class="stars"><span>Accuracy <b>${stars(m.accuracy)}</b></span><span>Speed <b>${stars(m.speed)}</b></span></span>
+        <small>${esc(why || m.desc)}</small></button>`;
+    }).join("");
+    $$("#mt-models .model-card").forEach((b) => b.onclick = (e) => {
+      if (e.target.closest(".tip")) return;
+      mlx.model = b.dataset.model;
+      renderModelCards();
+      renderTrainParams(true);
+      if ($("#mt-name").value.match(/^[A-Za-z]+_/)) $("#mt-name").value = $("#mt-name").value.replace(/^[A-Za-z]+_/, MODEL_TITLE() + "_");
+    });
+    renderTrainParams(true);
+  }
+  function renderTrainParams(keepCommon) {
+    const sc = mlx.schema, m = sc.models[mlx.model], task = detectTask();
+    const fits = (p) => !p.tasks || p.tasks.includes(task);
+    const prevCommon = keepCommon ? mlCollect("common") : {};
+    const mp = m.params.filter(fits), cp = sc.common.filter(fits);
+    const val = (p, prev) => (p.name in prev ? prev[p.name] : p.default);
+    $("#mt-params").innerHTML = mp.filter((p) => !p.advanced).map((p) => mlField(p, p.default, "model")).join("") +
+      cp.filter((p) => !p.advanced).map((p) => mlField(p, val(p, prevCommon), "common")).join("") +
+      (mp.filter((p) => !p.advanced).length ? "" : `<p class="hint">${esc(m.title)} has no settings to tune here: it works well as is.</p>`);
+    $("#mt-adv").innerHTML = mp.filter((p) => p.advanced).map((p) => mlField(p, p.default, "model")).join("") +
+      cp.filter((p) => p.advanced).map((p) => mlField(p, val(p, prevCommon), "common")).join("");
+    const mr = $('[data-p="max_train_rows"]');
+    if (mr) mr.placeholder = `model default: ${m.max_rows.toLocaleString()}`;
+  }
+  $("#mt-reset").onclick = () => renderTrainParams(false);
+
+  $("#mt-run").onclick = async () => {
+    const err = $("#mt-error"); err.classList.add("hidden");
+    const table = $("#mt-table").value, target = $("#mt-target").value;
+    const features = $$("#mt-feats input:checked").map((i) => i.value);
+    if (!table) return toast("Choose a training table first", true);
+    if (!features.length) return toast("Select at least one feature", true);
+    const btn = $("#mt-run"); btn.disabled = true;
+    $("#mt-result").classList.add("hidden");
+    try {
+      const job = await api("/api/ml/train", { method: "POST", json: {
+        table, target, features, model: mlx.model, task: $("#mt-task").value, params: mlCollect("model"), common: mlCollect("common"),
+        name: $("#mt-name").value || "model" } });
+      const done = await trackJob(job, { tool: "ml", title: `Training ${mlx.schema.models[mlx.model].title}` });
+      showTrainResult(done.result, $("#mt-result"));
+      refreshModels();
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+
+  // ---------------- results dashboard (also used for saved model reports)
+  function showTrainResult(r, box) {
+    const cls = r.task === "classification";
+    const grade = (v) => v >= 0.85 ? "good" : v >= 0.7 ? "ok" : "bad";
+    let tiles;
+    if (cls) {
+      tiles = [["Overall accuracy", r.accuracy, "Share of test pixels classified correctly."],
+               ["Kappa", r.kappa, "Agreement beyond chance (0 = random, 1 = perfect). Above 0.8 is excellent, 0.6–0.8 good."],
+               ["Macro F1", r.f1_macro, "Average F1 over classes: treats rare classes as important as common ones."],
+               ["Balanced acc.", r.balanced_accuracy, "Average recall over classes."]]
+        .map(([k, v, t]) => `<div class="metric ${grade(v)}"><b>${k === "Kappa" ? v.toFixed(3) : pct(v)}</b><span>${k} ${tipBtn(t)}</span></div>`).join("");
+    } else {
+      tiles = `<div class="metric ${grade(r.r2)}"><b>${r.r2.toFixed(3)}</b><span>R² ${tipBtn("Share of the variation explained (1 = perfect, 0 = no better than the mean).")}</span></div>
+        <div class="metric"><b>${fmtv(r.rmse)}</b><span>RMSE ${tipBtn("Typical prediction error, in the label's units.")}</span></div>
+        <div class="metric"><b>${fmtv(r.mae)}</b><span>MAE ${tipBtn("Average absolute error.")}</span></div>
+        <div class="metric"><b>${r.test_rows.toLocaleString()}</b><span>Test rows</span></div>`;
+    }
+    let cm = "", perClass = "";
+    if (cls) {
+      const k = r.classes.length, max = Math.max(1, ...r.confusion.flat());
+      const rowTot = r.confusion.map((row) => row.reduce((a, b) => a + b, 0));
+      const colTot = r.classes.map((_, j) => r.confusion.reduce((a, row) => a + row[j], 0));
+      const short = (c) => esc(String(c).slice(0, 9));
+      cm = `<div class="home-label" style="margin-top:14px">Confusion matrix ${tipBtn("Rows = true class, columns = predicted class, numbers = test pixels. The diagonal (green) is correct. Off-diagonal cells show which classes get confused. Producer's accuracy = recall (row), user's accuracy = precision (column).")}</div>
+        <div class="load-wrap"><table class="cm-table"><tr><th></th>${r.classes.map((c) => `<th title="${esc(c)}">${short(c)}</th>`).join("")}<th title="Producer's accuracy (recall)">PA</th></tr>
+        ${r.confusion.map((row, i) => `<tr><th class="rowh" title="${esc(r.classes[i])}">${short(r.classes[i])}</th>${row.map((v, j) => {
+          const a = v / max, diag = i === j;
+          return `<td style="background:${diag ? `rgba(21,128,61,${0.15 + 0.75 * a})` : v ? `rgba(185,28,28,${0.12 + 0.7 * a})` : "transparent"};color:${a > 0.5 ? "#fff" : "inherit"}">${v || ""}</td>`;
+        }).join("")}<td><b>${rowTot[i] ? Math.round(100 * row[i] / rowTot[i]) : "–"}</b></td></tr>`).join("")}
+        <tr><th class="rowh" title="User's accuracy (precision)">UA</th>${r.classes.map((_, j) => `<td><b>${colTot[j] ? Math.round(100 * r.confusion[j][j] / colTot[j]) : "–"}</b></td>`).join("")}<td></td></tr></table></div>`;
+      perClass = `<details class="an-details"><summary>Per-class scores</summary><table class="data-table"><tr><th style="text-align:left">Class</th><th>Precision (UA)</th><th>Recall (PA)</th><th>F1</th><th>Test px</th></tr>
+        ${r.per_class.map((c) => `<tr><td style="text-align:left">${esc(c.class)}</td><td>${pct(c.precision)}</td><td>${pct(c.recall)}</td><td>${pct(c.f1)}</td><td>${c.support.toLocaleString()}</td></tr>`).join("")}</table></details>`;
+    } else if (r.scatter) {
+      const t = r.scatter.true, p = r.scatter.pred, lo = Math.min(...t, ...p), hi = Math.max(...t, ...p), sc = (v) => 10 + 280 * (v - lo) / ((hi - lo) || 1);
+      cm = `<div class="home-label" style="margin-top:14px">Predicted vs true (test sample)</div><svg viewBox="0 0 300 300" class="ev-chart" style="max-width:300px">
+        <line x1="10" y1="290" x2="290" y2="10" stroke="var(--muted)" stroke-dasharray="4 3"/>${t.map((v, i) => `<circle cx="${sc(v)}" cy="${300 - sc(p[i])}" r="2" fill="var(--accent)" opacity=".5"/>`).join("")}</svg>`;
+    }
+    const imp = r.importance ? `<div class="home-label" style="margin-top:14px">Feature importance ${tipBtn("Which inputs the model relies on most. " + r.importance.kind + ".")}</div>
+      ${r.importance.features.slice(0, 15).map((f, i) => `<div class="imp-row"><span title="${esc(f)}">${esc(f)}</span><span><span class="imp-bar" style="display:block;width:${Math.max(2, 100 * r.importance.values[i] / r.importance.values[0])}%"></span></span><span>${(r.importance.values[i] * 100).toFixed(1)}%</span></div>`).join("")}` : "";
+    const cv = r.cv ? `<p class="hint">${r.cv.folds.length}-fold cross-validation ${r.cv.metric}: <b>${r.cv.metric === "accuracy" ? pct(r.cv.mean) : r.cv.mean.toFixed(3)}</b> ± ${r.cv.metric === "accuracy" ? pct(r.cv.std) : r.cv.std.toFixed(3)}</p>` : "";
+    box.innerHTML = `<div class="card">
+      <div class="row between"><h2 style="margin:0">✓ ${esc(r.model_title)} trained</h2><span class="task-badge">${esc(r.task)}</span></div>
+      ${splitBadge(r.split)}
+      <div class="pca-sum" style="margin-top:4px">${r.train_rows.toLocaleString()} training rows${r.train_rows_before_sampling > r.train_rows ? ` (sampled from ${r.train_rows_before_sampling.toLocaleString()})` : ""} · ${r.test_rows.toLocaleString()} test rows · ${r.features.length} features · ${r.seconds} s${r.rows_dropped ? ` · ${r.rows_dropped.toLocaleString()} rows with missing values skipped` : ""}</div>
+      <div class="metric-tiles" style="margin-top:10px">${tiles}</div>
+      ${r.warnings?.length ? `<div class="warn">${r.warnings.map(esc).join("<br>")}</div>` : ""}
+      ${cv}${cm}${perClass}${imp}
+      <div class="row" style="flex-wrap:wrap">${cls || r.task === "regression" ? `<button class="btn small primary" data-classify="${esc(r.path)}">${cls ? "Classify an image with this model →" : "Apply to an image →"}</button>` : ""}
+        <a class="btn small" href="/api/models/file?path=${encodeURIComponent(r.path)}" download>⬇ Model (.joblib)</a></div>
+      <p class="hint">Saved as <code>${esc(r.path)}</code>.</p></div>`;
+    box.classList.remove("hidden");
+    $("[data-classify]", box)?.addEventListener("click", () => { openMlSub("predict"); refreshPredict(r.path); });
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function splitBadge(sp) {
+    if (!sp) return "";
+    if (sp.method === "group") return `<div style="margin-top:6px"><span class="split-badge honest">✓ Independent test: by polygon</span> <span class="hint">${sp.groups_test} of ${sp.groups_total} polygons held out for testing</span></div>`;
+    if (sp.method === "blocks") return `<div style="margin-top:6px"><span class="split-badge honest">✓ Independent test: spatial blocks</span> <span class="hint">${sp.groups_test} of ${sp.groups_total} blocks (${fmtv(sp.block_size)} map units) held out</span></div>`;
+    return `<div style="margin-top:6px"><span class="split-badge optimistic">⚠ Random pixel split</span> <span class="hint">Neighbouring pixels are in both train and test, so accuracy is probably optimistic. Use polygon samples or x/y columns for an honest test.</span></div>`;
+  }
+
+  // ---------------- model library (hub)
+  async function refreshModels() {
+    const list = await api("/api/models").catch(() => []);
+    $("#ml-models").innerHTML = list.length ? list.map((m) => `<div class="ws-row"><span>${esc(m.name)}
+        <small>${esc(m.model_title || m.model)} · ${esc(m.task || "")} · <span class="model-row-metric">${m.task === "classification" ? `accuracy ${pct(m.accuracy)}, kappa ${m.kappa?.toFixed(2)}` : `R² ${m.r2?.toFixed(3)}`}</span> · ${(m.features || []).length} features</small></span>
+        <span class="row tight"><button class="btn small primary" data-mcls="${esc(m.path)}" title="Classify an image">Use</button><button class="btn small" data-mrep="${esc(m.path)}">Report</button><a class="btn small" href="/api/models/file?path=${encodeURIComponent(m.path)}" download>⬇</a><button class="btn small danger" data-mdel="${esc(m.path)}" title="Delete">×</button></span></div>`).join("")
+      : '<p class="hint">No models yet. Use <b>Train a model</b>.</p>';
+    $$("[data-mcls]").forEach((b) => b.onclick = () => { openMlSub("predict"); refreshPredict(b.dataset.mcls); });
+    $$("[data-mrep]").forEach((b) => b.onclick = async () => {
+      const r = await api(`/api/models/report?path=${encodeURIComponent(b.dataset.mrep)}`);
+      $("#tbl-title").textContent = `Model report · ${r.name}`;
+      showTrainResult(r, $("#tbl-body"));
+      $("#dlg-table").showModal();
+    });
+    $$("[data-mdel]").forEach((b) => b.onclick = async () => { if (confirm("Delete this model?")) { await api(`/api/models?path=${encodeURIComponent(b.dataset.mdel)}`, { method: "DELETE" }); refreshModels(); } });
+    return list;
+  }
+
+  // ---------------- classify an image
+  const colName = (d) => { let n = String(d).replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "band"; return /^\d/.test(n) ? "b" + n : n; };
+  let mpModels = [];
+  async function refreshPredict(selectModel) {
+    mpModels = await api("/api/models").catch(() => []);
+    const sel = $("#mp-model"), cur = selectModel || sel.value;
+    sel.innerHTML = mpModels.length ? mpModels.map((m) => `<option value="${esc(m.path)}">${esc(m.name)} · ${esc(m.model_title || "")} · ${m.task === "classification" ? `acc ${pct(m.accuracy)}` : `R² ${m.r2?.toFixed(2)}`}</option>`).join("")
+      : `<option value="">No trained models yet</option>`;
+    if (cur && mpModels.some((m) => m.path === cur)) sel.value = cur;
+    const rasters = layers.filter((l) => l.type === "raster" && !l.derived);
+    const rs = $("#mp-raster"), rcur = rs.value;
+    rs.innerHTML = rasters.length ? rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("") : `<option value="">No raster layers</option>`;
+    const m = mpModel();
+    // prefer the layer the model was trained from
+    const srcName = m?.source?.source ? String(m.source.source).split("/").pop() : null;
+    const pick = rasters.find((l) => l.id === rcur) || rasters.find((l) => srcName && l.path.endsWith(srcName)) || rasters[0];
+    if (pick) rs.value = pick.id;
+    renderPredictForm();
+  }
+  const mpModel = () => mpModels.find((m) => m.path === $("#mp-model").value);
+  function renderPredictForm() {
+    const m = mpModel(), l = getLayer($("#mp-raster").value);
+    $("#mp-model-info").innerHTML = m ? `${esc(m.model_title)} · ${esc(m.task)} · features: ${esc((m.features || []).join(", "))}` : "";
+    if (!m || !l) { $("#mp-match").innerHTML = ""; return; }
+    const bands = l.info.bands;
+    const byName = Object.fromEntries(bands.map((b) => [colName(b.description), b.index]));
+    const src = m.source || {};
+    const rows = m.features.map((f) => {
+      let idx = byName[f];
+      if (idx == null && src.band_columns && src.band_indices) {
+        const i = src.band_columns.indexOf(f);
+        if (i >= 0 && src.band_indices[i] <= bands.length) idx = src.band_indices[i];
+      }
+      return { f, idx };
+    });
+    $("#mp-match").innerHTML = `<div class="home-label" style="margin-top:10px">Model feature → image band ${tipBtn("Each input the model was trained on must come from the matching band of this image. Bands are matched by name automatically. Check them if the image has a different band order.")}</div>` +
+      rows.map(({ f, idx }) => `<div class="match-row"><span title="${esc(f)}">${esc(f)}</span><select data-feat="${esc(f)}"><option value="">— choose —</option>${bands.map((b) => `<option value="${b.index}" ${b.index === idx ? "selected" : ""}>Band ${b.index}${b.description !== "Band " + b.index ? " · " + esc(b.description) : ""}</option>`).join("")}</select><span data-ok="${esc(f)}">${idx ? "✓" : "⚠"}</span></div>`).join("");
+    $$("#mp-match select").forEach((s) => s.onchange = () => { $(`[data-ok="${CSS.escape(s.dataset.feat)}"]`).textContent = s.value ? "✓" : "⚠"; });
+    const sc = src.scale ?? 1, off = src.offset ?? 0, conv = sc !== 1 || off !== 0;
+    $("#mp-refl").checked = conv;
+    $("#mp-refl").disabled = !conv;
+    $("#mp-refl").dataset.scale = sc; $("#mp-refl").dataset.offset = off;
+    $("#mp-refl-val").textContent = conv ? `(× ${sc} ${off < 0 ? "−" : "+"} ${Math.abs(off)})` : "(not needed: the table kept the raw values)";
+    $("#mp-conf").disabled = m.task !== "classification" || !m.has_proba;
+    $("#mp-conf").checked = !$("#mp-conf").disabled;
+    $("#mp-name").value = `${m.name}_map`.slice(0, 70);
+  }
+  function refreshPredictRasters() {  // keep the user's band choices unless the selected image disappears
+    const rasters = layers.filter((l) => l.type === "raster" && !l.derived), rs = $("#mp-raster"), cur = rs.value;
+    rs.innerHTML = rasters.length ? rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("") : `<option value="">No raster layers</option>`;
+    if (rasters.some((l) => l.id === cur)) rs.value = cur; else renderPredictForm();
+  }
+  $("#mp-model").onchange = renderPredictForm;
+  $("#mp-raster").onchange = renderPredictForm;
+  $("#mp-run").onclick = async () => {
+    const err = $("#mp-error"); err.classList.add("hidden");
+    const m = mpModel(), l = getLayer($("#mp-raster").value);
+    if (!m) return toast("Train a model first", true);
+    if (!l) return toast("Choose an image to classify", true);
+    const band_map = {};
+    for (const s of $$("#mp-match select")) { if (!s.value) return toast(`Choose a band for ${s.dataset.feat}`, true); band_map[s.dataset.feat] = +s.value; }
+    const conv = $("#mp-refl").checked;
+    const btn = $("#mp-run"); btn.disabled = true;
+    $("#mp-result").classList.add("hidden");
+    try {
+      const job = await api("/api/ml/predict", { method: "POST", json: {
+        model: m.path, path: l.path, band_map, scale: conv ? +$("#mp-refl").dataset.scale : 1, offset: conv ? +$("#mp-refl").dataset.offset : 0,
+        clip: getClip("mp-area"), resolution: $("#mp-res").value, confidence: $("#mp-conf").checked, name: $("#mp-name").value || "classified" } });
+      const done = await trackJob(job, { tool: "ml", title: `Classifying with ${m.model_title}` });
+      const r = done.result;
+      const out = await addRasterFromPath(r.path, { name: $("#mp-name").value || "classified",
+        render: m.task === "classification" ? { band: 1, stretch: "fixed" } : { band: 1, stretch: "auto", cmap: "Viridis" } });
+      out.open = true; renderContents();
+      const box = $("#mp-result");
+      box.innerHTML = `<div class="pca-sum" style="margin-top:12px"><b>✓ Map created</b> · ${r.width.toLocaleString()} × ${r.height.toLocaleString()} px${r.factor > 1 ? ` (${r.factor}× coarser)` : ""} · ${r.seconds} s${r.confidence ? " · band 2 = confidence %" : ""}. It's in Contents.</div>` +
+        (r.classes ? `<div class="lyr-classes" style="margin-top:8px">${r.classes.map((c) => `<div style="grid-template-columns:12px 1fr auto auto;gap:8px"><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span><span>${c.area_km2 != null ? fmt(c.area_km2, c.area_km2 < 10 ? 2 : 1) + " km²" : ""}</span><b>${fmt(c.pct)}%</b></div>`).join("")}</div>` : "") +
+        `<div class="row"><button class="btn small" data-mpz>Zoom to map</button><button class="btn small" data-mpx>Export…</button></div>`;
+      box.classList.remove("hidden");
+      $("[data-mpz]", box).onclick = () => zoomTo(out);
+      $("[data-mpx]", box).onclick = () => openExport(out);
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+  function wireGotoRt() { $$(".goto-rt").forEach((a) => a.onclick = (e) => { e.preventDefault(); switchTool("raster2table"); }); }
+
+  async function initMlTrain() {
+    mlx.schema = await api("/api/ml/schema");
+    wireGotoRt();
+  }
+
+  // ------------------------------------------------------------------ Training samples: draw labelled polygons / points
+  const TS_PRESETS = {
+    lulc: [["Water", "#1f78b4"], ["Trees", "#1b7837"], ["Cropland", "#e6c229"], ["Built-up", "#e31a1c"], ["Bare ground", "#b9a37e"], ["Grass / shrub", "#9acd32"]],
+    worldcover: [["Tree cover", "#006400"], ["Shrubland", "#ffbb22"], ["Grassland", "#ffff4c"], ["Cropland", "#f096ff"], ["Built-up", "#fa0000"],
+                 ["Bare / sparse vegetation", "#b4b4b4"], ["Snow and ice", "#f0f0f0"], ["Permanent water bodies", "#0064c8"],
+                 ["Herbaceous wetland", "#0096a0"], ["Mangroves", "#00cf75"], ["Moss and lichen", "#fae6a0"]],
+    water: [["Water", "#1f78b4"], ["Non-water", "#bdbdbd"]],
+  };
+  const ts = { setId: null, active: null };
+  const sampleSets = () => layers.filter((l) => l.type === "vector" && l.samples);
+  const tsSet = () => getLayer(ts.setId);
+  function tsSyncColors(l) { l.classColors = Object.fromEntries((l.classes || []).map((c) => [c.name, c.color])); }
+  function tsNewSet() {
+    const n = sampleSets().length + 1;
+    const l = addLayer({ type: "vector", samples: true, name: `Training samples ${n}`, classes: [], nextId: 1, color: "#334155", weight: 2, fillOpacity: 0.35,
+                         geojson: { type: "FeatureCollection", features: [] } }, { select: true });
+    tsSyncColors(l);
+    ts.setId = l.id; ts.active = null;
+    renderSamples();
+    return l;
+  }
+  function tsRefresh(l) {  // redraw the layer after edits
+    tsSyncColors(l);
+    buildLeaflet(l);
+    restack();
+    renderContents();
+    saveLayers();
+  }
+  function renderSamples() {
+    const sets = sampleSets();
+    if (ts.setId && !getLayer(ts.setId)) ts.setId = null;
+    if (!ts.setId && sets.length) ts.setId = sets[0].id;
+    $("#ts-set").innerHTML = sets.length ? sets.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("") : `<option value="">No sample set yet. Click + New</option>`;
+    if (ts.setId) $("#ts-set").value = ts.setId;
+    const l = tsSet();
+    $("#ts-classes-card").classList.toggle("disabled-card", !l);
+    if (!l) { $("#ts-classes").innerHTML = '<p class="hint">Create a sample set first.</p>'; $("#ts-summary").innerHTML = ""; $("#ts-active").innerHTML = "No sample set"; $("#ts-set-info").textContent = ""; return; }
+    const feats = l.geojson.features;
+    $("#ts-set-info").textContent = `${feats.length} sample${feats.length === 1 ? "" : "s"} · ${l.classes.length} class${l.classes.length === 1 ? "" : "es"} · listed in Contents`;
+    if (!l.classes.some((c) => c.name === ts.active)) ts.active = l.classes[0]?.name || null;
+    $("#ts-classes").innerHTML = l.classes.length ? l.classes.map((c, i) => {
+      const n = feats.filter((f) => f.properties.class === c.name).length;
+      return `<div class="cls-row ${c.name === ts.active ? "on" : ""}"><input type="radio" name="tscls" value="${i}" ${c.name === ts.active ? "checked" : ""} title="Draw this class">
+        <input type="color" value="${esc(c.color)}" data-i="${i}" title="Class colour"><input type="text" value="${esc(c.name)}" data-i="${i}" maxlength="40" title="Rename">
+        <small>${n} sample${n === 1 ? "" : "s"}</small><button class="x" data-del="${i}" title="Delete class and its samples">×</button></div>`;
+    }).join("") : '<p class="hint">No classes yet. Load a preset or add your own below.</p>';
+    $$('#ts-classes input[name="tscls"]').forEach((r) => r.onchange = () => { ts.active = l.classes[+r.value].name; renderSamples(); });
+    $$('#ts-classes input[type="color"]').forEach((inp) => inp.onchange = () => { l.classes[+inp.dataset.i].color = inp.value; tsRefresh(l); renderSamples(); });
+    $$('#ts-classes input[type="text"]').forEach((inp) => inp.onchange = () => {
+      const c = l.classes[+inp.dataset.i], nn = inp.value.trim();
+      if (!nn || l.classes.some((x) => x !== c && x.name === nn)) { inp.value = c.name; return toast("Class names must be unique and not empty", true); }
+      l.geojson.features.forEach((f) => { if (f.properties.class === c.name) f.properties.class = nn; });
+      if (ts.active === c.name) ts.active = nn;
+      c.name = nn; tsRefresh(l); renderSamples();
+    });
+    $$("#ts-classes [data-del]").forEach((b) => b.onclick = () => {
+      const c = l.classes[+b.dataset.del], n = feats.filter((f) => f.properties.class === c.name).length;
+      if (n && !confirm(`Delete class “${c.name}” and its ${n} sample${n === 1 ? "" : "s"}?`)) return;
+      l.geojson.features = feats.filter((f) => f.properties.class !== c.name);
+      l.classes.splice(+b.dataset.del, 1); tsRefresh(l); renderSamples();
+    });
+    const ac = l.classes.find((c) => c.name === ts.active);
+    $("#ts-active").innerHTML = ac ? `Drawing: <i style="background:${esc(ac.color)}"></i><b>${esc(ac.name)}</b>` : "Add a class to start drawing";
+    // summary
+    const rows = l.classes.map((c) => {
+      const fs = feats.filter((f) => f.properties.class === c.name);
+      const polys = fs.filter((f) => /Polygon/.test(f.geometry.type)), pts = fs.length - polys.length;
+      const km2 = polys.reduce((a, f) => a + geomArea(f.geometry), 0) / 1e6;
+      return { c, polys: polys.length, pts, km2 };
+    });
+    $("#ts-summary").innerHTML = rows.length ? rows.map((r) => `<div class="ts-sum-row"><i style="background:${esc(r.c.color)}"></i><span>${esc(r.c.name)}</span>
+        <span>${r.polys} polygon${r.polys === 1 ? "" : "s"}${r.pts ? ` · ${r.pts} point${r.pts === 1 ? "" : "s"}` : ""}</span><b>${r.km2 ? fmt(r.km2, r.km2 < 1 ? 3 : 2) + " km²" : ""}</b></div>`).join("") : "";
+    const weak = rows.filter((r) => r.polys + r.pts < 5).map((r) => r.c.name);
+    $("#ts-advice").innerHTML = !rows.length ? "" : weak.length
+      ? `Aim for <b>at least 5–10 samples per class</b>, spread across the map. Still low: ${weak.map(esc).join(", ")}. Many small polygons beat a few big ones: they give the model variety and allow an honest, polygon-based accuracy check.`
+      : `✓ Every class has at least 5 samples. More, well-spread samples usually improve the map further.`;
+  }
+  function tsDraw(Kind, btn) {
+    const l = tsSet();
+    if (!l) return toast("Create a sample set first (+ New)", true);
+    const c = l.classes.find((x) => x.name === ts.active);
+    if (!c) return toast("Add a class and select it before drawing", true);
+    $$(".draw-btns .btn").forEach((b) => b.classList.toggle("drawing", b === btn));
+    const done = (geometry) => {
+      const cur = l.classes.find((x) => x.name === ts.active) || c;
+      l.geojson.features.push({ type: "Feature", geometry, properties: { class: cur.name, class_id: l.classes.indexOf(cur) + 1, sample_id: l.nextId++ } });
+      tsRefresh(l);
+      renderSamples();
+      if ($("#ts-keep").checked) setTimeout(() => tsDraw(Kind, btn), 80);
+      else $$(".draw-btns .btn").forEach((b) => b.classList.remove("drawing"));
+    };
+    startDraw(Kind, done, c.color);
+  }
+  map.on(L.Draw.Event.DRAWSTOP, () => setTimeout(() => { if (!activeDraw) $$(".draw-btns .btn").forEach((b) => b.classList.remove("drawing")); }, 150));
+  $("#ts-new").onclick = () => tsNewSet();
+  $("#ts-set").onchange = () => { ts.setId = $("#ts-set").value; ts.active = null; renderSamples(); };
+  $("#ts-preset").onchange = (e) => {
+    let l = tsSet() || tsNewSet();
+    const preset = TS_PRESETS[e.target.value];
+    e.target.value = "";
+    if (!preset) return;
+    preset.forEach(([name, color]) => { if (!l.classes.some((c) => c.name === name)) l.classes.push({ name, color }); });
+    tsRefresh(l); renderSamples();
+  };
+  $("#ts-addclass").onclick = () => {
+    const name = $("#ts-newclass").value.trim();
+    if (!name) return;
+    let l = tsSet() || tsNewSet();
+    if (l.classes.some((c) => c.name === name)) return toast("That class already exists", true);
+    l.classes.push({ name, color: _PALETTE_JS[l.classes.length % _PALETTE_JS.length] });
+    ts.active = name;
+    $("#ts-newclass").value = "";
+    tsRefresh(l); renderSamples();
+  };
+  $("#ts-newclass").addEventListener("keydown", (e) => e.key === "Enter" && $("#ts-addclass").click());
+  const _PALETTE_JS = ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02", "#a6761d", "#1f78b4", "#fb9a99", "#6a3d9a"];
+  $("#ts-draw-poly").onclick = (e) => tsDraw(L.Draw.Polygon, e.currentTarget);
+  $("#ts-draw-rect").onclick = (e) => tsDraw(L.Draw.Rectangle, e.currentTarget);
+  $("#ts-draw-pt").onclick = (e) => tsDraw(L.Draw.CircleMarker, e.currentTarget);
+  $("#ts-undo").onclick = () => { const l = tsSet(); if (l?.geojson.features.length) { l.geojson.features.pop(); tsRefresh(l); renderSamples(); } };
+  $("#ts-satellite").onclick = () => setBasemap("imagery");
+  $("#ts-export").onclick = () => { const l = tsSet(); if (!l?.geojson.features.length) return toast("Draw some samples first", true); openExport(l); };
+  $("#ts-zoom").onclick = () => { const l = tsSet(); if (!l?.geojson.features.length) return toast("Draw some samples first", true); zoomTo(l); };
+  $("#ts-to-table").onclick = () => {
+    const l = tsSet();
+    if (!l?.geojson.features.length) return toast("Draw some samples first", true);
+    switchTool("raster2table");
+    refreshRtInputs();
+    if (!rt.layer) { const r = layers.find((x) => x.type === "raster" && !x.derived); if (r) { $("#rt-input").value = r.id; rt.layer = r; refreshRtInputs(); renderRt(); } }
+    $("#rt-gt").value = l.id;
+    renderGt();
+    if ([...$("#rt-gt-field").options].some((o) => o.value === "class")) { $("#rt-gt-field").value = "class"; showGtClasses(); }
+    $("#rt-label").value = "class";
+    $('input[name="rts"][value="all"]').checked = true;
+    updateRtEstimate();
+    toast("Samples selected as ground truth. Choose the image and create the table.");
+  };
+
+  // ------------------------------------------------------------------ Stack layers
+  const stSel = {};  // layer id -> { on, bands: Set }
+  function refreshStack() {
+    const rasters = layers.filter((l) => l.type === "raster");
+    $("#st-layers").innerHTML = rasters.length ? rasters.map((l) => {
+      const s = stSel[l.id] || (stSel[l.id] = { on: false, bands: new Set((l.info?.bands || []).map((b) => b.index)) });
+      const formula = l.derived || l.render?.index || l.render?.formula;
+      const bandsHtml = !formula && l.info ? `<div class="bands">${l.info.bands.map((b) => `<label title="${esc(b.description)}"><input type="checkbox" data-sb="${esc(l.id)}" value="${b.index}" ${s.bands.has(b.index) ? "checked" : ""}>${esc(b.description !== "Band " + b.index ? b.description : String(b.index))}</label>`).join("")}</div>` : "";
+      return `<div class="st-layer ${s.on ? "on" : ""}"><label><input type="checkbox" data-sl="${esc(l.id)}" ${s.on ? "checked" : ""}>${esc(l.name)}
+        <small>${formula ? `1 band (${esc(l.render.index || "formula")})` : `${s.bands.size} of ${l.info?.count || "?"} bands`}</small></label>${s.on ? bandsHtml : ""}</div>`;
+    }).join("") : '<p class="hint">Add raster layers to Contents first.</p>';
+    $$("[data-sl]").forEach((c) => c.onchange = () => { stSel[c.dataset.sl].on = c.checked; refreshStack(); });
+    $$("[data-sb]").forEach((c) => c.onchange = () => { const s = stSel[c.dataset.sb]; c.checked ? s.bands.add(+c.value) : s.bands.delete(+c.value); refreshStack(); });
+    const ref = $("#st-ref"), cur = ref.value;
+    const chosen = rasters.filter((l) => stSel[l.id]?.on);
+    ref.innerHTML = (chosen.length ? chosen : rasters).map((l) => `<option value="${esc(l.id)}">${esc(l.name)}${l.info ? ` · ${fmt(l.info.res[0], l.info.res[0] < 1 ? 3 : 0)} ${/4326/.test(l.info.crs) ? "°" : "m"}` : ""}</option>`).join("");
+    if ([...ref.options].some((o) => o.value === cur)) ref.value = cur;
+    updateStackEst();
+  }
+  function updateStackEst() {
+    const ref = getLayer($("#st-ref").value);
+    if (ref?.info) {
+      const r0 = ref.info.res[0], unit = /4326/.test(ref.info.crs) ? "°" : " m", cur = $("#st-factor").value;
+      $("#st-factor").innerHTML = [1, 2, 4, 8].map((f) => `<option value="${f}">${f === 1 ? `Native (${fmt(r0, r0 < 1 ? 3 : 0)}${unit})` : `${f}× coarser (${fmt(r0 * f, r0 < 1 ? 3 : 0)}${unit})`}</option>`).join("");
+      if (cur) $("#st-factor").value = cur;
+    }
+    const n = layers.filter((l) => l.type === "raster" && stSel[l.id]?.on).reduce((a, l) => a + ((l.derived || l.render?.index || l.render?.formula) ? 1 : stSel[l.id].bands.size), 0);
+    $("#st-est").textContent = n ? `${n} band${n === 1 ? "" : "s"} in the stacked image${ref?.info ? ` · grid of ${ref.info.width.toLocaleString()} × ${ref.info.height.toLocaleString()} px before area / pixel-size options` : ""}` : "Tick at least one layer.";
+  }
+  $("#st-ref").onchange = updateStackEst;
+  $("#st-run").onclick = async () => {
+    const err = $("#st-error"); err.classList.add("hidden");
+    // oldest layer first (the bottom of Contents), so the base image's bands come first
+    const chosen = layers.filter((l) => l.type === "raster" && stSel[l.id]?.on).reverse();
+    if (!chosen.length) return toast("Tick at least one layer", true);
+    const items = chosen.map((l) => (l.derived || l.render?.index || l.render?.formula)
+      ? { path: l.path, name: l.name, index: l.render.index || null, formula: l.render.formula || null, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0 }
+      : { path: l.path, name: l.name.replace(/\.(tiff?|vrt)$/i, ""), bands: [...stSel[l.id].bands].sort((a, b) => a - b) });
+    if (items.some((it) => it.bands && !it.bands.length)) return toast("A ticked layer has no bands selected", true);
+    const ref = getLayer($("#st-ref").value);
+    const btn = $("#st-run"); btn.disabled = true;
+    $("#st-result").classList.add("hidden");
+    try {
+      const job = await api("/api/stack", { method: "POST", json: { items, ref: ref.path, clip: getClip("st-area"), factor: +$("#st-factor").value || 1, name: $("#st-name").value || "stack" } });
+      const done = await trackJob(job, { tool: "stack", title: "Stacking layers" });
+      const r = done.result;
+      const out = await addRasterFromPath(r.path, { name: $("#st-name").value || "stack" });
+      $("#st-result").innerHTML = `<div class="pca-sum" style="margin-top:10px"><b>✓ ${r.bands.length} bands stacked</b> · ${r.width.toLocaleString()} × ${r.height.toLocaleString()} px · ${esc(r.crs)} · ${r.seconds} s<br>${r.bands.map(esc).join(", ")}</div>
+        <div class="row"><button class="btn small primary" data-st2t>Use in Raster → table →</button><button class="btn small" data-stz>Zoom</button></div>`;
+      $("#st-result").classList.remove("hidden");
+      $("[data-stz]").onclick = () => zoomTo(out);
+      $("[data-st2t]").onclick = () => { switchTool("raster2table"); refreshRtInputs(); $("#rt-input").value = out.id; rt.layer = out; refreshRtInputs(); renderRt(); };
+    } catch (e) { if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); } }
+    finally { btn.disabled = false; }
+  };
+
   async function initAnalyze() {
     an.catalog = state.catalog = await api("/api/indices");
     $("#an-cmap").innerHTML = `<option value="">Index default</option>` + Object.keys(an.catalog.colormaps).map((k) => `<option>${k}</option>`).join("");
@@ -2329,6 +3069,8 @@
     setRange(90);
     await initAnalyze();
     initPca().catch((e) => toast("PCA tool: " + e.message, true));
+    renderMlHub();
+    initMlTrain().catch((e) => toast("Classical ML: " + e.message, true));
     restoreLayers();
     loadCreds().catch(() => {});
     setPane("tools", false);  // the tool panel opens only when a tool is chosen from the Tools menu
