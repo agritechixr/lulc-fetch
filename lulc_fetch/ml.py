@@ -238,7 +238,8 @@ def available() -> dict:
         try:
             __import__(mod)
             ok[mod] = True
-        except Exception:  # ImportError or a missing OpenMP runtime
+        except Exception as e:  # ImportError or a missing OpenMP runtime
+            log.warning("%s is not available: %s", mod, e)
             ok[mod] = False
     return {"xgb": ok["xgboost"], "lgbm": ok["lightgbm"]}
 

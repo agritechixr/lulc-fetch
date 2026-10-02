@@ -54,6 +54,11 @@ def main():
         assert j["status"] == "done" and j["result"]["ok"], j.get("error") or j.get("result")
         assert "python ok" in j["result"]["output"]
         print("Smoke test passed: UI, map library, ML libraries, field calculator, Python runner")
+    except BaseException:
+        log = home / "logs" / "app.log"
+        if log.exists():
+            print("---- app log ----\n" + log.read_text(errors="replace")[-6000:])
+        raise
     finally:
         proc.terminate()
         try:
