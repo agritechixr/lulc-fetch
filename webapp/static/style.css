@@ -968,3 +968,5 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .mp-row .mp-why { width: 100%; color: var(--muted); font-size: 11px; }
 .mp-notip { width: 18px; }
 @media (max-width: 520px) { .mp-meta { display: none; } }
+.dl-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; margin-top: 4px; }
+.dl-legend .hint { flex-basis: 100%; }

@@ -45,7 +45,7 @@ Across the app:
 
 ### Step 1: download the file for your computer
 
-1. Open the **[Releases page](https://github.com/agritechixr/lulc-fetch/releases/latest)**. You can also find it on this repository's main page: in the right-hand column, click **Releases** (or the version number under it, e.g. *v0.1.0*).
+1. Open the **[Releases page](https://github.com/agritechixr/lulc-fetch/releases/latest)**. You can also find it on this repository's main page: in the right-hand column, click **Releases** (or the version number under it, e.g. *v0.0.1-beta*).
 2. Scroll down to **Assets** at the bottom of the newest release. Click **Assets** if the list is folded.
 3. Click the file for your computer. Your browser saves it in your **Downloads** folder.
 

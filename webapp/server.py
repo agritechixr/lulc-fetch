@@ -1816,12 +1816,45 @@ def _abs_user_folder(folder: str) -> Path:
     return p.resolve()
 
 
+_dl_status_cache: dict = {}
+
+
+def _dl_status(force: bool = False) -> dict:
+    """Add-on status without importing PyTorch into this process (see lulc_fetch.dlrunner): the package check is
+    done here, the device check once in a helper process."""
+    import importlib.metadata as md
+    import importlib.util
+
+    if _dl_status_cache and not force:
+        return dict(_dl_status_cache)
+    pkgs, missing = {}, []
+    for mod, dist in (("torch", "torch"), ("torchvision", "torchvision"), ("segmentation_models_pytorch", "segmentation-models-pytorch")):
+        if importlib.util.find_spec(mod) is None:
+            missing.append(dist)
+        else:
+            try:
+                pkgs[dist] = md.version(dist)
+            except md.PackageNotFoundError:
+                pkgs[dist] = "?"
+    st = {"available": False, "packages": pkgs, "devices": ["cpu"], "device": "cpu"}
+    if missing:
+        st["error"] = f"ModuleNotFoundError: No module named {missing[0]!r}"
+    else:
+        from lulc_fetch import dlrunner
+        try:
+            st = dlrunner.run("status")
+        except Exception as e:
+            st["error"] = str(e)
+    _dl_status_cache.clear()
+    _dl_status_cache.update(st)
+    return dict(st)
+
+
 @app.get("/api/dl/status")
-def dl_status():
+def dl_status(refresh: bool = False):
     import sys
 
-    from lulc_fetch import dl
-    st = dl.status()
+    st = _dl_status(refresh)
     frozen = bool(getattr(sys, "frozen", False))
     st.update({"platform": sys.platform, "frozen": frozen, "addon_dir": str(_addon_dir()) if frozen else None,
                "can_install": True, "variants": (["cpu", "cuda"] if sys.platform.startswith(("win", "linux")) else ["default"]),
@@ -1878,7 +1911,7 @@ def dl_install(req: DlInstallRequest):
         if frozen and str(_addon_dir()) not in sys.path:
             sys.path.append(str(_addon_dir()))
         importlib.invalidate_caches()
-        st = dl.status()
+        st = _dl_status(force=True)
         if not st["available"]:
             raise RuntimeError(f"Installed, but PyTorch can't be loaded: {st.get('error')}")
         log.info("Deep-learning add-on ready: %s", ", ".join(f"{k} {v}" for k, v in st["packages"].items()))
@@ -2013,9 +2046,8 @@ class DlTrainRequest(BaseModel):
 def dl_train(req: DlTrainRequest):
     import re
 
-    from lulc_fetch import dl
-    st = dl.status()
-    if not st["available"]:
+    from lulc_fetch import dl, dlrunner
+    if not _dl_status()["available"]:
         raise HTTPException(400, "The deep-learning add-on isn't installed yet")
     if req.arch not in dl.ARCHS:
         raise HTTPException(400, f"Unknown architecture {req.arch}")
@@ -2040,7 +2072,8 @@ def dl_train(req: DlTrainRequest):
     _remember_dl("dl_datasets.json", str(ds))
 
     def run(job):
-        res = dl.train(ds, out, arch=req.arch, encoder=req.encoder, pretrained=req.pretrained, params=req.params, name=req.name, resume=resume)
+        res = dlrunner.run("train", dataset=str(ds), out_dir=str(out), arch=req.arch, encoder=req.encoder, pretrained=req.pretrained,
+                           params=req.params, name=req.name, resume=str(resume) if resume else None)
         _remember_dl("dl_models.json", str(out))
         res["outputs"] = []
         res.pop("history", None)
@@ -2065,8 +2098,8 @@ class DlPredictRequest(BaseModel):
 def dl_predict(req: DlPredictRequest):
     import re
 
-    from lulc_fetch import dl
-    if not dl.status()["available"]:
+    from lulc_fetch import dlrunner
+    if not _dl_status()["available"]:
         raise HTTPException(400, "The deep-learning add-on isn't installed yet")
     model = _dl_model(req.model)
     inputs = [{**i.model_dump(), "path": str(_raster_path(i.path))} for i in req.inputs]
@@ -2074,8 +2107,8 @@ def dl_predict(req: DlPredictRequest):
     stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "dl_map"
 
     def run(job):
-        res = dl.predict(model, inputs, job.dir / f"{stem}.tif", clip=clip, overlap=req.overlap, batch_size=req.batch_size,
-                         device=req.device, confidence=req.confidence)
+        res = dlrunner.run("predict", model_dir=str(model), inputs=inputs, out_path=str(job.dir / f"{stem}.tif"), clip=clip,
+                           overlap=req.overlap, batch_size=req.batch_size, device=req.device, confidence=req.confidence)
         res["path"] = ws.rel(res["path"])
         res["outputs"] = [res["path"]]
         return res

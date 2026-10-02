@@ -125,6 +125,9 @@ def main():
         runpy.run_module("pip", run_name="__main__")
         return
     _use_addons()
+    if len(sys.argv) > 1 and sys.argv[1] == "--lulc-dlrunner":   # deep-learning training / prediction process
+        from lulc_fetch import dlrunner
+        sys.exit(dlrunner.cli(sys.argv[2:3]))
     headless = "--headless" in sys.argv
 
     from webapp import workspace as ws
