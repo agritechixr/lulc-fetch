@@ -16,6 +16,11 @@
   <nav class="menus" id="menus">
     <div class="menu"><button class="menu-btn">File</button>
       <div class="menu-pop">
+        <button data-cmd="project-new">New project…</button>
+        <button data-cmd="project-open">Open project…</button>
+        <button data-cmd="project-close" id="mi-project-close">Close project</button>
+        <button data-cmd="project-reveal" id="mi-project-reveal">Show project folder</button>
+        <hr>
         <button data-cmd="add-data">Add data from computer…<kbd>Ctrl+O</kbd></button>
         <button data-cmd="add-workspace">Add GeoTIFF from workspace…</button>
         <button data-cmd="open-safe">Open Sentinel product (.SAFE)…</button>
@@ -25,6 +30,7 @@
         <button data-cmd="remove-layer">Remove selected layer<kbd>Del</kbd></button>
         <button data-cmd="clear-layers">Remove all layers</button>
         <hr>
+        <button data-cmd="clean-cache">Clean up working files…</button>
         <button data-cmd="credentials">Credentials…</button>
       </div>
     </div>
@@ -62,6 +68,7 @@
     </div>
   </nav>
   <div class="menubar-right">
+    <button id="btn-project" class="project-chip" title="Project: where your layers and results are kept"><span class="pc-ic"></span><span id="project-name">Temporary workspace</span><span class="pc-saved" id="project-saved"></span><span class="pc-caret">▾</span></button>
     <span class="active-tool" id="active-tool"></span>
     <button id="btn-creds" class="btn ghost small"><span id="creds-dot" class="dot"></span>Credentials</button>
   </div>
@@ -382,7 +389,7 @@
         <div class="opts" id="pca-methods"></div>
       </div>
       <div class="card">
-        <div class="row between"><h2 style="margin:0"><span class="step">5</span>Parameters</h2><button class="chip" id="pca-reset">Reset to defaults</button></div>
+        <div class="row between"><h2 style="margin:0"><span class="step">6</span>Parameters</h2><button class="chip" id="pca-reset">Reset to defaults</button></div>
         <div id="pca-params"></div>
         <details class="an-details" id="pca-adv-wrap"><summary>Advanced</summary><div id="pca-adv"></div></details>
       </div>
@@ -398,7 +405,14 @@
       <!-- hub: list of ML sub-tools + the tables they work on -->
       <div id="ml-home">
         <p class="hint" style="margin-top:0">Machine-learning tools that work on <b>tables</b>: one row per pixel or sample, one column per feature, plus an optional label. Create tables from images with the <a href="#" id="ml-goto-rt"><b>Raster → table</b></a> tool.</p>
-        <div class="tool-cards" id="ml-subtools"></div>
+        <div class="ml-group">
+          <div class="ml-group-head"><span class="ml-group-ic sup"></span><div><b>Supervised learning</b><small>You have labels (ground truth): the model learns to predict them</small></div></div>
+          <div class="tool-cards" id="ml-sup"></div>
+        </div>
+        <div class="ml-group">
+          <div class="ml-group-head"><span class="ml-group-ic unsup"></span><div><b>Unsupervised learning</b><small>No labels needed: find natural groups and structure in the data</small></div></div>
+          <div class="tool-cards" id="ml-unsup"></div>
+        </div>
         <div class="home-label">Your models <button type="button" class="tip" data-tip="Models you have trained, saved in the models/ folder with their accuracy report. Use one to classify an image, or download it (.joblib, loadable with joblib / scikit-learn)." aria-label="Help">i</button></div>
         <div id="ml-models" class="ws-list"></div>
         <div class="home-label">Your tables <button type="button" class="tip" data-tip="Tables you have created. They are saved in the tables/ folder, and later ML sub-tools will use them for training and prediction." aria-label="Help">i</button></div>
@@ -435,17 +449,23 @@
           <p class="hint" id="mt-feats-hint"></p>
         </div>
         <div class="card">
-          <h2><span class="step">4</span>Model <button type="button" class="tip" data-tip="All models come from scikit-learn, XGBoost and LightGBM, with defaults tuned for pixel data. Random Forest is the safest first choice. Stars show typical accuracy and speed on pixel tables." aria-label="Help">i</button></h2>
+          <div class="row between"><h2 style="margin:0"><span class="step">4</span>Preprocessing <button type="button" class="tip" data-tip="How the data is cleaned and transformed before it reaches the model. Every step is learned from the training rows only (also inside each cross-validation / tuning fold) and saved inside the model, so Classify an image repeats exactly the same steps. The defaults are safe for every model." aria-label="Help">i</button></h2>
+            <button class="chip" id="mt-prep-reset">Defaults</button></div>
+          <div id="mt-prep"></div>
+          <div class="prep-flow" id="mt-prep-flow"></div>
+        </div>
+        <div class="card">
+          <h2><span class="step">5</span>Model <button type="button" class="tip" data-tip="All models come from scikit-learn, XGBoost and LightGBM, with defaults tuned for pixel data. Random Forest is the safest first choice. Stars show typical accuracy and speed on pixel tables." aria-label="Help">i</button></h2>
           <div class="seg small" id="mt-family" style="margin-bottom:8px"></div>
           <div class="model-grid" id="mt-models"></div>
         </div>
         <div class="card">
           <div class="row between"><h2 style="margin:0"><span class="step">5</span>Parameters</h2><button class="chip" id="mt-reset">Reset to defaults</button></div>
           <div id="mt-params"></div>
-          <details class="an-details" id="mt-adv-wrap"><summary>Advanced (validation, scaling, seed…)</summary><div id="mt-adv"></div></details>
+          <details class="an-details" id="mt-adv-wrap"><summary>Advanced (validation, cross-validation, seed…)</summary><div id="mt-adv"></div></details>
         </div>
         <div class="card">
-          <div class="row between"><h2 style="margin:0"><span class="step">6</span>Hyperparameter tuning <button type="button" class="tip" data-tip="Let the computer try many parameter combinations and keep the best. Each combination is scored by cross-validation on the training rows only (the test split stays untouched), using the same polygon / spatial-block grouping, so the chosen settings are honest. Slower: total fits = tries × folds." aria-label="Help">i</button></h2>
+          <div class="row between"><h2 style="margin:0"><span class="step">7</span>Hyperparameter tuning <button type="button" class="tip" data-tip="Let the computer try many parameter combinations and keep the best. Each combination is scored by cross-validation on the training rows only (the test split stays untouched), using the same polygon / spatial-block grouping, so the chosen settings are honest. Slower: total fits = tries × folds." aria-label="Help">i</button></h2>
             <label class="switch"><input type="checkbox" id="mt-tune"><span>Tune</span></label></div>
           <div id="mt-tune-body" class="hidden">
             <div class="seg small" id="mt-tune-method" style="margin:8px 0"><button data-m="random" class="active">Random search</button><button data-m="grid">Grid search</button></div>
@@ -469,6 +489,80 @@
         </div>
         <div id="mt-compare-box" class="hidden"></div>
         <div id="mt-result" class="hidden"></div>
+      </div>
+
+      <!-- sub-tool: clustering (unsupervised) -->
+      <div id="ml-sub-cluster" class="ml-sub hidden">
+        <button class="btn small ml-back">‹ All ML tools</button>
+        <div class="card">
+          <h2><span class="step">1</span>Table <button type="button" class="tip" data-tip="Any table in Contents ▸ Tabular data or made by Raster → table. No label column is needed." aria-label="Help">i</button></h2>
+          <select id="uc-table"></select>
+          <p class="hint" id="uc-table-info"></p>
+        </div>
+        <div class="card">
+          <h2><span class="step">2</span>Columns to cluster on <button type="button" class="tip" data-tip="Tick the columns that describe each row (bands, indices, measurements). Rows that are similar in these columns end up in the same cluster. Leave out ids, coordinates and the label column. Tick Categorical for codes / categories (one-hot encoded)." aria-label="Help">i</button></h2>
+          <div class="row between" style="gap:6px;flex-wrap:wrap">
+            <input class="uc-col-filter" placeholder="Filter columns…" style="flex:1;min-width:120px">
+            <span class="row tight"><button class="chip" data-colset="numeric">Numeric</button><button class="chip" data-colset="all">All</button><button class="chip" data-colset="none">None</button></span>
+          </div>
+          <div class="load-wrap" style="margin-top:8px;max-height:300px"><table class="col-table uc-cols"></table></div>
+          <p class="hint uc-cols-hint"></p>
+          <label style="margin-top:10px">Compare with a known label <span class="muted">(optional)</span> <button type="button" class="tip" data-tip="If the table has a label column (e.g. land-cover class or risk group), the results show how well the clusters match it (adjusted Rand index, NMI, cross-table). It is never used to make the clusters." aria-label="Help">i</button><select id="uc-compare"></select></label>
+        </div>
+        <div class="card">
+          <h2><span class="step">3</span>Method <button type="button" class="tip" data-tip="K-means is the safest first choice. DBSCAN / HDBSCAN find any shape and mark outliers as noise. Hierarchical shows a dendrogram. Spectral finds non-round groups. Gaussian mixture gives soft memberships." aria-label="Help">i</button></h2>
+          <div class="model-grid" id="uc-methods"></div>
+        </div>
+        <div class="card">
+          <div class="row between"><h2 style="margin:0"><span class="step">4</span>Settings</h2><button class="chip" id="uc-reset">Reset to defaults</button></div>
+          <div id="uc-params"></div>
+          <details class="an-details"><summary>Advanced</summary><div id="uc-adv"></div></details>
+        </div>
+        <div class="card">
+          <h2><span class="step">5</span>Preprocessing <button type="button" class="tip" data-tip="Clustering compares distances between rows, so scaling matters: without it the column with the biggest numbers decides everything. Standard scaling is the default." aria-label="Help">i</button></h2>
+          <div id="uc-prep"></div>
+        </div>
+        <div class="card">
+          <label>Name<input id="uc-name" maxlength="80" value="clusters"></label>
+          <button class="btn primary big-btn" id="uc-run">Find clusters</button>
+          <div id="uc-error" class="warn err hidden"></div>
+        </div>
+        <div id="uc-result" class="hidden"></div>
+      </div>
+
+      <!-- sub-tool: t-SNE map (unsupervised) -->
+      <div id="ml-sub-tsne" class="ml-sub hidden">
+        <button class="btn small ml-back">‹ All ML tools</button>
+        <div class="card">
+          <h2><span class="step">1</span>Table</h2>
+          <select id="ut-table"></select>
+          <p class="hint" id="ut-table-info"></p>
+        </div>
+        <div class="card">
+          <h2><span class="step">2</span>Columns to map <button type="button" class="tip" data-tip="t-SNE places every row as a point in 2D so that rows that are similar in these columns lie close together. Use it to see whether classes or clusters separate." aria-label="Help">i</button></h2>
+          <div class="row between" style="gap:6px;flex-wrap:wrap">
+            <input class="uc-col-filter" placeholder="Filter columns…" style="flex:1;min-width:120px">
+            <span class="row tight"><button class="chip" data-colset="numeric">Numeric</button><button class="chip" data-colset="all">All</button><button class="chip" data-colset="none">None</button></span>
+          </div>
+          <div class="load-wrap" style="margin-top:8px;max-height:300px"><table class="col-table uc-cols"></table></div>
+          <p class="hint uc-cols-hint"></p>
+          <label style="margin-top:10px">Colour points by <button type="button" class="tip" data-tip="A column used only to colour the map, e.g. the class label or a cluster column. You can switch colours after the run." aria-label="Help">i</button><select id="ut-color"></select></label>
+        </div>
+        <div class="card">
+          <div class="row between"><h2 style="margin:0"><span class="step">3</span>Settings</h2><button class="chip" id="ut-reset">Reset to defaults</button></div>
+          <div id="ut-params"></div>
+          <details class="an-details"><summary>Advanced</summary><div id="ut-adv"></div></details>
+        </div>
+        <div class="card">
+          <h2><span class="step">4</span>Preprocessing</h2>
+          <div id="ut-prep"></div>
+        </div>
+        <div class="card">
+          <label>Name<input id="ut-name" maxlength="80" value="tsne"></label>
+          <button class="btn primary big-btn" id="ut-run">Make t-SNE map</button>
+          <div id="ut-error" class="warn err hidden"></div>
+        </div>
+        <div id="ut-result" class="hidden"></div>
       </div>
 
       <!-- sub-tool: classify an image -->
@@ -679,6 +773,65 @@
   <span class="sb-item mono" id="sb-zoom">z 5</span>
   <span class="sb-item" title="Map display projection: Web Mercator. Exports keep each file's own CRS.">EPSG:3857</span>
 </footer>
+
+
+<!-- Folder picker -->
+<dialog id="dlg-folder" class="modal wide">
+  <div class="modal-head"><h3 id="fp-title">Choose a folder</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body fp">
+    <div class="fp-side" id="fp-shortcuts"></div>
+    <div class="fp-main">
+      <div class="fp-bar"><button class="icon-btn" id="fp-up" title="Up one folder">↑</button><input id="fp-path" spellcheck="false" autocomplete="off" title="Type a path and press Enter"></div>
+      <div class="fp-list" id="fp-list"></div>
+      <div class="fp-new"><input id="fp-newname" placeholder="New folder name" maxlength="120"><button class="btn small" id="fp-mkdir">+ New folder</button></div>
+    </div>
+  </div>
+  <div class="modal-foot"><span class="hint grow" id="fp-hint" style="margin:0"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="fp-ok">Select this folder</button></div>
+</dialog>
+
+<!-- Projects -->
+<dialog id="dlg-project" class="modal wide">
+  <div class="modal-head"><div><h3>Welcome to LULC Fetch</h3><p class="hint" style="margin:2px 0 0">A project keeps your layers, tables, models, results and map view together in one folder.</p></div><button class="x" data-close>×</button></div>
+  <div class="modal-body pj">
+    <div class="pj-col">
+      <div class="pj-card">
+        <b>New project</b>
+        <label>Project name<input id="pj-name" maxlength="80" placeholder="e.g. Bengaluru LULC 2026"></label>
+        <label>Location (parent folder)
+          <span class="row tight"><input id="pj-folder" spellcheck="false" autocomplete="off" placeholder="e.g. ~/Documents/LULC projects"><button class="btn small" id="pj-browse">Browse…</button></span></label>
+        <p class="hint" id="pj-preview"></p>
+        <button class="btn primary" id="pj-create">Create project</button>
+        <div id="pj-error" class="warn err hidden"></div>
+      </div>
+      <div class="pj-card">
+        <b>Open a project</b>
+        <p class="hint" style="margin-top:2px">A folder with a <code>lulc_project.json</code> file.</p>
+        <button class="btn" id="pj-open">Open project folder…</button>
+      </div>
+    </div>
+    <div class="pj-col">
+      <div class="home-label" style="margin-top:0">Recent projects</div>
+      <div id="pj-recent" class="pj-recent"></div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <label class="inline grow" style="margin:0"><input type="checkbox" id="pj-show"> Show this window when the app starts</label>
+    <button class="btn" id="pj-temp" title="Results are kept in the app's working folder (a cache) until you clean them up">Continue without a project</button>
+  </div>
+</dialog>
+
+<!-- Clean up working files -->
+<dialog id="dlg-cache" class="modal">
+  <div class="modal-head"><h3>Clean up working files</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <p class="hint" style="margin-top:0" id="cc-where"></p>
+    <div id="cc-list" class="ws-list"></div>
+    <label style="margin-top:10px">Delete files older than
+      <select id="cc-age"><option value="1">1 day</option><option value="7" selected>7 days</option><option value="30">30 days</option><option value="0">any age (everything)</option></select></label>
+    <p class="hint">Whole download / result folders are removed, never half of one. Running jobs are skipped. Layers that use deleted files must be added again.</p>
+  </div>
+  <div class="modal-foot"><button class="btn" data-close>Close</button><button class="btn primary" id="cc-go">Delete</button></div>
+</dialog>
 
 <!-- Metadata modal -->
 <dialog id="dlg-meta" class="modal wide">

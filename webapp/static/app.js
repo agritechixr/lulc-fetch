@@ -92,7 +92,7 @@
   setInterval(() => { if (runs[currentTool]) renderRunBar(); }, 1000);  // keep the elapsed time ticking
 
   // Track a background job until it finishes. Resolves with the finished job; throws CancelledError / Error.
-  async function trackJob(job, { tool = currentTool, title } = {}) {
+  async function trackJob(job, { tool = currentTool, title, save } = {}) {
     const run = { title: title || job.title, progress: 0, message: "Starting…", started: Date.now(),
                   cancel: () => api(`/api/jobs/${job.id}/cancel`, { method: "POST" }).catch(() => {}) };
     runs[tool] = run;
@@ -108,6 +108,7 @@
       }
       if (j.status === "cancelled") throw new CancelledError();
       if (j.status === "error") throw new Error(j.error || "The job failed");
+      if (save) await saveOutputs(save, j);
       return j;
     } finally {
       if (runs[tool] === run) { delete runs[tool]; renderRunBar(); }
@@ -181,6 +182,8 @@
     home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     raster: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
     vector: '<path d="M4 18l5-12 7 4 4 8z"/>',
+    cluster: '<circle cx="7" cy="8" r="1.6"/><circle cx="10" cy="6" r="1.6"/><circle cx="9" cy="10.5" r="1.6"/><circle cx="16" cy="15" r="1.6"/><circle cx="18.5" cy="12.5" r="1.6"/><circle cx="15" cy="18" r="1.6"/><circle cx="18" cy="18.5" r="1.6"/><path d="M4.5 4.5a6 6 0 0 1 8 7.5M12 19a6 6 0 0 0 9-8" opacity=".55"/>',
+    tsne: '<circle cx="6" cy="7" r="1.5"/><circle cx="8" cy="9.5" r="1.5"/><circle cx="5" cy="11" r="1.5"/><circle cx="16" cy="6" r="1.5"/><circle cx="18" cy="8.5" r="1.5"/><circle cx="12" cy="17" r="1.5"/><circle cx="14.5" cy="18.5" r="1.5"/><circle cx="11" cy="20" r="1.5"/><path d="M3 3v18h18" opacity=".55"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>',
   };
   const svg = (name, w = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
@@ -247,6 +250,7 @@
     $("#mi-contents").classList.toggle("on", !document.body.classList.contains("no-contents"));
     $("#mi-tools").classList.toggle("on", !document.body.classList.contains("no-tools"));
     $("#mi-viewer").classList.toggle("on", document.body.classList.contains("viewer-open"));
+    if ($("#mi-project-close")) $("#mi-project-close").disabled = !inProject();
     $("#mi-labels").classList.toggle("on", map.hasLayer(placeLabels));
     const bm = prefs.get("basemap", "streets"), th = prefs.get("theme", "auto");
     $$('[data-group="basemap"]').forEach((b) => b.classList.toggle("on", b.dataset.cmd === "basemap:" + bm));
@@ -283,6 +287,11 @@
       case "toggle-contents": setPane("contents", document.body.classList.contains("no-contents")); break;
       case "toggle-tools": setPane("tools", document.body.classList.contains("no-tools")); break;
       case "toggle-viewer": setViewer(!viewerOpen()); break;
+      case "project-new": showProjectDialog(); break;
+      case "project-open": pickFolder({ title: "Open a project folder", mode: "project" }).then((f) => f && projectOpen(f).catch((e) => toast(e.message, true))); break;
+      case "project-close": projectClose().catch((e) => toast(e.message, true)); break;
+      case "project-reveal": api("/api/project/reveal", { method: "POST", json: {} }).catch((e) => toast(e.message, true)); break;
+      case "clean-cache": openCacheDialog().catch((e) => toast(e.message, true)); break;
       case "reset-layout": resetLayout(); break;
       case "basemap": setBasemap(arg); break;
       case "toggle-labels": setLabels(!map.hasLayer(placeLabels)); break;
@@ -610,14 +619,18 @@
   // persistence: layer list survives reloads (preview images are not kept)
   function saveLayers() {
     try {
-      const keep = layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, ...rest }) => rest);
-      const text = JSON.stringify(keep);
-      if (text.length < 4e6) localStorage.setItem("lulc-layers", text);
+      if (!inProject()) {
+        const keep = layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, ...rest }) => rest);
+        const text = JSON.stringify(keep);
+        if (text.length < 4e6) localStorage.setItem("lulc-layers", text);
+      }
     } catch {}
+    scheduleProjectSave();
   }
-  function restoreLayers() {
+  function restoreLayers(list) {
     let saved = [];
-    try { saved = JSON.parse(localStorage.getItem("lulc-layers") || "[]"); } catch {}
+    if (list) saved = [...list];
+    else try { saved = JSON.parse(localStorage.getItem("lulc-layers") || "[]"); } catch {}
     for (const d of saved.reverse()) {  // bottom first, so each unshift puts the next one above
       if (d.type === "vector") {
         addLayer(d, { select: false });
@@ -641,6 +654,7 @@
       l.type === "vector" ? ["Open attribute table", () => openAttr(l)] : null,
       isPoly && l.id !== "aoi" ? ["Use as area of interest", () => useAsAoi(l)] : null,
       "-",
+      l.type !== "image" ? ["Save to folder…", () => saveLayerToFolder(l)] : null,
       ["Export / save to computer…", () => openExport(l)],
       "-",
       ["Move to top", () => moveLayer(l.id, 0)],
@@ -720,9 +734,13 @@
     $("#contents-empty").classList.toggle("hidden", layers.length + pics > 0);
     $("#tables-empty").classList.toggle("hidden", tabs > 0);
   }
-  function saveItems() { try { localStorage.setItem("lulc-data", JSON.stringify(dataItems)); } catch {} }
-  function restoreItems() {
-    try { dataItems.push(...JSON.parse(localStorage.getItem("lulc-data") || "[]")); } catch {}
+  function saveItems() {
+    if (!inProject()) try { localStorage.setItem("lulc-data", JSON.stringify(dataItems)); } catch {}
+    scheduleProjectSave();
+  }
+  function restoreItems(list) {
+    if (list) dataItems.push(...list);
+    else try { dataItems.push(...JSON.parse(localStorage.getItem("lulc-data") || "[]")); } catch {}
     renderItems();
   }
   function addItem(def, { open = false } = {}) {
@@ -774,6 +792,7 @@
       ["Show points on map (lon / lat)", () => tablePoints(it)],
       ["Train a model with this table", () => { switchTool("ml"); openMlSub("train"); refreshTrainTables(it.path); }],
       "-",
+      ["Save to folder…", () => saveItemToFolder(it)],
       ["Download", () => { location.href = `/api/tables/file?path=${encodeURIComponent(it.path)}`; }],
       "-",
       ["Remove from Contents", () => removeItem(it.id), "danger"],
@@ -781,6 +800,7 @@
       ["View picture", () => openItem(it)],
       ["Place on map (stretch over current view)", () => placePicture(it)],
       "-",
+      ["Save to folder…", () => saveItemToFolder(it)],
       ["Download", () => { location.href = `/api/pictures/file?path=${encodeURIComponent(it.path)}`; }],
       "-",
       ["Remove from Contents", () => removeItem(it.id), "danger"],
@@ -1093,6 +1113,317 @@
     $('[data-act="place"]', body).onclick = () => placePicture(it);
   }
 
+  // ------------------------------------------------------------------ folder picker (server-side, so it returns real paths)
+  const fp = { path: null, sel: null, mode: "folder", resolve: null };
+  const FOLDER_SVG = (isProj) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="${isProj ? "var(--accent)" : "#e3b341"}" fill-opacity="${isProj ? ".9" : ".85"}" stroke="none"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2h8.4A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/>${isProj ? '<path d="M8 13.5l2.5 2.5L16 11" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' : ""}</svg>`;
+  function pickFolder({ title = "Choose a folder", start = "", mode = "folder", okLabel } = {}) {
+    fp.mode = mode; fp.sel = null; fp.okLabel = okLabel;
+    $("#fp-title").textContent = title;
+    $("#fp-newname").value = "";
+    $("#dlg-folder").showModal();
+    fpLoad(start || prefs.get("fp-last", ""));
+    return new Promise((res) => { fp.resolve = res; });
+  }
+  $("#dlg-folder").addEventListener("close", () => { if (fp.resolve) { fp.resolve(fp.result ?? null); fp.resolve = null; fp.result = null; } });
+  async function fpLoad(path) {
+    let r;
+    try { r = await api(`/api/fs/list?path=${encodeURIComponent(path || "")}`); }
+    catch (e) { $("#fp-hint").innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; if (fp.path) return; r = await api("/api/fs/list"); }
+    fp.path = r.path; fp.sel = null; fp.info = r;
+    $("#fp-path").value = r.path;
+    $("#fp-up").disabled = !r.parent;
+    $("#fp-up").onclick = () => r.parent && fpLoad(r.parent);
+    $("#fp-shortcuts").innerHTML = r.shortcuts.map((sc) => `<button class="fp-sc ${sc.path === r.path ? "on" : ""}" data-p="${esc(sc.path)}" title="${esc(sc.path)}">${esc(sc.name)}</button>`).join("");
+    $$("#fp-shortcuts [data-p]").forEach((b) => b.onclick = () => fpLoad(b.dataset.p));
+    $("#fp-list").innerHTML = r.dirs.length ? r.dirs.map((d) => `<div class="fp-item ${d.project ? "is-proj" : ""}" data-p="${esc(d.path)}" title="Double-click to open">
+        <span class="fp-ic">${FOLDER_SVG(d.project)}</span><span class="fp-n">${esc(d.name)}</span>${d.project ? '<span class="fp-badge">project</span>' : ""}</div>`).join("")
+      : `<p class="hint" style="padding:10px">No sub-folders here.</p>`;
+    $$("#fp-list .fp-item").forEach((el) => {
+      el.onclick = () => { fp.sel = el.dataset.p; $$("#fp-list .fp-item").forEach((x) => x.classList.toggle("sel", x === el)); fpHint(); };
+      el.ondblclick = () => fpLoad(el.dataset.p);
+    });
+    fpHint();
+  }
+  function fpTarget() { return fp.sel || fp.path; }
+  function fpHint() {
+    const t = fpTarget(), isProj = fp.sel ? !!$(`#fp-list .fp-item.sel.is-proj`) : fp.info?.project;
+    const ok = $("#fp-ok");
+    if (fp.mode === "project") {
+      ok.textContent = "Open project"; ok.disabled = !isProj;
+      $("#fp-hint").innerHTML = isProj ? `Open <b>${esc(t.split("/").pop())}</b>` : "Choose a folder marked <span class='fp-badge'>project</span>.";
+    } else {
+      ok.textContent = fp.okLabel || "Select this folder"; ok.disabled = false;
+      $("#fp-hint").innerHTML = `<code>${esc(t)}</code>${!fp.sel && fp.info && !fp.info.writable ? ' <span style="color:var(--warn)">(read-only)</span>' : ""}`;
+    }
+  }
+  $("#fp-path").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); fpLoad($("#fp-path").value); } });
+  $("#fp-ok").onclick = () => { fp.result = fpTarget(); prefs.set("fp-last", fp.mode === "project" ? fp.path : fp.result); $("#dlg-folder").close(); };
+  $("#fp-mkdir").onclick = async () => {
+    const name = $("#fp-newname").value.trim();
+    if (!name) return toast("Type a name for the new folder", true);
+    try { const r = await api("/api/fs/mkdir", { method: "POST", json: { parent: fp.path, name } }); $("#fp-newname").value = ""; await fpLoad(fp.path); fp.sel = r.path; $(`#fp-list [data-p="${CSS.escape(r.path)}"]`)?.classList.add("sel"); fpHint(); }
+    catch (e) { toast(e.message, true); }
+  };
+  $("#fp-newname").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#fp-mkdir").click(); } });
+
+  // ------------------------------------------------------------------ projects: one folder for layers, results and settings
+  const proj = { info: null, saveTimer: 0, loading: false };
+  const inProject = () => !!proj.info?.project;
+  function projectState() {
+    const c = map.getCenter();
+    return { layers: layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, ...rest }) => rest),
+             items: dataItems, view: { center: [c.lat, c.lng], zoom: map.getZoom() }, basemap: prefs.get("basemap", "streets") };
+  }
+  function scheduleProjectSave() {
+    if (!inProject() || proj.loading) return;
+    clearTimeout(proj.saveTimer);
+    $("#project-saved").textContent = "•";
+    $("#project-saved").title = "Unsaved changes (saving…)";
+    proj.saveTimer = setTimeout(async () => {
+      try {
+        const r = await api("/api/project/state", { method: "PUT", json: { state: projectState() } });
+        $("#project-saved").textContent = "✓";
+        $("#project-saved").title = `Saved ${r.saved}`;
+      } catch (e) { $("#project-saved").textContent = "!"; $("#project-saved").title = "Couldn't save the project: " + e.message; }
+    }, 900);
+  }
+  function renderProjectChip() {
+    const p = proj.info?.project;
+    $("#project-name").textContent = p ? p.name : "Temporary workspace";
+    $("#btn-project").classList.toggle("temp", !p);
+    $("#btn-project").title = p ? `Project folder: ${p.folder}\nEverything you make is saved in this folder.` : `No project open: results are kept in the app's working folder (${proj.info?.workspace || ""}) until you clean them up.`;
+    $("#btn-project .pc-ic").innerHTML = p ? "📁" : "🗂";
+    if (!p) $("#project-saved").textContent = "";
+    $("#mi-project-close").disabled = !p;
+    document.title = p ? `${p.name} · LULC Fetch` : "LULC Fetch";
+  }
+  function clearContents() {
+    [...layers].forEach((l) => removeLayer(l.id, { silent: true }));
+    dataItems.splice(0);
+    [...vw.tabs].forEach((t) => closeTab(t.key));
+    selectedId = null;
+    renderContents(); renderItems();
+  }
+  // apply a project's saved state (or the temporary workspace's browser-stored state)
+  function applyState(state) {
+    proj.loading = true;
+    try {
+      clearContents();
+      if (state?.view?.center) map.setView(state.view.center, state.view.zoom ?? map.getZoom());
+      if (state?.basemap) setBasemap(state.basemap);
+      restoreLayers(state ? state.layers || [] : undefined);
+      restoreItems(state ? state.items || [] : undefined);
+    } finally { proj.loading = false; }
+  }
+  async function afterSwitch(info, label) {
+    proj.info = info;
+    renderProjectChip();
+    applyState(info.project ? (info.state || {}) : null);
+    refreshJobs();
+    if (currentTool !== "home") switchTool(currentTool);
+    toast(label);
+  }
+  async function projectCreate(name, folder) {
+    const info = await api("/api/project/new", { method: "POST", json: { name, folder } });
+    prefs.set("pj-parent", folder);
+    await afterSwitch(info, `Project “${info.project.name}” created in ${info.project.folder}`);
+  }
+  async function projectOpen(folder) {
+    const info = await api("/api/project/open", { method: "POST", json: { folder } });
+    await afterSwitch(info, `Opened project “${info.project.name}”`);
+  }
+  async function projectClose() {
+    if (!inProject()) return;
+    clearTimeout(proj.saveTimer);
+    await api("/api/project/state", { method: "PUT", json: { state: projectState() } }).catch(() => {});
+    const info = await api("/api/project/close", { method: "POST" });
+    await afterSwitch(info, "Project closed. Back to the temporary workspace.");
+  }
+  async function showProjectDialog() {
+    try { proj.info = await api("/api/project"); } catch {}
+    $("#pj-show").checked = prefs.get("pj-show", true);
+    if (!$("#pj-folder").value) $("#pj-folder").value = prefs.get("pj-parent", "");
+    $("#pj-error").classList.add("hidden");
+    const rec = proj.info?.recent || [];
+    $("#pj-recent").innerHTML = rec.length ? rec.map((r) => `<div class="pj-item ${r.exists ? "" : "missing"}" data-f="${esc(r.folder)}" title="${esc(r.folder)}">
+        <span class="pj-ic">📁</span><span class="pj-t"><b>${esc(r.name)}</b><small>${esc(r.folder)}</small><small>${r.exists ? `opened ${esc(r.opened || "")}` : "folder not found"}</small></span>
+        <button class="vtab-x" data-forget title="Remove from the list">×</button></div>`).join("")
+      : '<p class="hint">No recent projects yet.</p>';
+    $$("#pj-recent .pj-item").forEach((el) => {
+      el.onclick = async (e) => {
+        if (e.target.closest("[data-forget]")) { e.stopPropagation(); await api(`/api/project/recent?folder=${encodeURIComponent(el.dataset.f)}`, { method: "DELETE" }); el.remove(); return; }
+        if (el.classList.contains("missing")) return toast("That project folder no longer exists", true);
+        try { await projectOpen(el.dataset.f); $("#dlg-project").close(); } catch (err) { toast(err.message, true); }
+      };
+    });
+    updatePjPreview();
+    if (!$("#dlg-project").open) $("#dlg-project").showModal();
+    setTimeout(() => $("#pj-name").focus(), 50);
+  }
+  function updatePjPreview() {
+    const n = $("#pj-name").value.trim(), f = $("#pj-folder").value.trim();
+    $("#pj-preview").innerHTML = n && f ? `Will be created as <code>${esc(f.replace(/\/+$/, ""))}/${esc(n.replace(/[<>:"/\\|?*]+/g, "_"))}</code>` : "A new folder with the project's name is created inside the location.";
+  }
+  $("#pj-name").oninput = $("#pj-folder").oninput = updatePjPreview;
+  $("#pj-browse").onclick = async () => { const f = await pickFolder({ title: "Where should the project folder be created?", start: $("#pj-folder").value, okLabel: "Use this location" }); if (f) { $("#pj-folder").value = f; updatePjPreview(); } };
+  $("#pj-create").onclick = (e) => busy(e.currentTarget, "Creating…", async () => {
+    const name = $("#pj-name").value.trim(), folder = $("#pj-folder").value.trim();
+    const err = $("#pj-error"); err.classList.add("hidden");
+    if (!name) { err.textContent = "Give the project a name"; err.classList.remove("hidden"); return; }
+    if (!folder) { err.textContent = "Choose where to create it (Browse…)"; err.classList.remove("hidden"); return; }
+    try { await projectCreate(name, folder); $("#dlg-project").close(); }
+    catch (ex) { err.textContent = ex.message; err.classList.remove("hidden"); }
+  });
+  $("#pj-name").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#pj-create").click(); } });
+  $("#pj-open").onclick = async () => {
+    const f = await pickFolder({ title: "Open a project folder", mode: "project" });
+    if (!f) return;
+    try { await projectOpen(f); $("#dlg-project").close(); } catch (e) { toast(e.message, true); }
+  };
+  $("#pj-temp").onclick = () => $("#dlg-project").close();
+  $("#pj-show").onchange = (e) => prefs.set("pj-show", e.target.checked);
+  $("#btn-project").onclick = (e) => {
+    e.stopPropagation();   // the page-wide "click outside closes menus" handler would close it at once
+    if (!inProject()) return showProjectDialog();
+    const r = e.currentTarget.getBoundingClientRect(), p = proj.info.project;
+    showMenu(p.folder, [
+      ["Show project folder", () => api("/api/project/reveal", { method: "POST", json: {} }).catch((x) => toast(x.message, true))],
+      ["Save now", () => { scheduleProjectSave(); }],
+      "-",
+      ["Open another project…", () => showProjectDialog()],
+      ["Close project", () => projectClose().catch((x) => toast(x.message, true))],
+      "-",
+      ["Clean up working files…", () => openCacheDialog()],
+    ], r.left, r.bottom + 4);
+  };
+  async function initProject() {
+    try { proj.info = await api("/api/project"); } catch { proj.info = null; }
+    renderProjectChip();
+    if (inProject()) applyState(proj.info.state || {});
+    else {
+      applyState(null);
+      let shown = false;
+      try { shown = sessionStorage.getItem("pj-asked") === "1"; sessionStorage.setItem("pj-asked", "1"); } catch {}
+      if (prefs.get("pj-show", true) && !shown) showProjectDialog();
+    }
+  }
+  map.on("moveend", () => scheduleProjectSave());
+
+  // ------------------------------------------------------------------ clean up working files (the cache)
+  async function openCacheDialog() {
+    const r = await api("/api/cache");
+    $("#cc-where").innerHTML = r.temporary ? `Temporary workspace: <code>${esc(r.workspace)}</code>. Tool results are kept here until you delete them.`
+      : `Project folder: <code>${esc(r.workspace)}</code>. These are the project's working files.`;
+    $("#cc-list").innerHTML = r.folders.map((f) => `<label class="ws-row" style="margin:0"><span><input type="checkbox" value="${f.folder}" ${f.files && f.folder !== "imports" ? "checked" : ""} ${f.files ? "" : "disabled"}> <b>${esc(f.folder)}</b>
+      <small>${f.files.toLocaleString()} files · ${fmt(f.size_mb, f.size_mb < 10 ? 1 : 0)} MB${f.oldest_days != null ? ` · oldest ${Math.round(f.oldest_days)} day(s)` : ""}</small></span></label>`).join("");
+    $("#dlg-cache").showModal();
+  }
+  $("#cc-go").onclick = (e) => busy(e.currentTarget, "Deleting…", async () => {
+    const folders = $$("#cc-list input:checked").map((i) => i.value), days = +$("#cc-age").value;
+    if (!folders.length) return toast("Tick at least one folder", true);
+    if (!confirm(`Delete ${days ? `files older than ${days} day(s)` : "ALL files"} in ${folders.join(", ")}? This can't be undone.`)) return;
+    const r = await api("/api/cache/clean", { method: "POST", json: { folders, older_than_days: days } });
+    toast(`Removed ${r.removed} item(s), freed ${fmt(r.freed_mb, 1)} MB`);
+    openCacheDialog();
+  });
+
+  // ------------------------------------------------------------------ "also save to a folder on my computer" (every tool)
+  const SAVE_SPOTS = [  // [key, element the option goes before, what is saved]
+    ["search", "#dl-go", "the downloaded files"], ["analyze", "#ex-go", "the exported GeoTIFF"], ["pca", "#pca-run", "the result GeoTIFF"],
+    ["stack", "#st-run", "the stacked GeoTIFF"], ["raster2table", "#rt-run", "the table"], ["train", "#mt-run", "the model and its evaluation report"],
+    ["predict", "#mp-run", "the map"], ["cluster", "#uc-run", "the table with clusters (and the model)"], ["tsne", "#ut-run", "the table with map coordinates"],
+  ];
+  function saveToHtml(key, what, label = "Also save to a folder on my computer") {
+    const dir = prefs.get(`save-dir:${key}`, key === "train" ? prefs.get("report-dir", "") : "") || prefs.get("save-dir:last", "");
+    return `<div class="save-to" data-save="${key}">
+      <label class="inline" style="margin:0"><input type="checkbox" data-save-on ${prefs.get(`save-on:${key}`, false) ? "checked" : ""}> ${esc(label)}
+        <button type="button" class="tip" data-tip="The result always goes into the project folder (or, without a project, the app's working folder) and appears in Contents. Tick this to also save a copy of ${what} in a folder you choose. Existing files are never overwritten." aria-label="Help">i</button></label>
+      <div class="save-to-row ${prefs.get(`save-on:${key}`, false) ? "" : "hidden"}"><input data-save-dir placeholder="Folder, e.g. ~/Documents/LULC results" value="${esc(dir)}" spellcheck="false" autocomplete="off"><button class="btn small" data-browse>Browse…</button></div>
+      <div class="save-note hidden"></div></div>`;
+  }
+  function wireSaveTo(w) {
+    const key = w.dataset.save;
+    $("[data-save-on]", w).onchange = (e) => { prefs.set(`save-on:${key}`, e.target.checked); $(".save-to-row", w).classList.toggle("hidden", !e.target.checked); };
+    $("[data-save-dir]", w).onchange = (e) => { prefs.set(`save-dir:${key}`, e.target.value.trim()); prefs.set("save-dir:last", e.target.value.trim()); };
+    $("[data-browse]", w).onclick = async () => {
+      const f = await pickFolder({ title: "Save results in…", start: $("[data-save-dir]", w).value });
+      if (f) { $("[data-save-dir]", w).value = f; prefs.set(`save-dir:${key}`, f); prefs.set("save-dir:last", f); }
+    };
+  }
+  SAVE_SPOTS.forEach(([key, sel, what]) => {
+    const anchor = $(sel);
+    if (!anchor) return;
+    const foot = anchor.closest(".modal-foot");
+    if (foot) {   // dialogs: at the end of the dialog's body, not between its buttons
+      const body = foot.parentElement.querySelector(".modal-body");
+      body.insertAdjacentHTML("beforeend", saveToHtml(key, what));
+      wireSaveTo(body.lastElementChild);
+      return;
+    }
+    const host = key === "train" ? anchor.closest(".row") : anchor;   // train: above the Train / Compare buttons
+    host.insertAdjacentHTML("beforebegin", saveToHtml(key, what));
+    wireSaveTo(host.previousElementSibling);
+  });
+  // Export tool: save straight into a folder instead of a browser download
+  $("#lx-go").closest(".row").insertAdjacentHTML("beforebegin", saveToHtml("export", "the exported file", "Save to a folder instead of downloading"));
+  wireSaveTo($("#lx-go").closest(".row").previousElementSibling);
+  const exportFolder = () => { const w = $('[data-save="export"]'); return w && $("[data-save-on]", w).checked ? $("[data-save-dir]", w).value.trim() : ""; };
+  const OUT_KEYS = ["path", "output_table", "files", "outputs"];
+  function outputPaths(job) {
+    const r = job.result || {}, out = [];
+    for (const k of OUT_KEYS) {
+      const v = r[k];
+      (Array.isArray(v) ? v : [v]).forEach((x) => { if (typeof x === "string" && x && !x.startsWith("/api/")) out.push(x); });
+    }
+    if (!out.length && job.files?.length) job.files.filter((f) => !/\.(part|log)$/i.test(f)).forEach((f) => out.push(`downloads/${job.id}/${f}`));
+    return [...new Set(out)];
+  }
+  async function saveOutputs(key, job) {
+    const w = $(`[data-save="${key}"]`);
+    if (!w || !$("[data-save-on]", w).checked) return;
+    const folder = $("[data-save-dir]", w).value.trim(), note = $(".save-note", w);
+    if (!folder) { toast("The result was kept, but no folder was chosen to save a copy in", true); return; }
+    const paths = outputPaths(job);
+    if (!paths.length) return;
+    try {
+      const r = await api("/api/files/save", { method: "POST", json: { paths, folder } });
+      note.innerHTML = `✓ Saved ${r.saved.length} file${r.saved.length === 1 ? "" : "s"} to <code title="${esc(r.saved.join("\n"))}">${esc(r.folder)}</code> · <a href="#" data-reveal>Show in folder</a>${r.skipped.length ? ` · <span style="color:var(--warn)">${r.skipped.length} skipped</span>` : ""}`;
+      note.classList.remove("hidden");
+      $("[data-reveal]", note).onclick = (e) => { e.preventDefault(); api("/api/project/reveal", { method: "POST", json: { path: r.saved[0] || r.folder } }).catch((x) => toast(x.message, true)); };
+      toast(`Saved a copy in ${r.folder}`);
+    } catch (e) { toast(`Couldn't save the copy: ${e.message}`, true); }
+  }
+
+  // ------------------------------------------------------------------ Save to folder… (right-click in Contents)
+  async function saveLayerToFolder(l) {
+    const folder = await pickFolder({ title: `Save “${l.name}” in…`, start: prefs.get("save-dir:last", ""), okLabel: "Save here" });
+    if (!folder) return;
+    prefs.set("save-dir:last", folder);
+    const name = safeName(l.name);
+    try {
+      let r;
+      if (l.type === "vector") {
+        r = await api("/api/vector/export", { method: "POST", json: { geojson: l.geojson, format: "shp", name, folder } });
+      } else if (l.type === "raster") {
+        const asShown = l.render?.index || l.render?.formula;   // index / formula layers are saved as their computed values
+        const body = { path: l.path, format: "tif", name, folder, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0, ...(asShown ? l.render : {}) };
+        const job = await api("/api/layers/export", { method: "POST", json: body });
+        r = (await trackJob(job, { title: `Saving ${l.name}` })).result;
+      } else return toast("This layer can't be saved as a file", true);
+      toast(`Saved ${r.saved?.map((p) => p.split("/").pop()).join(", ")} in ${r.saved_to}`);
+      status(`Saved ${l.name} in ${r.saved_to}`);
+    } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+  }
+  async function saveItemToFolder(it) {
+    const folder = await pickFolder({ title: `Save “${it.name}” in…`, start: prefs.get("save-dir:last", ""), okLabel: "Save here" });
+    if (!folder) return;
+    prefs.set("save-dir:last", folder);
+    try {
+      const r = await api("/api/files/save", { method: "POST", json: { paths: [it.path], folder } });
+      toast(r.saved.length ? `Saved ${r.saved.map((p) => p.split("/").pop()).join(", ")} in ${r.folder}` : `Not saved: ${r.skipped[0]?.reason}`, !r.saved.length);
+    } catch (e) { toast(e.message, true); }
+  }
+
   // ------------------------------------------------------------------ add data
   const TABLE_RE = /\.(csv|tsv|txt|parquet|xlsx|xlsm)$/i, PIC_RE = /\.(jpe?g|png|bmp|gif|webp)$/i,
         WORLD_RE = /\.(jgw|jpgw|jpegw|pgw|pngw|bpw|bmpw|gfw|gifw|wld)$/i;
@@ -1353,10 +1684,12 @@
       try {
         let r;
         if (l.type === "image") { download(l.url, name + ".png"); return; }
+        const folder = exportFolder() || null;
+        if ($('[data-save="export"] [data-save-on]').checked && !folder) return err("Choose the folder to save in (Browse…), or untick “Save to a folder”.");
         if (l.type === "vector") {
-          r = await api("/api/vector/export", { method: "POST", json: { geojson: l.geojson, format: fmtSel, name, clip } });
+          r = await api("/api/vector/export", { method: "POST", json: { geojson: l.geojson, format: fmtSel, name, clip, folder } });
         } else {
-          const body = { path: l.path, format: fmtSel, name, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0, ...l.render, clip };
+          const body = { path: l.path, format: fmtSel, name, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0, ...l.render, clip, folder };
           if (fmtSel === "shp") {
             Object.assign(body, { method: $("#lx-method").value, classes: +$("#lx-classes").value || 5, sieve: +$("#lx-sieve").value || 0 });
             if (body.method === "custom") body.breaks = $("#lx-breaks").value.split(/[,\s]+/).filter(Boolean).map(Number);
@@ -1366,6 +1699,14 @@
           try {
             r = (await trackJob(job, { tool: "export", title: `Exporting ${name} (${fmtSel.toUpperCase()})` })).result;
           } catch (ex2) { if (!notCancelled(ex2)) return; throw ex2; }
+        }
+        if (r.saved) {
+          const note = $('[data-save="export"] .save-note');
+          note.innerHTML = `✓ Saved ${esc(r.saved.map((p) => p.split("/").pop()).join(", "))} in <code>${esc(r.saved_to)}</code> · <a href="#" data-reveal>Show in folder</a>`;
+          note.classList.remove("hidden");
+          $("[data-reveal]", note).onclick = (ev) => { ev.preventDefault(); api("/api/project/reveal", { method: "POST", json: { path: r.saved[0] } }).catch((x) => toast(x.message, true)); };
+          toast(`Saved in ${r.saved_to}`);
+          return;
         }
         download(r.url, r.name);
         toast(`Exported ${r.name}${r.features ? ` · ${r.features.toLocaleString()} features` : ""}${r.size_mb ? ` · ${fmt(r.size_mb)} MB` : ""}`);
@@ -2040,7 +2381,7 @@
       addedJobs.add(job.id);  // added below, as soon as it finishes
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       try {
-        const done = await trackJob(job, { tool: "search" });
+        const done = await trackJob(job, { tool: "search", save: "search" });
         const tifs = done.files.filter((f) => /\.tiff?$/i.test(f));
         for (const f of tifs) await addRasterFromPath(`downloads/${done.id}/${f}`, { name: done.title });
         toast(tifs.length ? `Added “${done.title}” to Contents` : `${done.title} finished. Files are in Downloads & jobs.`);
@@ -2069,7 +2410,7 @@
     }
     for (const j of list) {
       // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
-      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare"].includes(j.kind)) continue;
+      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
@@ -2410,7 +2751,7 @@
     const job = await api("/api/analyze/export", { method: "POST", json: { ...analyzeBody(), indices, formulas, clip: getClip("an-area") } });
     $("#dlg-export").close();
     try {
-      const done = await trackJob(job, { tool: "analyze" });
+      const done = await trackJob(job, { tool: "analyze", save: "analyze" });
       const r = done.result;
       download(r.url, r.name);
       toast(`Saved ${r.name} (${r.layers.length} band${r.layers.length > 1 ? "s" : ""})`);
@@ -2730,7 +3071,7 @@
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       pcaState.job = job.id;
       $("#pca-status").textContent = "";
-      const j = await trackJob(job, { tool: "pca", title: `${m.title} · ${l.name}` });
+      const j = await trackJob(job, { tool: "pca", save: "pca", title: `${m.title} · ${l.name}` });
       const rep = j.result;
       const n = rep.n_components;
       const out = await addRasterFromPath(rep.path, { name: `${m.title} (${n}) · ${l.name}${getClip("pca-area") ? " · area" : ""}`,
@@ -2808,10 +3149,14 @@
   // ------------------------------------------------------------------ Classical ML (tabular data) hub
   // Sub-tools are registered here; each has a <div id="ml-sub-<id>" class="ml-sub"> in index.html.
   const ML_SUBTOOLS = [  // ← add sub-tools here (and a <div id="ml-sub-<id>" class="ml-sub"> in index.html)
-    { id: "train", title: "Train a model", icon: "ml",
+    { id: "train", group: "sup", title: "Train a model", icon: "ml",
       subtitle: "Random Forest, XGBoost, LightGBM, SVM, Maximum Likelihood and more, with accuracy assessment" },
-    { id: "predict", title: "Classify an image", icon: "analyze",
-      subtitle: "Apply a trained model to a raster to make a land-cover (or value) map" },
+    { id: "predict", group: "sup", title: "Classify an image", icon: "analyze",
+      subtitle: "Apply a trained model (or a saved clustering) to a raster to make a land-cover (or value) map" },
+    { id: "cluster", group: "unsup", title: "Clustering", icon: "cluster",
+      subtitle: "K-means, hierarchical, DBSCAN, HDBSCAN, spectral clustering, Gaussian mixture: find natural groups" },
+    { id: "tsne", group: "unsup", title: "t-SNE map", icon: "tsne",
+      subtitle: "See your data as a 2D map where similar rows lie together; colour it by label or cluster" },
   ];
   let mlSub = null;
   function openMlSub(id) {
@@ -2823,13 +3168,17 @@
     if (!id) { refreshTables(); refreshModels(); }
     if (id === "train" && mlx.schema) refreshTrainTables();
     if (id === "predict") refreshPredict();
+    if (id === "cluster" || id === "tsne") refreshUnsup(id === "cluster" ? "uc" : "ut").catch((e) => toast(e.message, true));
     document.querySelector(".tool-body").scrollTop = 0;
   }
   function renderMlHub() {
-    $("#ml-subtools").innerHTML = ML_SUBTOOLS.map((t) => `<button class="tool-card" data-mlsub="${t.id}">
-      <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>`).join("") +
-      "";
-    $$("#ml-subtools [data-mlsub]").forEach((b) => b.onclick = () => openMlSub(b.dataset.mlsub));
+    const card = (t) => `<button class="tool-card" data-mlsub="${t.id}">
+      <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>`;
+    $("#ml-sup").innerHTML = ML_SUBTOOLS.filter((t) => t.group === "sup").map(card).join("");
+    $("#ml-unsup").innerHTML = ML_SUBTOOLS.filter((t) => t.group === "unsup").map(card).join("");
+    $(".ml-group-ic.sup").innerHTML = svg("ml");
+    $(".ml-group-ic.unsup").innerHTML = svg("cluster");
+    $$("#ml-home [data-mlsub]").forEach((b) => b.onclick = () => openMlSub(b.dataset.mlsub));
     $$(".ml-back").forEach((b) => b.onclick = () => openMlSub(null));
     $("#ml-goto-rt").onclick = (e) => { e.preventDefault(); switchTool("raster2table"); };
   }
@@ -2967,7 +3316,7 @@
     $("#rt-result").classList.add("hidden");
     try {
       const job = await api("/api/tables/from-raster", { method: "POST", json: body });
-      const done = await trackJob(job, { tool: "raster2table", title: `Raster → table · ${body.name}` });
+      const done = await trackJob(job, { tool: "raster2table", save: "raster2table", title: `Raster → table · ${body.name}` });
       showRtResult(done.result);
       refreshTables();
     } catch (e) {
@@ -3009,7 +3358,7 @@
   }
   const mlCollect = (scope) => {
     const out = {};
-    $$(`#mt-params [data-scope="${scope}"], #mt-adv [data-scope="${scope}"]`).forEach((i) => {
+    $$(`#mt-params [data-scope="${scope}"], #mt-adv [data-scope="${scope}"], #mt-prep [data-scope="${scope}"]`).forEach((i) => {
       out[i.dataset.p] = i.type === "checkbox" ? i.checked : i.type === "number" ? (i.value === "" ? null : +i.value) : i.value;
     });
     return out;
@@ -3075,7 +3424,7 @@
         if (name === $("#mt-target").value) { e.target.value = "target"; return toast("Choose another target column first", true); }
         mlx.cols[name].role = v; tr.className = v === "ignore" ? "is-off" : ""; updateFeatHint();
       };
-      $("[data-type]", tr).onchange = (e) => { mlx.cols[name].type = e.target.value; renderColumns(false); };
+      $("[data-type]", tr).onchange = (e) => { mlx.cols[name].type = e.target.value; renderColumns(false); if ($("#mt-prep-flow").innerHTML) updatePrepFlow(); };
     });
     updateFeatHint();
   }
@@ -3089,7 +3438,7 @@
     $("#mt-feats-hint").innerHTML = !f.length ? "Select at least one feature." :
       `<b>${f.length}</b> feature${f.length > 1 ? "s" : ""}${cats.length ? ` (${cats.length} categorical: ${cats.map(esc).join(", ")})` : ""} · ${mlx.desc.columns.length - f.length - 1} ignored` +
       (coords.length ? `<br><span style="color:var(--warn)">${coords.map(esc).join(", ")} included: the model may learn locations rather than spectra.</span>` : "") +
-      (nulls.length ? `<br>${nulls.map(esc).join(", ")} ha${nulls.length > 1 ? "ve" : "s"} missing values: rows are dropped, or set <b>Advanced → Missing values → Fill in</b>.` : "") +
+      (nulls.length ? `<br>${nulls.map(esc).join(", ")} ha${nulls.length > 1 ? "ve" : "s"} missing values: those rows are dropped unless <b>Preprocessing ▸ Missing values</b> is set to <b>Fill in</b>.` : "") +
       (textCats.length ? `<br><span style="color:var(--warn)">Text column${textCats.length > 1 ? "s" : ""} ${textCats.map(esc).join(", ")}: fine for evaluation, but an image can't provide ${textCats.length > 1 ? "them" : "it"}, so the model can't classify a raster.</span>` : "");
   }
   // target: categories or numbers?
@@ -3145,15 +3494,16 @@
     $("#mt-models").innerHTML = Object.entries(sc.models).filter(([, m]) => mlx.family === "All" || m.family === mlx.family).map(([k, m]) => {
       const ok = usable(k, m);
       const why = !m.tasks.includes(task) ? `Not for ${task}` : sc.unavailable.includes(k) ? "Not installed" : "";
-      return `<button type="button" class="model-card ${k === mlx.model ? "on" : ""} ${ok ? "" : "off"}" data-model="${k}" ${ok ? "" : "disabled"} title="${esc(why)}">
+      return `<div role="button" tabindex="${ok ? 0 : -1}" aria-disabled="${!ok}" aria-pressed="${k === mlx.model}" class="model-card ${k === mlx.model ? "on" : ""} ${ok ? "" : "off"}" data-model="${k}" title="${esc(why)}">
         ${m.recommended ? '<span class="rec">RECOMMENDED</span>' : ""}
         <span class="fam">${esc(m.family)}</span>
         <span class="mc-top"><b>${esc(m.title)}</b>${tipBtn(m.tip)}</span>
         <span class="stars"><span>Accuracy <b>${stars(m.accuracy)}</b></span><span>Speed <b>${stars(m.speed)}</b></span></span>
-        <small>${esc(why || m.desc)}</small></button>`;
+        <small>${esc(why || m.desc)}</small></div>`;
     }).join("");
+    $$("#mt-models .model-card").forEach((b) => b.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && !e.target.closest(".tip")) { e.preventDefault(); b.click(); } });
     $$("#mt-models .model-card").forEach((b) => b.onclick = (e) => {
-      if (e.target.closest(".tip")) return;
+      if (e.target.closest(".tip") || b.classList.contains("off")) return;
       mlx.model = b.dataset.model;
       renderModelCards();
       renderTrainParams(true);
@@ -3165,7 +3515,9 @@
     const sc = mlx.schema, m = sc.models[mlx.model], task = detectTask();
     const fits = (p) => !p.tasks || p.tasks.includes(task);
     const prevCommon = keepCommon ? mlCollect("common") : {};
-    const mp = m.params.filter(fits), cp = sc.common.filter(fits);
+    const mp = m.params.filter(fits), cp = sc.common.filter(fits).filter((p) => p.group !== "prep");
+    const prepPrev = keepCommon ? mlCollect("common") : {};
+    renderPrep(sc.common.filter(fits).filter((p) => p.group === "prep"), prepPrev);
     const val = (p, prev) => (p.name in prev ? prev[p.name] : p.default);
     $("#mt-params").innerHTML = mp.filter((p) => !p.advanced).map((p) => mlField(p, p.default, "model")).join("") +
       cp.filter((p) => !p.advanced).map((p) => mlField(p, val(p, prevCommon), "common")).join("") +
@@ -3177,6 +3529,31 @@
     renderSpace(false);
   }
   $("#mt-reset").onclick = () => renderTrainParams(false);
+
+  // ---------------- train: preprocessing card (missing values → columns → outliers → skew → scaling → target)
+  function renderPrep(specs, prev) {
+    $("#mt-prep").innerHTML = specs.map((p) => mlField(p, p.name in prev ? prev[p.name] : p.default, "common")).join("");
+    $$("#mt-prep [data-scope]").forEach((i) => i.addEventListener("change", updatePrepFlow));
+    updatePrepFlow();
+  }
+  function updatePrepFlow() {
+    const v = mlCollect("common"), m = mlx.schema.models[mlx.model];
+    const pctRow = $('#mt-prep [data-p="outlier_pct"]')?.closest(".pca-field");
+    if (pctRow) pctRow.classList.toggle("hidden", v.outliers !== "clip");
+    const scaling = v.scaling === "auto" ? (m.scale ? "standard" : "none") : v.scaling;
+    const steps = [
+      v.missing === "impute" ? "Fill missing" : "Drop rows with missing",
+      v.drop_constant || v.drop_correlated !== "off" ? `Remove ${[v.drop_constant && "constant", v.drop_correlated !== "off" && `|r| ≥ ${v.drop_correlated}`].filter(Boolean).join(" + ")} columns` : null,
+      v.outliers === "clip" ? `Clip ${v.outlier_pct ?? 1}–${100 - (v.outlier_pct ?? 1)}%` : null,
+      v.skew !== "none" && v.skew ? `Yeo-Johnson (${v.skew === "auto" ? "skewed" : "all"})` : null,
+      scaling !== "none" ? { standard: "Standard scale", minmax: "Min–max 0–1", robust: "Robust scale" }[scaling] + (v.scaling === "auto" ? " (auto)" : "") : (v.scaling === "auto" ? "No scaling (not needed)" : "No scaling"),
+      selCategorical().length ? `One-hot ${selCategorical().length} categorical` : null,
+      v.target_transform && v.target_transform !== "none" ? (v.target_transform === "log" ? "Target log(1+y)" : "Target Yeo-Johnson") : null,
+    ].filter(Boolean);
+    const warn = scaling === "none" && m.scale ? `<div class="hint" style="color:var(--warn)">${esc(m.title)} works much better with scaled features.</div>` : "";
+    $("#mt-prep-flow").innerHTML = `<div class="home-label" style="margin:10px 0 4px">Pipeline</div><div class="flow">${steps.map((t) => `<span>${esc(t)}</span>`).join("<i>→</i>")}<i>→</i><span class="flow-model">${esc(m.title)}</span></div>${warn}`;
+  }
+  $("#mt-prep-reset").onclick = () => renderPrep(mlx.schema.common.filter((p) => p.group === "prep" && (!p.tasks || p.tasks.includes(detectTask()))), {});
 
   // ---------------- train: hyperparameter tuning
   const fmtCand = (v) => v === null ? "None" : String(v).replace(/,/g, ";");
@@ -3241,7 +3618,7 @@
     try {
       const job = await api("/api/ml/train", { method: "POST", json: { ...inp, model: mlx.model, params: mlCollect("model"), tuning,
         name: $("#mt-name").value || "model" } });
-      const done = await trackJob(job, { tool: "ml", title: `${tuning.enabled ? "Tuning" : "Training"} ${mlx.schema.models[mlx.model].title}` });
+      const done = await trackJob(job, { tool: "ml", save: "train", title: `${tuning.enabled ? "Tuning" : "Training"} ${mlx.schema.models[mlx.model].title}` });
       showTrainResult(done.result, $("#mt-result"));
       refreshModels();
     } catch (e) {
@@ -3336,15 +3713,33 @@
       <div class="pca-sum" style="margin-top:4px">${r.train_rows.toLocaleString()} training rows${r.train_rows_before_sampling > r.train_rows ? ` (sampled from ${r.train_rows_before_sampling.toLocaleString()})` : ""} · ${r.test_rows.toLocaleString()} test rows · ${r.features.length} features · ${r.seconds} s${r.rows_dropped ? ` · ${r.rows_dropped.toLocaleString()} rows with missing values skipped` : ""}${r.rows_imputed ? ` · ${r.rows_imputed.toLocaleString()} rows had missing values filled in` : ""}</div>
       <div class="metric-tiles" style="margin-top:10px">${tiles}</div>
       ${r.warnings?.length ? `<div class="warn">${r.warnings.map(esc).join("<br>")}</div>` : ""}
-      ${r.categorical?.length ? `<p class="hint">Categorical (one-hot encoded): ${r.categorical.map(esc).join(", ")}</p>` : ""}
+      ${r.preprocessing ? `<div class="prep-res"><b>Preprocessing</b> ${r.preprocessing.steps.length ? r.preprocessing.steps.map(esc).join(" → ") : "none needed"}${r.categorical?.length ? ` · one-hot: ${r.categorical.map(esc).join(", ")}` : ""}
+        ${r.preprocessing.removed?.length ? `<br><b>Removed columns</b> ${r.preprocessing.removed.map((x) => `<span title="${esc(x.reason)}">${esc(x.feature)}</span> <small>(${esc(x.reason)})</small>`).join(", ")}` : ""}</div>`
+        : r.categorical?.length ? `<p class="hint">Categorical (one-hot encoded): ${r.categorical.map(esc).join(", ")}</p>` : ""}
       ${tune}${cv}${cm}${perClass}${imp}
       <div class="row" style="flex-wrap:wrap">${cls || r.task === "regression" ? `<button class="btn small primary" data-classify="${esc(r.path)}">${cls ? "Classify an image with this model →" : "Apply to an image →"}</button>` : ""}
         <a class="btn small" href="/api/models/file?path=${encodeURIComponent(r.path)}" download>⬇ Model (.joblib)</a></div>
       <div class="eval-cta"><span>📊</span><span><b>Evaluation report</b><small>Confusion matrices, per-class scores, ${cls ? "ROC and precision–recall curves, confidence and calibration charts" : "predicted-vs-true, residual and Q–Q plots, error by value range"}, feature importance${r.tuning ? ", tuning results" : ""}. One HTML file, opens offline.</small></span>
-        <span class="row tight"><a class="btn small primary" href="/api/models/evaluation?path=${encodeURIComponent(r.path)}" target="_blank" rel="noopener">Open</a><a class="btn small" href="/api/models/evaluation?path=${encodeURIComponent(r.path)}&download=true">⬇ .html</a></span></div>
+        <span class="row tight"><a class="btn small primary" href="/api/models/evaluation?path=${encodeURIComponent(r.path)}" target="_blank" rel="noopener">Open</a><a class="btn small" href="/api/models/evaluation?path=${encodeURIComponent(r.path)}&download=true">⬇ .html</a></span>
+        <div class="eval-save">${r.evaluation_saved_to ? `<div class="eval-saved">✓ Saved to <code title="${esc(r.evaluation_saved_to)}">${esc(r.evaluation_saved_to)}</code></div>` : ""}
+          <div class="row tight"><input data-evdir placeholder="Folder, e.g. ~/Documents/LULC reports" value="${esc(prefs.get("report-dir", ""))}" spellcheck="false" autocomplete="off"><button class="btn small" data-evsave>${r.evaluation_saved_to ? "Save another copy" : "Save a copy"}</button></div></div></div>
       <p class="hint">Saved as <code>${esc(r.path)}</code>.</p></div>`;
     box.classList.remove("hidden");
     $("[data-classify]", box)?.addEventListener("click", () => { openMlSub("predict"); refreshPredict(r.path); });
+    $("[data-evsave]", box)?.addEventListener("click", async (e) => {
+      const folder = $("[data-evdir]", box).value.trim();
+      if (!folder) return toast("Type the folder to save the report in", true);
+      await busy(e.currentTarget, "Saving…", async () => {
+       try {
+        const res = await api("/api/models/evaluation/save", { method: "POST", json: { path: r.path, folder } });
+        prefs.set("report-dir", folder);
+        let el = $(".eval-saved", box);
+        if (!el) { el = document.createElement("div"); el.className = "eval-saved"; $(".eval-save", box).prepend(el); }
+        el.innerHTML = `✓ Saved to <code title="${esc(res.saved_to)}">${esc(res.saved_to)}</code>`;
+        toast("Evaluation report saved");
+       } catch (err) { toast(err.message, true); }
+      });
+    });
     box.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -3359,14 +3754,14 @@
   async function refreshModels() {
     const list = await api("/api/models").catch(() => []);
     $("#ml-models").innerHTML = list.length ? list.map((m) => `<div class="ws-row"><span>${esc(m.name)}
-        <small>${esc(m.model_title || m.model)} · ${esc(m.task || "")} · <span class="model-row-metric">${m.task === "classification" ? `accuracy ${pct(m.accuracy)}, kappa ${m.kappa?.toFixed(2)}` : `R² ${m.r2?.toFixed(3)}`}</span> · ${(m.features || []).length} features</small></span>
-        <span class="row tight"><button class="btn small primary" data-mcls="${esc(m.path)}" title="Classify an image">Use</button><button class="btn small" data-mrep="${esc(m.path)}">Report</button><a class="btn small" href="/api/models/evaluation?path=${encodeURIComponent(m.path)}" target="_blank" rel="noopener" title="Full evaluation report with matrices and charts (opens in a new tab)">📊</a><a class="btn small" href="/api/models/file?path=${encodeURIComponent(m.path)}" download>⬇</a><button class="btn small danger" data-mdel="${esc(m.path)}" title="Delete">×</button></span></div>`).join("")
+        <small>${esc(m.model_title || m.model)} · ${esc(m.task || "")} · <span class="model-row-metric">${m.kind === "clustering" ? `${m.n_clusters} clusters${m.silhouette != null ? `, silhouette ${m.silhouette.toFixed(2)}` : ""}` : m.task === "classification" ? `accuracy ${pct(m.accuracy)}, kappa ${m.kappa?.toFixed(2)}` : `R² ${m.r2?.toFixed(3)}`}</span> · ${(m.features || []).length} features</small></span>
+        <span class="row tight"><button class="btn small primary" data-mcls="${esc(m.path)}" title="Classify an image">Use</button><button class="btn small" data-mrep="${esc(m.path)}">Report</button>${m.kind === "clustering" ? "" : `<a class="btn small" href="/api/models/evaluation?path=${encodeURIComponent(m.path)}" target="_blank" rel="noopener" title="Full evaluation report with matrices and charts (opens in a new tab)">📊</a>`}<a class="btn small" href="/api/models/file?path=${encodeURIComponent(m.path)}" download>⬇</a><button class="btn small danger" data-mdel="${esc(m.path)}" title="Delete">×</button></span></div>`).join("")
       : '<p class="hint">No models yet. Use <b>Train a model</b>.</p>';
     $$("[data-mcls]").forEach((b) => b.onclick = () => { openMlSub("predict"); refreshPredict(b.dataset.mcls); });
     $$("[data-mrep]").forEach((b) => b.onclick = async () => {
       const r = await api(`/api/models/report?path=${encodeURIComponent(b.dataset.mrep)}`);
-      $("#tbl-title").textContent = `Model report · ${r.name}`;
-      showTrainResult(r, $("#tbl-body"));
+      $("#tbl-title").textContent = `${r.kind === "clustering" ? "Clustering" : "Model"} report · ${r.name}`;
+      if (r.kind === "clustering") showClusterResult(r, $("#tbl-body")); else showTrainResult(r, $("#tbl-body"));
       $("#dlg-table").showModal();
     });
     $$("[data-mdel]").forEach((b) => b.onclick = async () => { if (confirm("Delete this model?")) { await api(`/api/models?path=${encodeURIComponent(b.dataset.mdel)}`, { method: "DELETE" }); refreshModels(); } });
@@ -3379,7 +3774,7 @@
   async function refreshPredict(selectModel) {
     mpModels = await api("/api/models").catch(() => []);
     const sel = $("#mp-model"), cur = selectModel || sel.value;
-    sel.innerHTML = mpModels.length ? mpModels.map((m) => `<option value="${esc(m.path)}">${esc(m.name)} · ${esc(m.model_title || "")} · ${m.task === "classification" ? `acc ${pct(m.accuracy)}` : `R² ${m.r2?.toFixed(2)}`}</option>`).join("")
+    sel.innerHTML = mpModels.length ? mpModels.map((m) => `<option value="${esc(m.path)}">${esc(m.name)} · ${esc(m.model_title || "")} · ${m.kind === "clustering" ? `${m.n_clusters} clusters (unsupervised)` : m.task === "classification" ? `acc ${pct(m.accuracy)}` : `R² ${m.r2?.toFixed(2)}`}</option>`).join("")
       : `<option value="">No trained models yet</option>`;
     if (cur && mpModels.some((m) => m.path === cur)) sel.value = cur;
     const rasters = layers.filter((l) => l.type === "raster" && !l.derived);
@@ -3441,7 +3836,7 @@
       const job = await api("/api/ml/predict", { method: "POST", json: {
         model: m.path, path: l.path, band_map, scale: conv ? +$("#mp-refl").dataset.scale : 1, offset: conv ? +$("#mp-refl").dataset.offset : 0,
         clip: getClip("mp-area"), resolution: $("#mp-res").value, confidence: $("#mp-conf").checked, name: $("#mp-name").value || "classified" } });
-      const done = await trackJob(job, { tool: "ml", title: `Classifying with ${m.model_title}` });
+      const done = await trackJob(job, { tool: "ml", save: "predict", title: `Classifying with ${m.model_title}` });
       const r = done.result;
       const out = await addRasterFromPath(r.path, { name: $("#mp-name").value || "classified",
         render: m.task === "classification" ? { band: 1, stretch: "fixed" } : { band: 1, stretch: "auto", cmap: "Viridis" } });
@@ -3458,6 +3853,413 @@
     } finally { btn.disabled = false; }
   };
   function wireGotoRt() { $$(".goto-rt").forEach((a) => a.onclick = (e) => { e.preventDefault(); switchTool("raster2table"); }); }
+
+  // ------------------------------------------------------------------ Classical ML: unsupervised (clustering, t-SNE)
+  const ux = { schema: null, method: "kmeans", pages: {} };
+  const CL_PAL = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf", "#bcbd22", "#393b79",
+                  "#ad494a", "#637939", "#8c6d31", "#843c39", "#7b4173", "#3182bd", "#e6550d", "#31a354", "#756bb1", "#636363"];
+  const clColor = (i, n, noise) => noise ? "#9ca3af" : CL_PAL[i % CL_PAL.length];
+  const VIRIDIS = ["#440154", "#482878", "#3e4a89", "#31688e", "#26828e", "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"];
+  function viridis(t) {
+    t = Math.min(1, Math.max(0, t)) * (VIRIDIS.length - 1);
+    const i = Math.floor(t), f = t - i, a = VIRIDIS[i], b = VIRIDIS[Math.min(i + 1, VIRIDIS.length - 1)];
+    const h = (s, k) => parseInt(s.slice(1 + 2 * k, 3 + 2 * k), 16);
+    return `rgb(${[0, 1, 2].map((k) => Math.round(h(a, k) + (h(b, k) - h(a, k)) * f)).join(",")})`;
+  }
+
+  async function ensureUnsupSchema() { if (!ux.schema) ux.schema = await api("/api/unsup/schema"); return ux.schema; }
+  const pageOf = (pre) => (ux.pages[pre] ||= { desc: null, cols: {} });
+  const root = (pre) => $(pre === "uc" ? "#ml-sub-cluster" : "#ml-sub-tsne");
+
+  // ---- table + column picker (shared by both pages)
+  async function refreshUnsup(pre, selectPath) {
+    await ensureUnsupSchema();
+    const list = await api("/api/tables").catch(() => []);
+    const sel = $(`#${pre}-table`), cur = selectPath || sel.value;
+    sel.innerHTML = list.length ? list.map((t) => `<option value="${esc(t.path)}">${esc(t.name)}${t.rows != null ? ` · ${t.rows.toLocaleString()} rows` : ""}</option>`).join("")
+      : `<option value="">No tables yet</option>`;
+    if (cur && list.some((t) => t.path === cur)) sel.value = cur;
+    sel.onchange = () => loadUnsupTable(pre);
+    if (pre === "uc") renderMethodCards(); else renderTsneParams(false);
+    renderUnsupPrep(pre, false);
+    await loadUnsupTable(pre);
+  }
+  async function loadUnsupTable(pre) {
+    const pg = pageOf(pre), path = $(`#${pre}-table`).value;
+    pg.desc = null; pg.cols = {};
+    if (!path) { $(`.uc-cols`, root(pre)).innerHTML = ""; $(`#${pre}-table-info`).innerHTML = `No tables yet. Add a CSV / Excel file with <b>+ Add data</b> or use <b>Raster → table</b>.`; return; }
+    $(`#${pre}-table-info`).innerHTML = `<span class="spinner"></span>Reading table…`;
+    try { pg.desc = await api(`/api/tables/describe?path=${encodeURIComponent(path)}`); }
+    catch (e) { $(`#${pre}-table-info`).textContent = e.message; return; }
+    const d = pg.desc, meta = d.meta || {};
+    $(`#${pre}-table-info`).innerHTML = `${d.rows.toLocaleString()} rows × ${d.columns.length} columns${meta.source ? ` · from ${esc(String(meta.source).split("/").pop())}` : ""}`;
+    const labelCols = new Set([...(meta.label_columns || []), meta.target].filter(Boolean));
+    d.columns.forEach((c) => {
+      const skip = COORDS.includes(c.name) || ID_COLS.includes(c.name.toLowerCase()) || labelCols.has(c.name) || c.type === "text" || /(^|_)id$/i.test(c.name);
+      pg.cols[c.name] = { use: !skip, cat: c.type === "text" };
+    });
+    // a label to compare with / colour by: the table's target, else a text column with few values
+    // prefer a column that looks like a label (label / class / target / risk / type …), else the last text column with few values
+    const cand = d.columns.filter((c) => c.unique >= 2 && c.unique <= 30 && !/(^|_)id$/i.test(c.name) && (c.type === "text" || c.type === "integer"));
+    const named = cand.filter((c) => /label|class|target|risk|categor|type|group|crop|landcover|lulc|cluster|outcome|status/i.test(c.name));
+    const guess = meta.cluster_column || meta.target || named[named.length - 1]?.name || cand.filter((c) => c.type === "text").pop()?.name || "";
+    const opts = (empty) => `<option value="">${empty}</option>` + d.columns.filter((c) => c.unique <= 200 || c.type !== "text").map((c) =>
+      `<option value="${esc(c.name)}" ${c.name === guess ? "selected" : ""}>${esc(c.name)} (${c.type}${c.type !== "number" ? `, ${c.unique} values` : ""})</option>`).join("");
+    if (pre === "uc") $("#uc-compare").innerHTML = opts("None");
+    else $("#ut-color").innerHTML = opts("No colour (or pick after the run)");
+    if (pre === "uc") {
+      $("#uc-name").value = (path.split("/").pop().replace(/\.[^.]+$/, "") || "clusters").replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 50);
+      const sm = $('#ml-sub-cluster [data-p="save_model"]');
+      if (sm) sm.checked = !!(meta.band_columns && meta.band_columns.length);
+    } else $("#ut-name").value = (path.split("/").pop().replace(/\.[^.]+$/, "") || "tsne").replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 50);
+    renderUnsupCols(pre);
+  }
+  function renderUnsupCols(pre) {
+    const pg = pageOf(pre), d = pg.desc, box = root(pre);
+    if (!d) return;
+    const q = ($(".uc-col-filter", box).value || "").toLowerCase();
+    $(".uc-cols", box).innerHTML = `<tr><th style="text-align:left">Column</th><th>Use</th><th>Categorical</th></tr>` + d.columns.map((c) => {
+      const st = pg.cols[c.name], text = c.type === "text";
+      const ex = (c.examples || []).slice(0, 4).map(String).join(", ");
+      return `<tr class="${st.use ? "" : "is-off"}" data-col="${esc(c.name)}" ${q && !c.name.toLowerCase().includes(q) ? 'style="display:none"' : ""}>
+        <td class="cn"><b title="${esc(c.name)}">${esc(c.name)}</b>${!text && c.suggest === "categorical" && st.use && !st.cat ? ' <span class="sugg" title="Few distinct whole numbers: maybe codes, not measurements">codes?</span>' : ""}
+          <small title="${esc(ex)}">${c.type}${c.type !== "number" ? ` · ${c.unique.toLocaleString()} values` : ""}${c.nulls ? ` · <span class="warn-t">${c.nulls.toLocaleString()} missing</span>` : ""}${ex ? ` · e.g. ${esc(ex.slice(0, 36))}` : ""}</small></td>
+        <td style="text-align:center"><input type="checkbox" data-use ${st.use ? "checked" : ""}></td>
+        <td style="text-align:center"><input type="checkbox" data-cat ${st.cat || text ? "checked" : ""} ${text ? "disabled title='Text columns are always categorical'" : ""}></td></tr>`;
+    }).join("");
+    $$("tr[data-col]", box).forEach((tr) => {
+      const st = pg.cols[tr.dataset.col];
+      $("[data-use]", tr).onchange = (e) => { st.use = e.target.checked; tr.classList.toggle("is-off", !st.use); unsupColsHint(pre); };
+      $("[data-cat]", tr).onchange = (e) => { st.cat = e.target.checked; unsupColsHint(pre); };
+    });
+    unsupColsHint(pre);
+  }
+  const unsupFeatures = (pre) => { const pg = pageOf(pre); return pg.desc ? pg.desc.columns.filter((c) => pg.cols[c.name]?.use).map((c) => c.name) : []; };
+  const unsupCats = (pre) => { const pg = pageOf(pre); return unsupFeatures(pre).filter((f) => pg.cols[f].cat || pg.desc.columns.find((c) => c.name === f).type === "text"); };
+  function unsupColsHint(pre) {
+    const f = unsupFeatures(pre), cats = unsupCats(pre), box = root(pre);
+    const flagged = f.filter((n) => COORDS.includes(n) || ID_COLS.includes(n.toLowerCase()));
+    $(".uc-cols-hint", box).innerHTML = !f.length ? "Tick at least one column." :
+      `<b>${f.length}</b> column${f.length > 1 ? "s" : ""}${cats.length ? ` (${cats.length} categorical)` : ""}` +
+      (flagged.length ? `<br><span style="color:var(--warn)">${flagged.map(esc).join(", ")}: ids / coordinates usually make meaningless clusters.</span>` : "");
+  }
+  $$(".uc-col-filter").forEach((i) => i.oninput = () => renderUnsupCols(i.closest(".ml-sub").id === "ml-sub-cluster" ? "uc" : "ut"));
+  $$("#ml-sub-cluster [data-colset], #ml-sub-tsne [data-colset]").forEach((b) => b.onclick = () => {
+    const pre = b.closest(".ml-sub").id === "ml-sub-cluster" ? "uc" : "ut", pg = pageOf(pre);
+    if (!pg.desc) return;
+    pg.desc.columns.forEach((c) => {
+      const plain = !COORDS.includes(c.name) && !ID_COLS.includes(c.name.toLowerCase()) && !/(^|_)id$/i.test(c.name);
+      pg.cols[c.name].use = b.dataset.colset === "none" ? false : b.dataset.colset === "all" ? plain : plain && c.type !== "text";
+    });
+    renderUnsupCols(pre);
+  });
+
+  // ---- settings
+  const collectIn = (sel) => {
+    const out = {};
+    $$(`${sel} [data-p]`).forEach((i) => { out[i.dataset.p] = i.type === "checkbox" ? i.checked : i.type === "number" ? (i.value === "" ? null : +i.value) : i.value; });
+    return out;
+  };
+  function renderUnsupPrep(pre, reset) {
+    const prev = reset ? {} : collectIn(`#${pre}-prep`);
+    $(`#${pre}-prep`).innerHTML = ux.schema.prep.map((p) => mlField(p, p.name in prev ? prev[p.name] : p.default, "prep")).join("");
+    const sync = () => { const r = $(`#${pre}-prep [data-p="outlier_pct"]`)?.closest(".pca-field"); if (r) r.classList.toggle("hidden", $(`#${pre}-prep [data-p="outliers"]`).value !== "clip"); };
+    $(`#${pre}-prep [data-p="outliers"]`).addEventListener("change", sync);
+    sync();
+  }
+  function renderMethodCards() {
+    const ms = ux.schema.methods;
+    $("#uc-methods").innerHTML = Object.entries(ms).map(([k, m]) => `<div role="button" tabindex="0" aria-pressed="${k === ux.method}" class="model-card ${k === ux.method ? "on" : ""}" data-method="${k}">
+        ${m.recommended ? '<span class="rec">RECOMMENDED</span>' : ""}<span class="fam">${esc(m.family)}${m.noise ? " · finds noise" : ""}</span>
+        <span class="mc-top"><b>${esc(m.title)}</b>${tipBtn(m.tip)}</span>
+        <span class="stars"><span>${m.k ? "You choose k" : "Finds k itself"}</span><span>Speed <b>${stars(m.speed)}</b></span></span>
+        <small>${esc(m.desc)}</small></div>`).join("");
+    $$("#uc-methods .model-card").forEach((b) => {
+      b.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && !e.target.closest(".tip")) { e.preventDefault(); b.click(); } };
+      b.onclick = (e) => { if (e.target.closest(".tip")) return; ux.method = b.dataset.method; renderMethodCards(); };
+    });
+    renderClusterParams(true);
+  }
+  function renderClusterParams(keepOptions) {
+    const m = ux.schema.methods[ux.method];
+    const optVal = (p) => { const el = $(`#ml-sub-cluster [data-scope="opt"][data-p="${p.name}"]`); return el ? (el.type === "checkbox" ? el.checked : el.type === "number" ? (el.value === "" ? null : +el.value) : el.value) : p.default; };
+    const opts = ux.schema.options.filter((p) => m.k || !["find_k", "k_max"].includes(p.name));
+    const vals = Object.fromEntries(opts.map((p) => [p.name, keepOptions ? optVal(p) : p.default]));
+    $("#uc-params").innerHTML = m.params.filter((p) => !p.advanced).map((p) => mlField(p, p.default, "method")).join("") +
+      opts.filter((p) => !p.advanced).map((p) => mlField(p, vals[p.name], "opt")).join("");
+    $("#uc-adv").innerHTML = m.params.filter((p) => p.advanced).map((p) => mlField(p, p.default, "method")).join("") +
+      opts.filter((p) => p.advanced).map((p) => mlField(p, vals[p.name], "opt")).join("");
+    const mr = $('#ml-sub-cluster [data-p="max_fit_rows"]');
+    if (mr) mr.placeholder = `default: ${m.fit_rows.toLocaleString()}`;
+    const syncK = () => {
+      const fk = $('#ml-sub-cluster [data-p="find_k"]'), km = $('#ml-sub-cluster [data-p="k_max"]')?.closest(".pca-field");
+      const nk = $('#ml-sub-cluster [data-scope="method"][data-p="n_clusters"]');
+      if (km) km.classList.toggle("hidden", !fk?.checked);
+      if (nk) { nk.disabled = !!fk?.checked; nk.title = fk?.checked ? "Chosen automatically (Find the best number of clusters is on)" : ""; }
+    };
+    $('#ml-sub-cluster [data-p="find_k"]')?.addEventListener("change", syncK);
+    syncK();
+  }
+  $("#uc-reset").onclick = () => { renderClusterParams(false); renderUnsupPrep("uc", true); };
+  function renderTsneParams(reset) {
+    const prev = reset ? {} : scopeVals("#ml-sub-tsne", "tsne");
+    const v = (p) => (p.name in prev ? prev[p.name] : p.default);
+    $("#ut-params").innerHTML = ux.schema.tsne.filter((p) => !p.advanced).map((p) => mlField(p, v(p), "tsne")).join("");
+    $("#ut-adv").innerHTML = ux.schema.tsne.filter((p) => p.advanced).map((p) => mlField(p, v(p), "tsne")).join("");
+  }
+  $("#ut-reset").onclick = () => { renderTsneParams(true); renderUnsupPrep("ut", true); };
+  const scopeVals = (sel, scope) => {
+    const out = {};
+    $$(`${sel} [data-scope="${scope}"]`).forEach((i) => { out[i.dataset.p] = i.type === "checkbox" ? i.checked : i.type === "number" ? (i.value === "" ? null : +i.value) : i.value; });
+    return out;
+  };
+
+  // ---- run
+  $("#uc-run").onclick = async () => {
+    const err = $("#uc-error"); err.classList.add("hidden");
+    const table = $("#uc-table").value, features = unsupFeatures("uc");
+    if (!table) return toast("Choose a table first", true);
+    if (!features.length) return toast("Tick at least one column to cluster on", true);
+    const btn = $("#uc-run"); btn.disabled = true; $("#uc-result").classList.add("hidden");
+    try {
+      const job = await api("/api/unsup/cluster", { method: "POST", json: {
+        table, features, categorical: unsupCats("uc"), method: ux.method, params: scopeVals("#ml-sub-cluster", "method"),
+        options: scopeVals("#ml-sub-cluster", "opt"), prep: scopeVals("#uc-prep", "prep"), compare: $("#uc-compare").value || null,
+        name: $("#uc-name").value || "clusters" } });
+      const done = await trackJob(job, { tool: "ml", save: "cluster", title: `${ux.schema.methods[ux.method].title} clustering` });
+      showClusterResult(done.result, $("#uc-result"));
+      addItem({ kind: "table", name: done.result.output_table.split("/").pop(), path: done.result.output_table });
+      if (done.result.path) refreshModels();
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+  $("#ut-run").onclick = async () => {
+    const err = $("#ut-error"); err.classList.add("hidden");
+    const table = $("#ut-table").value, features = unsupFeatures("ut");
+    if (!table) return toast("Choose a table first", true);
+    if (!features.length) return toast("Tick at least one column to map", true);
+    const btn = $("#ut-run"); btn.disabled = true; $("#ut-result").classList.add("hidden");
+    try {
+      const job = await api("/api/unsup/tsne", { method: "POST", json: {
+        table, features, categorical: unsupCats("ut"), params: scopeVals("#ml-sub-tsne", "tsne"), prep: scopeVals("#ut-prep", "prep"),
+        color: $("#ut-color").value || null, name: $("#ut-name").value || "tsne" } });
+      const done = await trackJob(job, { tool: "ml", save: "tsne", title: "t-SNE map" });
+      showTsneResult(done.result, $("#ut-result"));
+      addItem({ kind: "table", name: done.result.output_table.split("/").pop(), path: done.result.output_table });
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+
+  // ---- canvas scatter plot with hover, legend toggling, categorical or continuous colours
+  function scatterPlot(box, { x, y, values, kind, order, colorOf, xlabel = "", ylabel = "", height = 360, tip }) {
+    box.innerHTML = `<div class="sc-wrap"><canvas></canvas><div class="sc-tip hidden"></div></div><div class="sc-legend"></div>`;
+    const cv = $("canvas", box), tipEl = $(".sc-tip", box), wrap = $(".sc-wrap", box);
+    const hidden = new Set();
+    const n = x.length;
+    let lo = Infinity, hi = -Infinity;
+    if (kind === "numeric") values.forEach((v) => { if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+    const colOf = (v) => kind === "numeric" ? (v == null ? "#9ca3af" : viridis((v - lo) / ((hi - lo) || 1))) : colorOf(v);
+    const xmin = Math.min(...x), xmax = Math.max(...x), ymin = Math.min(...y), ymax = Math.max(...y);
+    const pad = 28;
+    let W = 0, H = height, sx, sy;
+    function draw() {
+      W = wrap.clientWidth || 400;
+      const dpr = window.devicePixelRatio || 1;
+      cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px";
+      const g = cv.getContext("2d");
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, W, H);
+      const css = getComputedStyle(document.documentElement);
+      g.strokeStyle = css.getPropertyValue("--border"); g.lineWidth = 1; g.strokeRect(pad, 6, W - pad - 6, H - pad - 6);
+      g.fillStyle = css.getPropertyValue("--muted"); g.font = "11px sans-serif"; g.textAlign = "center";
+      g.fillText(xlabel, (W + pad) / 2, H - 8);
+      g.save(); g.translate(11, (H - pad) / 2); g.rotate(-Math.PI / 2); g.fillText(ylabel, 0, 0); g.restore();
+      sx = (v) => pad + 4 + (v - xmin) / ((xmax - xmin) || 1) * (W - pad - 14);
+      sy = (v) => H - pad - 4 - (v - ymin) / ((ymax - ymin) || 1) * (H - pad - 14);
+      const r = n > 6000 ? 1.6 : n > 2000 ? 2.1 : 2.8;
+      g.globalAlpha = n > 3000 ? 0.6 : 0.75;
+      for (let i = 0; i < n; i++) {
+        const v = values[i];
+        if (kind !== "numeric" && hidden.has(String(v))) continue;
+        g.fillStyle = colOf(v);
+        g.beginPath(); g.arc(sx(x[i]), sy(y[i]), r, 0, 6.2832); g.fill();
+      }
+      g.globalAlpha = 1;
+    }
+    // legend
+    const leg = $(".sc-legend", box);
+    if (kind === "numeric") {
+      leg.innerHTML = `<span class="muted">${fmtv(lo)}</span><span class="sc-grad" style="background:linear-gradient(to right, ${VIRIDIS.join(",")})"></span><span class="muted">${fmtv(hi)}</span>`;
+    } else {
+      const counts = new Map();
+      values.forEach((v) => counts.set(String(v), (counts.get(String(v)) || 0) + 1));
+      const keys = order || [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+      leg.innerHTML = keys.filter((k) => counts.has(k)).slice(0, 40).map((k) => `<button class="sc-key" data-k="${esc(k)}" title="Click to hide / show"><i style="background:${colorOf(k)}"></i>${esc(k === "" ? "(empty)" : k)} <small>${counts.get(k).toLocaleString()}</small></button>`).join("");
+      $$(".sc-key", leg).forEach((b) => b.onclick = () => { const k = b.dataset.k; hidden.has(k) ? hidden.delete(k) : hidden.add(k); b.classList.toggle("off", hidden.has(k)); draw(); });
+    }
+    // hover: nearest point within 8 px
+    cv.onmousemove = (e) => {
+      const rc = cv.getBoundingClientRect(), mx = e.clientX - rc.left, my = e.clientY - rc.top;
+      let best = -1, bd = 64;
+      for (let i = 0; i < n; i++) {
+        if (kind !== "numeric" && hidden.has(String(values[i]))) continue;
+        const dx = sx(x[i]) - mx, dy = sy(y[i]) - my, d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = i; }
+      }
+      if (best < 0) { tipEl.classList.add("hidden"); return; }
+      tipEl.innerHTML = tip ? tip(best) : esc(String(values[best]));
+      tipEl.classList.remove("hidden");
+      tipEl.style.left = Math.min(mx + 12, W - tipEl.offsetWidth - 4) + "px";
+      tipEl.style.top = Math.max(4, my - tipEl.offsetHeight - 8) + "px";
+    };
+    cv.onmouseleave = () => tipEl.classList.add("hidden");
+    draw();
+    const ro = new ResizeObserver(() => { if (wrap.clientWidth && Math.abs(wrap.clientWidth - W) > 2) draw(); });
+    ro.observe(wrap);
+  }
+
+  // ---- small SVG line chart
+  function lineChart(xs, series, { xlabel = "", mark = null, h = 170, fmtY = (v) => fmtv(v) } = {}) {
+    const W = 340, H = h, L = 44, B = 28, T = 10, R = 10;
+    const all = series.flatMap((s) => s.ys.filter((v) => v != null && isFinite(v)));
+    if (!all.length) return "";
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...all), y1 = Math.max(...all);
+    const X = (v) => L + (v - x0) / ((x1 - x0) || 1) * (W - L - R), Y = (v) => H - B - (v - y0) / ((y1 - y0) || 1) * (H - B - T);
+    let out = `<svg viewBox="0 0 ${W} ${H}" class="ev-chart lc">`;
+    out += `<rect x="${L}" y="${T}" width="${W - L - R}" height="${H - B - T}" fill="none" stroke="var(--border)"/>`;
+    [y0, (y0 + y1) / 2, y1].forEach((v) => out += `<text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end" class="lc-t">${esc(fmtY(v))}</text>`);
+    xs.forEach((v, i) => { if (xs.length <= 16 || i % Math.ceil(xs.length / 12) === 0) out += `<text x="${X(v)}" y="${H - B + 13}" text-anchor="middle" class="lc-t">${esc(fmtv(v))}</text>`; });
+    out += `<text x="${(L + W - R) / 2}" y="${H - 3}" text-anchor="middle" class="lc-t">${esc(xlabel)}</text>`;
+    if (mark != null) out += `<line x1="${X(mark)}" x2="${X(mark)}" y1="${T}" y2="${H - B}" stroke="var(--accent)" stroke-dasharray="4 3"/>`;
+    series.forEach((s) => {
+      const pts = xs.map((v, i) => s.ys[i] != null && isFinite(s.ys[i]) ? `${X(v).toFixed(1)},${Y(s.ys[i]).toFixed(1)}` : null).filter(Boolean);
+      out += `<polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="2"/>`;
+      if (xs.length <= 40) xs.forEach((v, i) => { if (s.ys[i] != null && isFinite(s.ys[i])) out += `<circle cx="${X(v)}" cy="${Y(s.ys[i])}" r="3" fill="${s.color}"><title>${esc(xlabel)} ${v}: ${esc(fmtY(s.ys[i]))}</title></circle>`; });
+    });
+    return out + "</svg>";
+  }
+
+  // ---- clustering result
+  function showClusterResult(r, box) {
+    const q = r.quality || {}, k = r.n_clusters, noiseIdx = r.noise ? r.classes.length - 1 : -1;
+    const color = (i) => clColor(i, k, i === noiseIdx);
+    const grade = (v, good, ok, lowBetter) => v == null ? "" : lowBetter ? (v <= good ? "good" : v <= ok ? "ok" : "bad") : (v >= good ? "good" : v >= ok ? "ok" : "bad");
+    const tiles = [
+      [`${k}`, "Clusters", "Number of groups found" + (r.k_search ? " (best silhouette)" : ""), ""],
+      r.noise ? [`${(100 * r.noise / r.rows_used).toFixed(1)}%`, "Noise", `${r.noise.toLocaleString()} rows belong to no cluster`, ""] : null,
+      q.silhouette != null ? [q.silhouette.toFixed(3), "Silhouette", "How well each row fits its own cluster vs the nearest other one: −1 to 1. Above 0.5 clear clusters, 0.25–0.5 reasonable, below 0.25 overlapping.", grade(q.silhouette, 0.5, 0.25)] : null,
+      q.davies_bouldin != null ? [q.davies_bouldin.toFixed(2), "Davies-Bouldin", "Average similarity between each cluster and its closest neighbour. Lower is better (0 = perfectly separated).", grade(q.davies_bouldin, 0.7, 1.5, true)] : null,
+      q.calinski_harabasz != null ? [fmtv(q.calinski_harabasz), "Calinski-Harabasz", "Between-cluster vs within-cluster spread. Higher is better; compare runs on the same data.", ""] : null,
+    ].filter(Boolean).map(([v, l, t, g]) => `<div class="metric ${g}"><b>${v}</b><span>${l} ${tipBtn(t)}</span></div>`).join("");
+    const maxSize = Math.max(1, ...r.sizes);
+    const sizes = r.classes.map((c, i) => `<div class="imp-row"><span><i class="sw" style="background:${color(i)}"></i>${esc(c)}</span><span><span class="imp-bar" style="display:block;width:${Math.max(1, 100 * r.sizes[i] / maxSize)}%;background:${color(i)}"></span></span><span>${r.sizes[i].toLocaleString()} <small class="muted">${(100 * r.sizes[i] / r.rows_used).toFixed(1)}%</small></span></div>`).join("");
+    // profiles heatmap (z-scores), categorical top values
+    const P = r.profiles, zc = (z) => z == null ? "transparent" : z > 0 ? `rgba(220,38,38,${Math.min(0.85, Math.abs(z) / 2)})` : `rgba(37,99,235,${Math.min(0.85, Math.abs(z) / 2)})`;
+    const prof = P.numeric.length || P.categorical.length ? `<div class="home-label" style="margin-top:14px">Cluster profiles ${tipBtn("Average value of each column per cluster, in the original units. Colour = how far it is from the overall average (red above, blue below, in standard deviations). This tells you what makes each cluster different.")}</div>
+      <div class="load-wrap"><table class="cm-table prof"><tr><th></th>${r.classes.map((c, i) => `<th title="${esc(c)}"><i class="sw" style="background:${color(i)}"></i>${esc(c.replace("Cluster ", "C"))}</th>`).join("")}<th class="muted">All</th></tr>
+      ${P.numeric.map((f) => `<tr><th class="rowh" title="${esc(f.feature)}">${esc(f.feature)}</th>${f.means.map((v, i) => `<td style="background:${zc(f.z[i])};color:${Math.abs(f.z[i] || 0) > 1.2 ? "#fff" : "inherit"}" title="${esc(r.classes[i])}: mean ${fmtv(v)} (${f.z[i] == null ? "–" : (f.z[i] > 0 ? "+" : "") + f.z[i].toFixed(2)} SD)">${v == null ? "–" : fmtv(v)}</td>`).join("")}<td class="muted">${fmtv(f.overall)}</td></tr>`).join("")}
+      ${P.categorical.map((f) => `<tr><th class="rowh" title="${esc(f.feature)}">${esc(f.feature)}</th>${f.top.map((t) => `<td title="${t ? `${esc(t[0])}: ${(100 * t[1]).toFixed(0)}% of the cluster` : ""}">${t ? `${esc(String(t[0]).slice(0, 10))} <small>${(100 * t[1]).toFixed(0)}%</small>` : "–"}</td>`).join("")}<td></td></tr>`).join("")}
+      </table></div>` : "";
+    // comparison with a known label
+    const C = r.comparison;
+    const comp = C ? `<div class="home-label" style="margin-top:14px">Clusters vs “${esc(C.column)}” ${tipBtn("How well the clusters match the known label (the label was not used for clustering). Adjusted Rand index: 0 = random, 1 = identical grouping. NMI: shared information, 0–1. Homogeneity: each cluster holds one label. Completeness: each label sits in one cluster.")}</div>
+      <div class="metric-tiles small-tiles">${[["ARI", C.ari], ["NMI", C.nmi], ["Homogeneity", C.homogeneity], ["Completeness", C.completeness]].map(([l, v]) => `<div class="metric ${grade(v, 0.6, 0.3)}"><b>${v.toFixed(3)}</b><span>${l}</span></div>`).join("")}</div>
+      <div class="load-wrap"><table class="cm-table"><tr><th></th>${C.labels.map((l) => `<th title="${esc(l)}">${esc(String(l).slice(0, 10))}</th>`).join("")}<th>Most common</th></tr>
+      ${C.table.map((row, i) => { const tot = row.reduce((a, b) => a + b, 0) || 1; return `<tr><th class="rowh"><i class="sw" style="background:${color(i)}"></i>${esc(r.classes[i])}</th>${row.map((v) => `<td style="background:rgba(31,122,90,${(0.08 + 0.8 * v / tot).toFixed(2)});color:${v / tot > 0.55 ? "#fff" : "inherit"}" title="${v.toLocaleString()} rows (${(100 * v / tot).toFixed(0)}% of the cluster)">${v ? v.toLocaleString() : ""}</td>`).join("")}<td><b>${esc(C.majority[i] ?? "–")}</b></td></tr>`; }).join("")}
+      </table></div>` : "";
+    const ks = r.k_search ? `<div class="home-label" style="margin-top:14px">Choosing the number of clusters ${tipBtn(`Every k from 2 to ${Math.max(...r.k_search.k)} was tried on ${r.k_search.rows.toLocaleString()} rows. The highest silhouette (dashed line) was used.` + (r.k_search.extra_name ? ` ${r.k_search.extra_name === "inertia" ? "Inertia (within-cluster spread) always falls as k grows; look for the 'elbow' where it flattens." : "BIC: lower is better; balances fit against complexity."}` : ""))}</div>
+      <div class="chart-pair"><div>${lineChart(r.k_search.k, [{ ys: r.k_search.silhouette, color: "var(--accent)" }], { xlabel: "k (silhouette)", mark: r.k_search.best_k, fmtY: (v) => v.toFixed(2) })}</div>
+      ${r.k_search.extra_name ? `<div>${lineChart(r.k_search.k, [{ ys: r.k_search.extra, color: "#d97706" }], { xlabel: `k (${r.k_search.extra_name})`, mark: r.k_search.best_k })}</div>` : ""}</div>` : "";
+    const kd = r.k_distance ? `<div class="home-label" style="margin-top:14px">k-distance curve ${tipBtn("Distance from each row to its k-th nearest neighbour (k = min samples), sorted. The bend (knee) is a good eps: rows to the right of it are sparse (noise). Dashed line: eps used.")}</div>
+      ${lineChart(r.k_distance.positions, [{ ys: r.k_distance.distances, color: "var(--accent)" }], { xlabel: `rows sorted by distance · eps used = ${fmtv(r.params.eps)}`, mark: r.k_distance.positions.reduce((b, p, i) => r.k_distance.distances[i] <= r.params.eps ? p : b, 0) })}` : "";
+    box.innerHTML = `<div class="card">
+      <div class="row between"><h2 style="margin:0">✓ ${esc(r.method_title)}: ${k} cluster${k === 1 ? "" : "s"}</h2><span class="task-badge">unsupervised</span></div>
+      <div class="pca-sum" style="margin-top:4px">${r.rows_used.toLocaleString()} rows clustered${r.rows_fitted < r.rows_used ? ` (fitted on ${r.rows_fitted.toLocaleString()}, the rest assigned by ${esc(r.assigned_by)})` : ""}${r.rows_skipped ? ` · ${r.rows_skipped.toLocaleString()} rows skipped (missing values)` : ""} · ${r.features.length} columns · ${r.seconds} s</div>
+      ${r.prep_steps?.length ? `<div class="prep-res"><b>Preprocessing</b> ${r.prep_steps.map(esc).join(" → ")}${r.method === "dbscan" ? ` · eps = ${fmtv(r.params.eps)}` : ""}${r.method === "hdbscan" ? ` · min cluster size = ${r.params.min_cluster_size}` : ""}</div>` : ""}
+      ${r.warnings?.length ? `<div class="warn">${r.warnings.map(esc).join("<br>")}</div>` : ""}
+      <div class="metric-tiles" style="margin-top:10px">${tiles}</div>
+      ${ks}
+      <div class="home-label" style="margin-top:14px">Cluster sizes</div>${sizes}
+      <div class="home-label" style="margin-top:14px">2D view ${tipBtn("The rows projected onto their first two principal components (PCA), coloured by cluster. Overlap here doesn't always mean overlap in all columns. For a clearer map, use t-SNE.")}</div>
+      <div class="uc-scatter"></div>
+      ${prof}${comp}
+      ${r.dendrogram ? `<div class="home-label" style="margin-top:14px">Dendrogram ${tipBtn(`The merge tree of ${r.dendrogram.rows.toLocaleString()} sample rows (last 30 merges). Height = distance at which groups merge. The dashed line is where the tree was cut into ${k} clusters; long vertical lines mean well-separated groups.`)}</div><div class="dendro">${dendroSvg(r.dendrogram)}</div>` : ""}
+      ${kd}
+      <div class="row" style="flex-wrap:wrap;margin-top:12px">
+        <button class="btn small primary" data-open-out>Open table with cluster column</button>
+        <button class="btn small" data-tsne-out>t-SNE map of these clusters</button>
+        <button class="btn small" data-train-out title="Train a supervised model that learns these clusters">Train a model on the clusters</button>
+        ${r.path ? `<button class="btn small" data-classify="${esc(r.path)}">Cluster an image with this →</button>` : ""}
+        <a class="btn small" href="/api/tables/file?path=${encodeURIComponent(r.output_table)}" download>⬇ Table</a></div>
+      <p class="hint">Saved as <code>${esc(r.output_table)}</code> with a <b>cluster</b> column (1…${k}${r.noise ? ", 0 = noise" : ""}${r.rows_skipped ? ", empty = skipped" : ""})${r.has_probability ? " and cluster_probability" : ""}.${r.path ? ` Model: <code>${esc(r.path)}</code>.` : ""}</p></div>`;
+    box.classList.remove("hidden");
+    const v = r.view;
+    scatterPlot($(".uc-scatter", box), { x: v.x, y: v.y, values: v.cluster.map((c) => r.classes[c]), kind: "categorical", order: r.classes,
+      colorOf: (name) => color(r.classes.indexOf(name)), xlabel: `PC1 (${(100 * v.explained[0]).toFixed(0)}%)`, ylabel: `PC2 (${(100 * (v.explained[1] || 0)).toFixed(0)}%)` });
+    $("[data-open-out]", box).onclick = () => previewTable(r.output_table);
+    $("[data-tsne-out]", box).onclick = async () => {
+      openMlSub("tsne");
+      await refreshUnsup("ut", r.output_table);
+      const pg = pageOf("ut");
+      Object.keys(pg.cols).forEach((c) => pg.cols[c].use = r.features.includes(c));
+      r.categorical?.forEach((c) => pg.cols[c] && (pg.cols[c].cat = true));
+      renderUnsupCols("ut");
+      $("#ut-color").value = "cluster";
+      toast("Same columns selected, coloured by cluster. Press Make t-SNE map.");
+    };
+    $("[data-train-out]", box).onclick = () => { switchTool("ml"); openMlSub("train"); refreshTrainTables(r.output_table); };
+    $("[data-classify]", box)?.addEventListener("click", () => { openMlSub("predict"); refreshPredict(r.path); });
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function dendroSvg(d) {
+    const W = 340, H = 200, L = 40, B = 34, T = 8, R = 6;
+    const xs = d.icoord.flat(), xmax = Math.max(...xs), xmin = Math.min(...xs), ymax = d.max || Math.max(...d.dcoord.flat());
+    const X = (v) => L + (v - xmin) / ((xmax - xmin) || 1) * (W - L - R), Y = (v) => H - B - v / (ymax || 1) * (H - B - T);
+    let s = `<svg viewBox="0 0 ${W} ${H}" class="ev-chart lc">`;
+    [0, ymax / 2, ymax].forEach((v) => s += `<text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end" class="lc-t">${esc(fmtv(v))}</text>`);
+    d.icoord.forEach((ic, i) => { const dc = d.dcoord[i]; s += `<polyline points="${ic.map((x, j) => `${X(x).toFixed(1)},${Y(dc[j]).toFixed(1)}`).join(" ")}" fill="none" stroke="var(--text)" stroke-width="1.2" opacity=".8"/>`; });
+    if (d.cut) s += `<line x1="${L}" x2="${W - R}" y1="${Y(d.cut)}" y2="${Y(d.cut)}" stroke="#dc2626" stroke-dasharray="5 3"><title>cut height ${fmtv(d.cut)}</title></line>`;
+    const step = (W - L - R) / d.leaves.length;
+    d.leaves.forEach((lbl, i) => s += `<text transform="translate(${L + step * (i + 0.5)} ${H - B + 8}) rotate(-60)" text-anchor="end" class="lc-t" style="font-size:8px">${esc(lbl)}</text>`);
+    return s + "</svg>";
+  }
+
+  // ---- t-SNE result
+  function showTsneResult(r, box) {
+    const keys = Object.keys(r.colors);
+    box.innerHTML = `<div class="card">
+      <div class="row between"><h2 style="margin:0">✓ t-SNE map</h2><span class="task-badge">unsupervised</span></div>
+      <div class="pca-sum" style="margin-top:4px">${r.rows_mapped.toLocaleString()} rows mapped${r.rows_mapped < r.rows_used ? ` (random sample of ${r.rows_used.toLocaleString()})` : ""} · ${r.features.length} columns · perplexity ${fmtv(r.params.perplexity)} · ${r.iterations} iterations · ${r.seconds} s</div>
+      ${r.prep_steps?.length ? `<div class="prep-res"><b>Preprocessing</b> ${r.prep_steps.map(esc).join(" → ")}</div>` : ""}
+      <div class="metric-tiles small-tiles" style="margin-top:10px">
+        <div class="metric ${r.trustworthiness >= 0.9 ? "good" : r.trustworthiness >= 0.8 ? "ok" : "bad"}"><b>${r.trustworthiness.toFixed(3)}</b><span>Trustworthiness ${tipBtn("How well neighbours on the map are also neighbours in the data (0–1). Above 0.9 = the map is faithful.")}</span></div>
+        <div class="metric"><b>${r.kl_divergence.toFixed(2)}</b><span>KL divergence ${tipBtn("t-SNE's final error. Lower is better; compare runs on the same data only.")}</span></div></div>
+      <label style="margin-top:10px">Colour by <select class="ut-colsel">${keys.map((k) => `<option ${k === r.color ? "selected" : ""}>${esc(k)}</option>`).join("")}<option value="">None</option></select></label>
+      <div class="ut-scatter"></div>
+      <p class="hint">Distances between far-apart groups and group sizes are not meaningful in t-SNE; what matters is which points sit together. Hover a point for its values.</p>
+      <div class="row" style="flex-wrap:wrap"><button class="btn small primary" data-open-out>Open table with map coordinates</button>
+        <a class="btn small" href="/api/tables/file?path=${encodeURIComponent(r.output_table)}" download>⬇ Table</a></div>
+      <p class="hint">Saved as <code>${esc(r.output_table)}</code> (the mapped rows plus <b>tsne_1</b>, <b>tsne_2</b>).</p></div>`;
+    box.classList.remove("hidden");
+    const draw = () => {
+      const c = $(".ut-colsel", box).value, col = r.colors[c];
+      const values = col ? col.values : r.x.map(() => "all rows");
+      const kind = col?.kind === "numeric" ? "numeric" : "categorical";
+      const cats = kind === "categorical" ? [...new Set(values.map(String))] : [];
+      const counts = new Map(); values.forEach((v) => counts.set(String(v), (counts.get(String(v)) || 0) + 1));
+      cats.sort((a, b) => counts.get(b) - counts.get(a));
+      scatterPlot($(".ut-scatter", box), { x: r.x, y: r.y, values: kind === "numeric" ? values : values.map(String), kind, order: cats,
+        colorOf: (v) => (/^noise$|^0$/i.test(v) && c === "cluster") ? "#9ca3af" : CL_PAL[cats.indexOf(String(v)) % CL_PAL.length],
+        xlabel: "t-SNE 1", ylabel: "t-SNE 2", height: 440,
+        tip: (i) => `<b>row ${r.row_ids[i] + 1}</b>` + keys.slice(0, 8).map((k) => `<div>${esc(k)}: <b>${esc(String(r.colors[k].values[i] ?? "–"))}</b></div>`).join("") });
+    };
+    $(".ut-colsel", box).onchange = draw;
+    draw();
+    $("[data-open-out]", box).onclick = () => previewTable(r.output_table);
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   async function initMlTrain() {
     mlx.schema = await api("/api/ml/schema");
@@ -3646,7 +4448,7 @@
     $("#st-result").classList.add("hidden");
     try {
       const job = await api("/api/stack", { method: "POST", json: { items, ref: ref.path, clip: getClip("st-area"), factor: +$("#st-factor").value || 1, name: $("#st-name").value || "stack" } });
-      const done = await trackJob(job, { tool: "stack", title: "Stacking layers" });
+      const done = await trackJob(job, { tool: "stack", save: "stack", title: "Stacking layers" });
       const r = done.result;
       const out = await addRasterFromPath(r.path, { name: $("#st-name").value || "stack" });
       $("#st-result").innerHTML = `<div class="pca-sum" style="margin-top:10px"><b>✓ ${r.bands.length} bands stacked</b> · ${r.width.toLocaleString()} × ${r.height.toLocaleString()} px · ${esc(r.crs)} · ${r.seconds} s<br>${r.bands.map(esc).join(", ")}</div>
@@ -3692,8 +4494,7 @@
     initPca().catch((e) => toast("PCA tool: " + e.message, true));
     renderMlHub();
     initMlTrain().catch((e) => toast("Classical ML: " + e.message, true));
-    restoreLayers();
-    restoreItems();
+    initProject();
     loadCreds().catch(() => {});
     setPane("tools", false);  // the tool panel opens only when a tool is chosen from the Tools menu
     refreshJobs();

@@ -464,7 +464,9 @@ def _details(rep):
           ("Training rows", f"{rep.get('train_rows', 0):,}" + (f" (sampled from {rep['train_rows_before_sampling']:,})" if rep.get("train_rows_before_sampling", 0) > rep.get("train_rows", 0) else "")),
           ("Test rows", f"{rep.get('test_rows', 0):,}"), ("Rows skipped (missing values)", f"{rep.get('rows_dropped', 0):,}"),
           ("Rows filled in", f"{rep.get('rows_imputed', 0):,}"), ("Features", ", ".join(rep.get("features", []))),
-          ("Categorical (one-hot)", ", ".join(rep.get("categorical") or []) or "none"), ("Feature scaling", "yes" if rep.get("scaled") else "no"),
+          ("Categorical (one-hot)", ", ".join(rep.get("categorical") or []) or "none"),
+          ("Preprocessing", " → ".join((rep.get("preprocessing") or {}).get("steps") or []) or ("feature scaling" if rep.get("scaled") else "none")),
+          ("Removed columns", "; ".join(f"{r['feature']}: {r['reason']}" for r in (rep.get("preprocessing") or {}).get("removed") or []) or "none"),
           ("Training time", f"{rep.get('seconds', '–')} s")]
     params = ", ".join(f"{k} = {v}" for k, v in (rep.get("params") or {}).items())
     kv.append(("Model parameters", params or "defaults"))

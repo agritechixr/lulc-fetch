@@ -6,7 +6,7 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 
 1. [Installing and starting](#1-installing-and-starting)
 2. [The workspace](#2-the-workspace)
-3. [Layers (Contents panel)](#3-layers-contents-panel)
+3. [Contents panel: 2D data and tabular data](#3-contents-panel-2d-data-and-tabular-data)
 4. [Things every tool shares](#4-things-every-tool-shares)
 5. [Find imagery](#5-find-imagery)
 6. [Your own Sentinel products (.SAFE)](#6-your-own-sentinel-products-safe)
@@ -17,15 +17,17 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 11. [Raster → table](#11-raster--table)
 12. [Classical ML: Train a model](#12-classical-ml-train-a-model)
 13. [Classical ML: Classify an image](#13-classical-ml-classify-an-image)
-14. [Export data](#14-export-data)
-15. [Downloads & jobs](#15-downloads--jobs)
-16. [Credentials](#16-credentials)
-17. [Command-line tool](#17-command-line-tool)
-18. [Data sources and band conventions](#18-data-sources-and-band-conventions)
-19. [Files and folders](#19-files-and-folders)
-20. [Limits and known issues](#20-limits-and-known-issues)
-21. [Troubleshooting](#21-troubleshooting)
-22. [For developers: adding a tool](#22-for-developers-adding-a-tool)
+14. [Classical ML: Clustering (unsupervised)](#14-classical-ml-clustering-unsupervised)
+15. [Classical ML: t-SNE map (unsupervised)](#15-classical-ml-t-sne-map-unsupervised)
+16. [Export data](#16-export-data)
+17. [Downloads & jobs](#17-downloads--jobs)
+18. [Credentials](#18-credentials)
+19. [Command-line tool](#19-command-line-tool)
+20. [Data sources and band conventions](#20-data-sources-and-band-conventions)
+21. [Files and folders](#21-files-and-folders)
+22. [Limits and known issues](#22-limits-and-known-issues)
+23. [Troubleshooting](#23-troubleshooting)
+24. [For developers: adding a tool](#24-for-developers-adding-a-tool)
 
 ---
 
@@ -70,8 +72,8 @@ The window is laid out like a desktop GIS (QGIS / ArcGIS):
 ### Menu bar
 | Menu | What's in it |
 |---|---|
-| **File** | Add data from computer · Add GeoTIFF from workspace · Open Sentinel product (.SAFE) · Export / Properties / Remove the selected layer · Remove all layers · Credentials |
-| **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (↳ Train a model, ↳ Classify an image) · Export data · Downloads & jobs |
+| **File** | New project · Open project · Close project · Show project folder · Add data from computer · Add GeoTIFF from workspace · Open Sentinel product (.SAFE) · Export / Properties / Remove the selected layer · Remove all layers · Clean up working files · Credentials |
+| **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (supervised: ↳ Train a model, ↳ Classify an image · unsupervised: ↳ Clustering, ↳ t-SNE map) · Export data · Downloads & jobs |
 | **View** | Show/hide Contents, Tool panel and Data viewer · Reset panel sizes · Basemap (Streets, Satellite, Topographic, None) · Place labels on top · Zoom to all layers · Theme (system / light / dark) |
 | **Help** | Getting started (start page, incl. your Sentinel products) · Quick guide · Keyboard shortcuts |
 
@@ -92,7 +94,43 @@ The **tool panel** on the right only opens when you choose a tool; its **×** cl
 | Ctrl/⌘ 1 / 2 / 3 | Show / hide Contents / Tool panel / Data viewer |
 | Esc | Close menus, stop drawing, close hints |
 
-The app remembers your layers, map position, basemap, theme and panel layout between sessions (stored in your browser).
+### Projects
+A **project** is a folder that keeps everything for one piece of work together: your Contents (layers, tables, pictures), the map view and basemap, and every result the tools make (downloads, index and PCA results, stacks, tables, models, maps).
+
+- **When the app starts** you choose:
+  - **New project:** give a name and a location, using **Browse…** to pick a folder. A folder with the project's name is created there, holding `lulc_project.json` and the working folders.
+  - **Open a project:** pick a folder marked *project*.
+  - **Recent projects:** click one to reopen it.
+  - **Continue without a project:** a *temporary workspace*. Results are kept in the app's own folder, as a cache, until you clean them up.
+  - Untick *Show this window when the app starts* to skip it next time. File ▸ New project / Open project brings it back.
+- **The chip in the top-right corner** shows the open project; ✓ means everything is saved. Click it to show the project folder in Finder / Explorer, save now, switch to another project, close the project or clean up working files.
+- **Autosave:** Contents and the map view are saved into the project about a second after every change. Reopening the project, or simply reloading the page, brings everything back.
+- Your Sentinel products in the app's `data/` folder are still listed when a project is open. Switching projects is blocked while a job is running.
+
+### Saving results to your computer
+Every result is always kept in the project (or the temporary workspace) and appears in Contents. To also save a copy somewhere else:
+
+- **In every tool:** tick **Also save to a folder on my computer** above the Run button and choose a folder (type it, or use **Browse…**). When the run finishes, a copy of the result is saved there, and the tool shows the path with a *Show in folder* link. The folder is remembered per tool.
+
+  | Tool | What is copied |
+  |---|---|
+  | Find imagery | the downloaded files |
+  | Index analysis export | the exported GeoTIFF |
+  | PCA, Stack layers, Classify an image | the result GeoTIFF |
+  | Raster → table, Clustering, t-SNE | the table (with its description); clustering also copies the saved model |
+  | Train a model | the model with its JSON and HTML evaluation report |
+- **Right-click a layer, table or picture ▸ Save to folder…**
+  - **Rasters** are saved as GeoTIFF. Index or formula layers, such as an NDVI result, are saved as their computed values. A Sentinel-2 product opened from `.SAFE` is written out as a real GeoTIFF.
+  - **Vector layers** are saved as a shapefile (.shp, .shx, .dbf, .prj and .cpg).
+  - **Tables and pictures** are copied.
+- **Export data** has **Save to a folder instead of downloading**.
+- Files are never overwritten: `_2`, `_3` … is added to the name.
+
+**The folder picker** (Browse…) shows shortcuts to the project, Home, Desktop, Documents, Downloads and the app folder. You can type a path and press Enter, go up a folder, create a **New folder**, double-click to open a folder, and click to select one.
+
+**Clean up working files** (File menu, or the project chip) lists the size of the working folders and deletes files older than 1, 7 or 30 days, or all of them. Whole download / result folders are removed together, and running jobs are skipped.
+
+In the temporary workspace, the app remembers your layers, map position, basemap, theme and panel layout in your browser. In a project, they are saved in the project file instead.
 
 ---
 
@@ -388,8 +426,20 @@ Band names are kept (B04, VV, NDVI…), so the stack still opens in true colour 
    - Each row shows the detected type, the number of distinct values, missing values and example values. Whole-number columns with only a few values are flagged *looks categorical?*.
    - Coordinates, ids (`poly_id`, `sample_id`) and text columns are ignored by default. Use the filter box and the **Bands only / All / None** buttons for quick selection.
    - Text features work for training and evaluation, but an image can't provide them, so such a model can't classify a raster. You're told so. Numeric codes (e.g. a zone band) work fine.
-4. **Model:** cards with typical accuracy / speed ratings, filterable by family.
-3. **Model:** cards with typical accuracy / speed ratings, filterable by family.
+4. **Preprocessing:** how the data is cleaned and transformed before it reaches the model. A **Pipeline** line shows the steps in order, e.g. *Fill missing → Remove constant columns → Clip 1–99% → Yeo-Johnson (skewed) → Robust scale → One-hot → SVM*. **Defaults** resets the card.
+
+   | Option | Choices | When it helps |
+   |---|---|---|
+   | **Missing values** | *Drop those rows* (default) · *Fill in*: median for numbers, a separate "(missing)" category for categorical columns | Fill in when many rows have a gap. Classify an image then also fills pixels where a band is missing instead of leaving them blank. |
+   | **Remove constant columns** | on (default) | Drops columns with the same value in every training row |
+   | **Remove near-duplicate columns** | off (default) · \|r\| ≥ 0.99 / 0.95 / 0.90 | Keeps one column of each almost perfectly correlated group (e.g. B8 and B8A). Helps linear models, k-NN and Maximum Likelihood. |
+   | **Outliers** | keep (default) · *clip to percentiles* (1 = 1st–99th) | Saturated pixels, cloud or shadow remnants, sensor spikes |
+   | **Skewed features** | leave (default) · Yeo-Johnson on skewed columns (\|skew\| > 1) · on all numeric columns | Radar backscatter in linear units, texture, distances. For linear models, SVM, k-NN, MLP, Naive Bayes and Maximum Likelihood; trees don't need it. |
+   | **Feature scaling** | *Auto* (default: standard scaling for SVM, SGD, logistic regression, k-NN and MLP; none for trees and probabilistic models) · Standard (z-score) · Min–max (0–1) · Robust (median / IQR) · None | Robust is least affected by outliers |
+   | **Target transform** *(regression only)* | none (default) · log(1 + y) · Yeo-Johnson | Skewed targets such as biomass, yield or counts. Predictions are converted back automatically. |
+
+   Every step is learned from the **training rows only** and refitted inside each cross-validation and tuning fold, so no information leaks from the test split. The steps are saved inside the model, so Classify an image repeats them exactly. The results and the evaluation report list the steps that were applied, and which columns were removed and why.
+5. **Model:** cards with typical accuracy / speed ratings, filterable by family.
 
 | Family | Models |
 |---|---|
@@ -400,18 +450,17 @@ Band names are kept (B04, VV, NDVI…), so the stack still opens in true colour 
 | Probabilistic | Naive Bayes, **Maximum Likelihood** (classic remote-sensing Gaussian classifier), Linear Discriminant |
 | Neighbours / Neural | k-Nearest Neighbours, neural network (MLP) |
 
-5. **Parameters:** 2–4 key settings per model, with defaults tuned for pixel data. The rest is under *Advanced*:
+6. **Parameters:** 2–4 key settings per model, with defaults tuned for pixel data. The rest is under *Advanced*:
    - validation split, test share, class balancing
-   - cross-validation folds, feature scaling (automatic for models that need it)
-   - **missing values:** *Drop those rows* (default) or *Fill in* (median for numbers, most frequent value for categories), so no rows are lost
+   - cross-validation folds
    - training-row cap (large tables are sampled down per model), random seed
-6. **Hyperparameter tuning** (switch on with *Tune*): the app tries many parameter combinations and keeps the best.
+7. **Hyperparameter tuning** (switch on with *Tune*): the app tries many parameter combinations and keeps the best.
    - **Random search** (tries a set number of random combinations, 20 by default) or **Grid search** (every combination, max 300).
    - **CV folds:** each combination is trained on all folds but one and scored on the one left out. Folds use the **same polygon / spatial-block grouping** as the validation split, and only the training rows, so the test split stays untouched and the result stays honest.
    - **Optimise for:** accuracy, macro F1, balanced accuracy or kappa (classification); R², RMSE or MAE (regression).
    - **Values to try:** comma-separated candidates for each parameter, prefilled with sensible ranges per model, e.g. trees `100, 300, 600` and depth `None, 10, 20, 40`. Untick a parameter to keep its value from *Parameters*. `None` means unlimited.
    - The panel shows the total number of fits (tries × folds). Progress and **Cancel** work during the search.
-7. **Train model** (or **Tune & train model**), or **Compare models**: trains every suitable model with default settings on the same split (max 20,000 training rows each) and shows a ranked **leaderboard** (accuracy and kappa, or R² and RMSE, plus time). Click **Use** to select a model, then adjust or tune it and train it fully.
+8. **Train model** (or **Tune & train model**), or **Compare models**: trains every suitable model with default settings on the same split (max 20,000 training rows each) and shows a ranked **leaderboard** (accuracy and kappa, or R² and RMSE, plus time). Click **Use** to select a model, then adjust or tune it and train it fully.
 
 ### Validation split (honest accuracy)
 Neighbouring pixels look almost identical. If test pixels are picked at random, they're near-copies of training pixels and the accuracy is **overstated**. The *Validation split* setting fixes this:
@@ -440,7 +489,9 @@ Example from testing: the same Random Forest scored 79.5 % with a random split b
 Random Forest, Extra Trees, XGBoost and LightGBM report real progress while training, so **Cancel** works mid-training. Models are saved in `models/` as `.joblib` files (a scikit-learn pipeline), with a JSON report. In the hub you can **Use**, view the **Report**, open the **📊 evaluation report**, download or delete each model.
 
 ### Evaluation report (HTML)
-Training also writes `models/<name>.evaluation.html`. It is one self-contained page that opens offline in any browser, prints to PDF, and can be emailed. Open it with **📊 Evaluation report ▸ Open** in the results, or download it with **⬇ .html**. Hover over any chart or cell for exact values. Every chart has a one-line *how to read it* note. It works for every model.
+Training also writes `models/<name>.evaluation.html`. It is one self-contained page that opens offline in any browser, prints to PDF, and can be emailed. Open it with **📊 Evaluation report ▸ Open** in the results, or download it with **⬇ .html**.
+
+**Save it in your own folder:** type a folder in **Save evaluation report to folder** (next to *Model name*) before training, e.g. `~/Documents/LULC reports` or `/Users/you/Projects/reports`. A copy is saved there after training, and the result shows the full path. The folder is created if needed, existing files are never overwritten (`_2` is added to the name), and the app remembers the folder for next time. For a model you've already trained, use **Save a copy** in the evaluation box, or open its *Report* in the model library. The original always stays in `models/`. Hover over any chart or cell for exact values. Every chart has a one-line *how to read it* note. It works for every model.
 
 | Classification | Regression |
 |---|---|
@@ -467,6 +518,8 @@ python -m lulc_fetch.evaluation models/rf.joblib --table tables/other_area.csv -
 
 ## 13. Classical ML: Classify an image
 
+A clustering saved as a model (section 14) works here too: it makes an **unsupervised land-cover map**, one class per cluster.
+
 **Tools ▸ Classical ML ▸ Classify an image**, or **Use** next to a model in the hub.
 
 1. **Model:** pick a trained model. Its accuracy is shown.
@@ -487,7 +540,80 @@ The tool also reports the **area per class** (km² and %).
 
 ---
 
-## 14. Export data
+## 14. Classical ML: Clustering (unsupervised)
+
+**Tools ▸ Classical ML ▸ Clustering.** The Classical ML hub has two groups:
+- **Supervised learning:** you have labels, and a model learns to predict them (*Train a model*, *Classify an image*).
+- **Unsupervised learning:** no labels needed, the tools find structure in the data (*Clustering*, *t-SNE map*).
+
+Clustering splits the rows of a table into groups of similar rows, without any ground truth. Use it to:
+- find natural classes in an image (unsupervised land-cover classification);
+- segment fields, farms or districts;
+- explore a new dataset before labelling it.
+
+1. **Table:** any table in Contents or `tables/`.
+2. **Columns to cluster on:** tick **Use** for each column that describes the rows. Tick **Categorical** for codes and categories, which are one-hot encoded; text columns are always categorical. Ids, coordinates and label columns are left out by default. **Compare with a known label** (optional) is only used to check the result, never to build the clusters.
+3. **Method**
+
+   | Method | Number of clusters | Good for | Fitted on |
+   |---|---|---|---|
+   | **K-means** *(recommended)* | you choose k | compact, similar-sized groups; images. Mini-batch K-means is used automatically above 100,000 rows. | up to 1,000,000 rows |
+   | **Hierarchical** | you choose k, or a cut height | seeing how groups nest (dendrogram). Linkage: Ward, average, complete, single. | 5,000-row sample |
+   | **DBSCAN** | found automatically | any shape; marks outliers as **noise**. *eps* is suggested from the k-distance curve. | 30,000-row sample |
+   | **HDBSCAN** | found automatically | groups of different density; no eps to tune | 30,000-row sample |
+   | **Spectral clustering** | you choose k | non-round groups (rings, bands, elongated shapes) | 4,000-row sample |
+   | **Gaussian mixture** | you choose k | elliptical groups; gives each row a **probability** (`cluster_probability`) | up to 300,000 rows |
+
+   When a method is fitted on a sample, the other rows get the cluster of their nearest clustered rows. K-means and Gaussian mixture use their own rule instead (nearest centre, most likely component).
+4. **Settings:** the method's parameters.
+   - **Find the best number of clusters:** tries k = 2 … *max* on a sample and uses the best silhouette score. It shows the silhouette curve, plus the elbow (inertia) for K-means or BIC for Gaussian mixture.
+   - **Save as a model (to cluster an image):** on by default for tables made from a raster.
+5. **Preprocessing:** missing values, outlier clipping, skew transform and **scaling**. Standard scaling is the default, because clustering compares distances between rows.
+
+**Results**
+- **Quality:**
+  - **Silhouette:** −1 to 1. Above 0.5 means clear clusters, 0.25–0.5 reasonable, below 0.25 overlapping.
+  - **Davies-Bouldin:** lower is better.
+  - **Calinski-Harabasz:** higher is better.
+- **Warnings** explain weak results in plain words: only one cluster found, no clusters (everything noise), mostly noise, or overlapping groups.
+- **Cluster sizes**, and a **2D view** (PCA) coloured by cluster. Hover over points; click a legend entry to hide a cluster.
+- **Cluster profiles:** the mean of every column per cluster in its original units, coloured by how far it is above (red) or below (blue) the overall average. This is what makes each cluster different. Categorical columns show their most common value.
+- **Clusters vs a known label** (if chosen): adjusted Rand index (0 = random, 1 = identical), NMI, homogeneity and completeness, and a cross-table with the most common label per cluster.
+- **Dendrogram** (hierarchical) with the cut line. **k-distance curve** (DBSCAN) with the eps used.
+- **Outputs:**
+  - A new table `tables/<name>_<method>.csv`: the original table plus a **cluster** column. Values are 1 … k, 0 = noise, and empty = row skipped for missing values.
+  - From there, **Open table**, make a **t-SNE map of these clusters**, **Train a model on the clusters** (turn the clusters into a supervised classifier), or **Cluster an image** with the saved model through Classify an image.
+
+Example with the included `diabetes_risk.csv` (9 numeric health measurements, compared with `diabetes_risk`):
+- K-means with *find best k* chooses k = 2 (silhouette 0.19).
+- Gaussian mixture with k = 3 matches the risk groups best (ARI 0.29).
+- DBSCAN finds one dense cloud, and HDBSCAN finds no dense groups.
+
+The tool explains these results: this data has no well-separated natural groups.
+
+## 15. Classical ML: t-SNE map (unsupervised)
+
+**Tools ▸ Classical ML ▸ t-SNE map.** t-SNE draws every row as a point on a 2D map, so that rows that are similar in the chosen columns sit close together. Use it to see whether your classes or clusters separate, to spot sub-groups and mislabelled samples, and to check training data before you train a model.
+
+1. **Table** and **columns to map**, chosen the same way as for clustering.
+2. **Colour points by:** any column, such as the class label, a `cluster` column or a measurement. You can switch it after the run.
+3. **Settings:**
+   - **Perplexity** (5–50; larger shows more global structure).
+   - **Rows:** a random sample, 5,000 by default; 5,000 rows take about 10–40 s.
+   - **Iterations.** Advanced: learning rate (auto), early exaggeration, PCA or random initialisation, Euclidean / Manhattan / cosine distance.
+   - With more than 50 columns, PCA reduces them to 50 first.
+4. **Preprocessing:** as for clustering (standard scaling by default).
+
+**Results**
+- The map: hover a point for its values, and click legend entries to hide groups.
+- **Trustworthiness:** how faithfully neighbours are kept, 0–1; above 0.9 is good.
+- **KL divergence:** the final error.
+- A progress bar driven by t-SNE's own iterations, so Cancel works mid-run.
+- The mapped rows are saved as a table with **tsne_1** and **tsne_2** columns.
+
+In t-SNE, the distances between far-apart groups and the sizes of groups don't mean anything. What matters is which points sit together.
+
+## 16. Export data
 
 **Tools ▸ Export data**, or right-click a layer ▸ **Export / save to computer**.
 
@@ -507,7 +633,7 @@ Files are saved to your browser's Downloads folder.
 
 ---
 
-## 15. Downloads & jobs
+## 17. Downloads & jobs
 
 **Tools ▸ Downloads & jobs** lists background jobs (downloads, composites, product downloads, Sentinel-1 processing, …). Each job shows:
 - its progress, current step and **Cancel**
@@ -520,7 +646,7 @@ Downloads that finish while the app is open are added to Contents automatically.
 
 ---
 
-## 16. Credentials
+## 18. Credentials
 
 Click **Credentials** (top right). Secrets are stored in your **operating-system keychain** (macOS Keychain, Windows Credential Locker, Linux Secret Service). They're never shown again or sent back to the browser, and are only used with the service they belong to. Each entry has a **Test** button.
 
@@ -535,7 +661,7 @@ Click **Credentials** (top right). Secrets are stored in your **operating-system
 
 ---
 
-## 17. Command-line tool
+## 19. Command-line tool
 
 `lulc-fetch` does the downloading parts without the web app. An area can be given as `--bbox minlon,minlat,maxlon,maxlat`, `--geojson file.geojson`, `--point lon,lat --buffer-km 5`, or `--match existing.tif` (reuse a raster's exact grid).
 
@@ -565,7 +691,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 18. Data sources and band conventions
+## 20. Data sources and band conventions
 
 | Source | Login | Notes |
 |---|---|---|
@@ -580,14 +706,17 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 19. Files and folders
+## 21. Files and folders
+
+With a project open, these folders are inside the project folder (next to `lulc_project.json`). Without a project they are in the app's folder (the temporary workspace). `data/` is always also read from the app's folder. The list of recent projects is stored in `~/.lulc-fetch/recent.json`.
 
 | Folder | Contents |
 |---|---|
+| `lulc_project.json` | (projects only) the project's name, Contents, map view and settings |
 | `data/` | Your Copernicus `.SAFE` products (input) |
 | `imports/` | Lightweight VRTs for opened Sentinel-2 products |
 | `downloads/` | Job outputs (downloads, maps, stacks…), one folder per job |
-| `tables/` | Tables you added (CSV, TSV and Excel are converted to CSV; Parquet is kept) and Raster → table outputs (with a `.json` description) |
+| `tables/` | Tables you added, clustering results (with a `cluster` column), t-SNE maps (`tsne_1`, `tsne_2`), (CSV, TSV and Excel are converted to CSV; Parquet is kept) and Raster → table outputs (with a `.json` description) |
 | `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files, index exports, other exports |
 
@@ -595,7 +724,7 @@ All of these are excluded from git.
 
 ---
 
-## 20. Limits and known issues
+## 22. Limits and known issues
 
 - **Download size:** one download is capped at 60 M pixels (≈77 × 77 km at 10 m). Use a coarser pixel size or split the area.
 - **Map previews** of large rasters are drawn at reduced resolution (≈1400 px), and their statistics come from that preview unless you pick an area. **GeoTIFF exports are always full resolution.**
@@ -613,7 +742,7 @@ All of these are excluded from git.
 
 ---
 
-## 21. Troubleshooting
+## 23. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -628,7 +757,7 @@ All of these are excluded from git.
 
 ---
 
-## 22. For developers: adding a tool
+## 24. For developers: adding a tool
 
 The web app is a FastAPI backend (`webapp/server.py`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package.
 

@@ -12,7 +12,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-DOWNLOAD_DIR = Path.cwd() / "downloads"
+from .workspace import Dir
+
+DOWNLOAD_DIR = Dir("downloads")   # follows the open project
 _current = threading.local()
 
 
@@ -32,10 +34,11 @@ class Job:
     logs: list[str] = field(default_factory=list)
     result: dict | None = None
     error: str | None = None
+    base: Path = field(default_factory=lambda: DOWNLOAD_DIR.path)   # fixed when the job is created
 
     @property
     def dir(self) -> Path:
-        return DOWNLOAD_DIR / self.id
+        return self.base / self.id
 
     def files(self) -> list[str]:
         if not self.dir.exists():
@@ -114,6 +117,14 @@ class JobManager:
             progress.set_handler(None)
             job.finished = time.time()
             _current.job = None
+
+    def list(self) -> list[Job]:
+        return list(self.jobs.values())
+
+    def clear_finished(self):
+        """Forget finished jobs (their files stay on disk), e.g. when another project is opened."""
+        for jid in [j.id for j in self.jobs.values() if j.status in ("done", "error", "cancelled")]:
+            self.jobs.pop(jid, None)
 
     def cancel(self, job_id: str) -> Job | None:
         job = self.jobs.get(job_id)
