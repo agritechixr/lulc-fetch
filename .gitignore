@@ -29,3 +29,6 @@ models/
 training_data/
 .app_state.json
 logs/
+.pytest_cache/
+
+test_reports/

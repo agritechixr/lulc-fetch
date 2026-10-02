@@ -57,6 +57,10 @@ ARCHS = {
     "lraspp": {"title": "LR-ASPP", "lib": "tv", "accuracy": 3, "speed": 5,
                "desc": "Lite reduced ASPP on MobileNetV3 (torchvision): tiny and fast, made for mobile devices.",
                "encoders": ["mobilenetv3_large"]},
+    "yolo_sem": {"title": "YOLO26 semantic", "lib": "yolo", "accuracy": 4, "speed": 5,
+                 "desc": "YOLO26 semantic segmentation (ultralytics): a fast real-time network, pretrained on Cityscapes street scenes. "
+                         "Needs the YOLO & SAM add-on. Any number of bands.",
+                 "encoders": ["yolo-n", "yolo-s", "yolo-m", "yolo-l", "yolo-x"]},
 }
 ENCODERS = {
     "mobilenet_v2": "MobileNetV2 (fast, 2 M params)",
@@ -71,8 +75,11 @@ ENCODERS = {
     # torchvision-only backbones
     "resnet101": "ResNet-101 (43 M)",
     "mobilenetv3_large": "MobileNetV3 large",
+    # YOLO26 semantic sizes
+    "yolo-n": "YOLO26 nano (fastest)", "yolo-s": "YOLO26 small", "yolo-m": "YOLO26 medium", "yolo-l": "YOLO26 large",
+    "yolo-x": "YOLO26 extra large (most accurate)",
 }
-SMP_ENCODERS = [k for k in ENCODERS if k not in ("resnet101", "mobilenetv3_large")]
+SMP_ENCODERS = [k for k in ENCODERS if k not in ("resnet101", "mobilenetv3_large") and not k.startswith("yolo-")]
 
 PARAMS = [  # (name, title, kind, default, extra) — rendered by the UI; "adv" = advanced section
     {"name": "epochs", "title": "Epochs", "kind": "int", "default": 50, "min": 1, "max": 1000,
@@ -317,6 +324,8 @@ def build_model(arch: str, encoder: str, in_ch: int, n_classes: int, pretrained:
             note = f"Pretrained weights couldn't be downloaded ({type(e).__name__}); trained from random weights."
             m = cls(encoder_name=encoder, encoder_weights=None, in_channels=in_ch, classes=n_classes)
         return m, m.encoder, note
+    if a["lib"] == "yolo":
+        return _yolo_sem(encoder, in_ch, n_classes, pretrained)
     import torchvision.models.segmentation as tvs
     allowed = a["encoders"]
     if encoder not in allowed:
@@ -345,6 +354,45 @@ def build_model(arch: str, encoder: str, in_ch: int, n_classes: int, pretrained:
         else:
             m.backbone["0"][0] = new
     return _TvWrap(m), m.backbone, note
+
+
+def _yolo_sem(encoder: str, in_ch: int, n_classes: int, pretrained: bool):
+    """YOLO26 semantic segmentation (ultralytics) for any band count; pretrained weights are adapted to the bands."""
+    import torch.nn as nn
+
+    from .detect import ultra_weights, ultralytics
+    ultralytics()
+    from ultralytics.nn.tasks import SemanticSegmentationModel
+
+    if encoder not in ARCHS["yolo_sem"]["encoders"]:
+        raise ValueError(f"{ENCODERS.get(encoder, encoder)} can't be used with YOLO26 semantic")
+    size = encoder.split("-")[1]
+    m = SemanticSegmentationModel(f"yolo26{size}-sem.yaml", ch=in_ch, nc=n_classes, verbose=False)
+    note = ""
+    if pretrained:
+        try:
+            src = ultralytics().YOLO(ultra_weights(f"yolo26{size}-sem.pt")).model.float().state_dict()
+            dst = m.state_dict()
+            k0 = "model.0.conv.weight"
+            if k0 in src and src[k0].shape[1] != in_ch:   # first convolution: RGB weights averaged and repeated for every band
+                src[k0] = src[k0].mean(1, keepdim=True).repeat(1, in_ch, 1, 1) * (3 / in_ch)
+            ok = {k: v for k, v in src.items() if k in dst and v.shape == dst[k].shape}
+            m.load_state_dict(ok, strict=False)
+            log.info("YOLO26 %s semantic: %d of %d weight tensors pretrained (the class layer is new)", size, len(ok), len(dst))
+        except Exception as e:
+            log.warning("Pretrained YOLO weights couldn't be loaded (%s); starting from random weights", e)
+            note = f"Pretrained weights couldn't be downloaded ({type(e).__name__}); trained from random weights."
+
+    class YoloSem(nn.Module):
+        def __init__(self, net):
+            super().__init__()
+            self.net = net
+
+        def forward(self, x):
+            out = self.net(x)
+            return out[0] if isinstance(out, (tuple, list)) else out   # training also returns an auxiliary output
+
+    return YoloSem(m), None, note
 
 
 def _tv_wrap_cls():

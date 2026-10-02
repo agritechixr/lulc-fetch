@@ -776,8 +776,9 @@
         <div id="dt-ds-info" class="hint"></div>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Model <button type="button" class="tip" data-tip="The segmentation architecture and its backbone (the encoder that extracts features). U-Net + MobileNetV3 is fast and a good start; DeepLabV3+ or U-Net++ with ResNet / EfficientNet are usually more accurate but slower." aria-label="Help">i</button></h2>
+        <h2><span class="step">2</span>Model <button type="button" class="tip" data-tip="The segmentation architecture and its backbone (the encoder that extracts features). U-Net + MobileNetV3 is fast and a good start; DeepLabV3+ or U-Net++ with ResNet / EfficientNet are usually more accurate but slower. YOLO26 semantic (ultralytics) is very fast; its size is chosen under Backbone." aria-label="Help">i</button></h2>
         <div id="dt-archs"></div>
+        <div id="dt-yolo" class="hidden" style="margin-top:8px"></div>
         <div class="grid2" style="margin-top:8px">
           <label>Backbone <button type="button" class="tip" data-tip="MobileNet = fast and light; ResNet / EfficientNet = more accurate, slower. Bigger backbones need more memory and more data." aria-label="Help">i</button><select id="dt-enc"></select></label>
           <label class="inline" style="align-self:end"><input type="checkbox" id="dt-pre" checked> ImageNet-pretrained <button type="button" class="tip" data-tip="Start from weights trained on millions of photos (downloaded once, 10–100 MB). Learns faster and better with small datasets; works with any number of bands." aria-label="Help">i</button></label>
@@ -806,9 +807,10 @@
       <div class="dl-addon card hidden" data-addon></div>
       <div class="dl-body">
       <div class="card">
-        <h2><span class="step">1</span>Model <span class="req">required</span> <button type="button" class="tip" data-tip="A model trained with Deep learning: train a model. Models from other projects or computers: Browse… to their folder (with model_config.json and best_model.pt)." aria-label="Help">i</button></h2>
+        <h2><span class="step">1</span>Model <span class="req">required</span> <button type="button" class="tip" data-tip="A model trained with Train classify model. Models from other projects or computers: Browse… to their folder (with model_config.json and best_model.pt)." aria-label="Help">i</button></h2>
         <div class="row tight"><select id="dp-model" style="flex:1"></select><button class="btn" id="dp-browse">Browse…</button></div>
         <div id="dp-model-info" class="hint"></div>
+        <div id="dp-yolo" class="hidden" style="margin-top:8px"></div>
       </div>
       <div class="card">
         <h2><span class="step">2</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The image to classify: the same bands, in the same order, as the training data (e.g. the same Sentinel-2 bands). Tick several layers to stack them like in Make training data." aria-label="Help">i</button></h2>
@@ -836,6 +838,127 @@
         <div id="dp-error" class="warn err hidden"></div>
       </div>
       <div id="dp-result" class="hidden"></div>
+      </div>
+    </section>
+
+    <section id="tab-detect" class="tabpanel hidden">
+      <div class="dl-addon card hidden" data-addon></div>
+      <div class="dl-body">
+      <div class="card">
+        <h2><span class="step">1</span>Model <span class="req">required</span> <button type="button" class="tip" data-tip="Open-source pretrained detectors: YOLO26 (ultralytics; COCO, or DOTA aerial images), torchvision Faster R-CNN, RetinaNet, FCOS, SSD, Mask R-CNN (COCO), and SAM 2.1 (Segment Anything) which outlines everything without classes. Models you trained with Train detection model are listed too. Weights are downloaded once, the first time a model is used." aria-label="Help">i</button></h2>
+        <div id="od-models"></div>
+        <div class="grid2" style="margin-top:8px">
+          <label id="od-size-wrap" class="hidden">Model size <button type="button" class="tip" data-tip="Bigger models are more accurate but slower and need more memory. Nano / tiny run fine on a laptop CPU but miss small objects (e.g. cars at 0.5 m): medium is a good default." aria-label="Help">i</button><select id="od-size"></select></label>
+          <div class="row tight" style="align-self:end"><button class="btn small" id="od-browse" title="Add a model folder made with Train detection model on another computer or project">Add a trained model…</button></div>
+        </div>
+        <p class="hint" id="od-model-info"></p>
+        <div id="od-yolo" class="hidden"></div>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The models were trained on ordinary photos, so they work on high-resolution aerial, drone or satellite images (about 0.1–1 m pixels) where cars, boats, planes, people… are clearly visible. They can't see such objects in 10 m Sentinel-2 pixels." aria-label="Help">i</button></h2>
+        <select id="od-layer"></select>
+        <div class="grid2" id="od-bands" style="margin-top:8px"></div>
+        <label>Brightness stretch <button type="button" class="tip" data-tip="The models expect a normal-looking colour photo. 2–98 % stretches each band so the image is neither too dark nor too bright (best for satellite data). Use 0–255 for ordinary 8-bit photos and drone orthomosaics." aria-label="Help">i</button>
+          <select id="od-stretch"><option value="percent">2–98 % (satellite / 16-bit data)</option><option value="minmax">Min–max</option><option value="byte">None: values are 0–255 (8-bit photos)</option></select></label>
+        <p class="hint" id="od-check"></p>
+      </div>
+      <div class="card" id="od-classes-card">
+        <h2><span class="step">3</span>What to find</h2>
+        <div class="row tight" style="flex-wrap:wrap;margin-bottom:6px" id="od-presets"></div>
+        <div id="od-classes" class="chk-grid"></div>
+        <details style="margin-top:6px"><summary class="small">More classes (indoor and street objects)</summary><div id="od-classes-more" class="chk-grid" style="margin-top:6px"></div></details>
+        <p class="hint" id="od-cls-hint"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">4</span>Area &amp; settings</h2>
+        <div class="area-pick" style="border-top:0;margin-top:0;padding-top:0">
+          <label>Area <button type="button" class="tip" data-tip="Search only part of the image. Objects whose centre is outside the area are left out." aria-label="Help">i</button><select id="od-area"></select></label>
+          <p class="hint" id="od-area-hint">The whole image is searched.</p>
+        </div>
+        <div class="grid2">
+          <label>Minimum score <button type="button" class="tip" data-tip="How sure the model must be (0–1) to keep an object. Lower finds more objects but also more false ones; on aerial images 0.3–0.5 works well." aria-label="Help">i</button><input type="number" id="od-score" value="0.4" min="0.01" max="1" step="0.05"></label>
+          <label>Zoom <button type="button" class="tip" data-tip="Enlarges the image before the model looks at it. The models know objects at photo size (tens to hundreds of pixels). If a car is only 10–20 pixels wide in your image, try 2× or 3×. Higher zoom = more tiles = slower." aria-label="Help">i</button>
+            <select id="od-zoom"><option value="auto" class="hidden">Auto (as in training)</option><option value="0.5">0.5× (very large objects)</option><option value="1" selected>1× (as is)</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option><option value="4">4× (tiny objects)</option></select></label>
+          <label>Tile overlap <button type="button" class="tip" data-tip="The image is searched in tiles. An object cut by a tile edge is found whole in the overlapping neighbour tile; large objects cut into pieces are joined again." aria-label="Help">i</button>
+            <select id="od-overlap"><option value="0">None (fastest)</option><option value="0.2" selected>20 % (recommended)</option><option value="0.35">35 %</option><option value="0.5">50 %</option></select></label>
+          <label>Duplicate overlap (IoU) <button type="button" class="tip" data-tip="Two boxes of the same class that overlap more than this are the same object (non-maximum suppression); only the best one is kept. Lower it if one object gets several boxes; raise it for tightly packed objects." aria-label="Help">i</button><input type="number" id="od-iou" value="0.5" min="0.05" max="0.95" step="0.05"></label>
+          <label>Largest object (m) <button type="button" class="tip" data-tip="Optional. Leave out detections whose longer side is bigger than this, e.g. 25 m when looking for cars and trucks: overhead, the models sometimes take a roof or a pier for a bus or a boat. Needs an image in metres (a projected coordinate system, e.g. UTM)." aria-label="Help">i</button><input type="number" id="od-maxsize" placeholder="no limit" min="0" step="1"></label>
+          <label id="od-sam-wrap">Outlines with SAM <button type="button" class="tip" data-tip="Segment Anything 2.1 turns every box into the object's exact outline (one image encoding per tile, a little slower). Needs the YOLO &amp; SAM add-on." aria-label="Help">i</button>
+            <select id="od-sam"><option value="">No: keep boxes</option><option value="t">SAM 2.1 tiny (fast)</option><option value="s">SAM 2.1 small</option><option value="b">SAM 2.1 base</option><option value="l">SAM 2.1 large (best, slow)</option></select></label>
+          <label>Batch size<input type="number" id="od-batch" value="2" min="1" max="64"></label>
+          <label>Device<select id="od-device"><option value="auto">Auto</option><option value="mps">Apple GPU (MPS)</option><option value="cuda">NVIDIA GPU (CUDA)</option><option value="cpu">CPU</option></select></label>
+        </div>
+        <p class="hint" id="od-est"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">5</span>Output</h2>
+        <label>Layer name<input id="od-name" maxlength="80" value="objects"></label>
+        <button class="btn primary big-btn" id="od-run">Detect objects</button>
+        <div id="od-error" class="warn err hidden"></div>
+      </div>
+      <div id="od-result" class="hidden"></div>
+      </div>
+    </section>
+
+    <section id="tab-traindet" class="tabpanel hidden">
+      <div class="dl-addon card hidden" data-addon></div>
+      <div class="dl-body">
+      <div id="td-yolo" class="hidden"></div>
+      <div class="td-body">
+      <div class="card">
+        <h2><span class="step">1</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The image with the objects you labelled: aerial, drone or high-resolution satellite. Three bands are used as red, green and blue (or one band as greyscale), stretched like in Detect object." aria-label="Help">i</button></h2>
+        <select id="td-layer"></select>
+        <div class="grid2" id="td-bands" style="margin-top:8px"></div>
+        <label>Brightness stretch <button type="button" class="tip" data-tip="2–98 % for satellite or 16-bit data; None (0–255) for 8-bit photos and drone orthomosaics. The model remembers it, and Detect object uses the same stretch." aria-label="Help">i</button>
+          <select id="td-stretch"><option value="percent">2–98 % (satellite / 16-bit data)</option><option value="minmax">Min–max</option><option value="byte">None: values are 0–255 (8-bit photos)</option></select></label>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Labelled objects <span class="req">required</span> <button type="button" class="tip" data-tip="A vector layer with your objects: polygons drawn around them (Training samples, or a shapefile / GeoJSON), or points on them. The class attribute names each object's class. Label every object of these classes in the area you train on: unlabelled ones teach the model that they are background." aria-label="Help">i</button></h2>
+        <select id="td-gt"></select>
+        <label>Class attribute<select id="td-field"></select></label>
+        <label id="td-point-wrap" class="hidden">Box size for points (m) <button type="button" class="tip" data-tip="Points become square boxes of this size, e.g. 5 m for cars, 20 m for trucks or small boats." aria-label="Help">i</button><input type="number" id="td-point" value="5" min="0.1" step="0.5"></label>
+        <p class="hint" id="td-gt-info"></p>
+        <div class="area-pick">
+          <label>Area <button type="button" class="tip" data-tip="Train only on part of the image, e.g. where you labelled every object." aria-label="Help">i</button><select id="td-area"></select></label>
+          <p class="hint" id="td-area-hint">The whole image is used for training.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Model</h2>
+        <div id="td-tasks"></div>
+        <div class="grid2" style="margin-top:8px">
+          <label>YOLO version<select id="td-family"></select></label>
+          <label>Size <button type="button" class="tip" data-tip="Nano and small train fast on a laptop; medium and bigger are more accurate but need a GPU and more data." aria-label="Help">i</button><select id="td-size"></select></label>
+        </div>
+        <label class="inline"><input type="checkbox" id="td-pre" checked> Start from pretrained weights <button type="button" class="tip" data-tip="Start from YOLO weights trained on COCO (or DOTA aerial images for rotated boxes), downloaded once. Learns much faster and better from a few hundred objects." aria-label="Help">i</button></label>
+      </div>
+      <div class="card">
+        <h2><span class="step">4</span>Tiles</h2>
+        <div class="grid2">
+          <label>Tile size (px) <button type="button" class="tip" data-tip="The model's input size. The image is cut into tiles of this size (bigger tiles see more context but need more memory). Detect object uses the same size." aria-label="Help">i</button>
+            <select id="td-tile"><option>320</option><option>416</option><option>512</option><option selected>640</option><option>800</option><option>1024</option></select></label>
+          <label>Zoom <button type="button" class="tip" data-tip="Enlarges the image before cutting tiles, so small objects get bigger: try 2× when objects are under about 15 pixels (e.g. cars at 0.5 m). Detect object later zooms any image to the same ground size automatically." aria-label="Help">i</button>
+            <select id="td-zoom"><option value="0.5">0.5×</option><option value="1" selected>1× (as is)</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option><option value="4">4×</option></select></label>
+          <label>Tile overlap<select id="td-overlap"><option value="0">None</option><option value="0.2" selected>20 %</option><option value="0.35">35 %</option><option value="0.5">50 %</option></select></label>
+        </div>
+        <p class="hint" id="td-tile-hint"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">5</span>Training</h2>
+        <div id="td-basic" class="dl-params"></div>
+        <details class="an-details"><summary>Advanced (optimiser, augmentation, empty tiles, device…)</summary><div id="td-adv" class="dl-params"></div></details>
+      </div>
+      <div class="card">
+        <h2><span class="step">6</span>Output</h2>
+        <label>Model name<input id="td-name" maxlength="80" value="detector"></label>
+        <label>Save in folder <button type="button" class="tip" data-tip="A model folder is created inside it with best.pt, last.pt, model_config.json, training_log.csv, report.html and the training tiles. Empty = the project's models folder." aria-label="Help">i</button></label>
+        <div class="row tight"><input id="td-folder" placeholder="Project folder ▸ models" style="flex:1"><button class="btn" id="td-browse">Browse…</button></div>
+        <button class="btn primary big-btn" id="td-run">Train detection model</button>
+        <div id="td-error" class="warn err hidden"></div>
+      </div>
+      <div id="td-live" class="card hidden"></div>
+      <div id="td-result" class="hidden"></div>
+      </div>
       </div>
     </section>
 

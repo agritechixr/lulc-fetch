@@ -21,17 +21,19 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 15. [Classical ML: t-SNE map (unsupervised)](#15-classical-ml-t-sne-map-unsupervised)
 16. [Classical ML for raster](#16-classical-ml-for-raster)
 17. [Make training data](#17-make-training-data)
-18. [Deep learning: train a model](#18-deep-learning-train-a-model)
-19. [Deep learning: classify an image](#19-deep-learning-classify-an-image)
-20. [Export data](#20-export-data)
-21. [Downloads & jobs](#21-downloads--jobs)
-22. [Credentials](#22-credentials)
-23. [Command-line tool](#23-command-line-tool)
-24. [Data sources and band conventions](#24-data-sources-and-band-conventions)
-25. [Files and folders](#25-files-and-folders)
-26. [Limits and known issues](#26-limits-and-known-issues)
-27. [Troubleshooting](#27-troubleshooting)
-28. [For developers: adding a tool](#28-for-developers-adding-a-tool)
+18. [Train classify model](#18-train-classify-model)
+19. [Classify image](#19-classify-image)
+20. [Detect object](#20-detect-object)
+21. [Train detection model](#21-train-detection-model)
+22. [Export data](#22-export-data)
+23. [Downloads & jobs](#23-downloads--jobs)
+24. [Credentials](#24-credentials)
+25. [Command-line tool](#25-command-line-tool)
+26. [Data sources and band conventions](#26-data-sources-and-band-conventions)
+27. [Files and folders](#27-files-and-folders)
+28. [Limits and known issues](#28-limits-and-known-issues)
+29. [Troubleshooting](#29-troubleshooting)
+30. [For developers: adding a tool](#30-for-developers-adding-a-tool)
 
 ---
 
@@ -854,14 +856,16 @@ img = rasterio.open("images/my_dataset_r0003_c0007.tif").read()     # (bands, H,
 lab = rasterio.open("labels/my_dataset_r0003_c0007.tif").read(1)    # (H, W), 0 = ignore
 ```
 
-## 18. Deep learning: train a model
+## 18. Train classify model
 
-**Tools ▸ Deep learning: train a model** trains a semantic-segmentation network on a folder made with **Make training data**.
+**Tools ▸ Train classify model** trains a semantic-segmentation network on a folder made with **Make training data**.
 
 **The add-on.** The deep-learning tools use PyTorch and segmentation-models-pytorch (free, open source). The first time you open one of them, it offers **Install the deep-learning add-on**.
 - It is installed once from the internet: about 0.8 GB on Mac.
 - On Windows you choose **NVIDIA GPU (CUDA)**, about 3.5 GB, or **CPU only**, about 1.1 GB.
 - It goes into the app's data folder (`addons/`), or into the Python environment when running from source. Everything else in LULC Fetch works without it.
+
+**The YOLO & SAM add-on.** YOLO26 / YOLO11 and SAM 2.1 come from **ultralytics** (free, open source, **AGPL-3.0** licence). The tools that use them (YOLO26 semantic here, YOLO and SAM in **Detect object**, and **Train detection model**) offer **Install the YOLO & SAM add-on**: about 0.15 GB, installed once on top of the deep-learning add-on. LULC Fetch itself never ships ultralytics.
 
 1. **Training data.** Pick a dataset; the project's `training_data/` folder and folders used before are listed, and **Browse…** opens any other.
    - The summary shows the number of patches, the patch size, the band count and each class's share.
@@ -878,6 +882,7 @@ lab = rasterio.open("labels/my_dataset_r0003_c0007.tif").read(1)    # (H, W), 0 
    | SegFormer | Transformer-style decoder |
    | **FCN** (torchvision) | Classic baseline; ResNet-50 / 101 |
    | **LR-ASPP** (torchvision) | Tiny and fast; MobileNetV3 |
+   | **YOLO26 semantic** (ultralytics) | Very fast real-time network; size nano to extra large is chosen under *Backbone*. Pretrained on Cityscapes street scenes. Needs the YOLO & SAM add-on |
 
    - **Backbones:** MobileNetV2, MobileNetV3 large / small (fast), ResNet-18 / 34 / 50, EfficientNet-B0 / B2 / B4.
    - **ImageNet-pretrained** (on by default) downloads the backbone's weights once, 10–100 MB. They are adapted to any number of bands, so 3, 10, 16 or 64 bands all work. Without internet, training starts from random weights, and the report says so.
@@ -919,11 +924,11 @@ report.html          the evaluation report
 - **Example predictions:** image | ground truth | prediction for six patches.
 - All the settings.
 
-The result card also links to **Show in folder** and **Classify an image with it**.
+The result card also links to **Show in folder** and **Classify image with it**.
 
-## 19. Deep learning: classify an image
+## 19. Classify image
 
-**Tools ▸ Deep learning: classify an image** maps a whole image with a trained model.
+**Tools ▸ Classify image** maps a whole image with a trained model.
 
 1. **Model.** Pick a model; **Browse…** adds a model folder from elsewhere. The card shows its architecture, score, the bands it needs, its classes and a link to its report.
 2. **Image.** Tick the layer, or several layers to stack them like in Make training data. They must give the same bands in the same order as the training data.
@@ -939,7 +944,75 @@ The result card also links to **Show in folder** and **Classify an image with it
 
 The map is added to Contents with the class colours and names, and the result card shows the share of each class. The image is processed in strips, so very large scenes (a full Sentinel-2 tile) work with modest memory.
 
-## 20. Export data
+## 20. Detect object
+
+**Tools ▸ Detect object** finds objects in an image: vehicles, ships, planes, storage tanks, people, animals, sports fields… It draws a box, a rotated box or an outline around each one. Pretrained open-source models need no training, and models you train with **Train detection model** (section 21) are listed too. A model's weights are downloaded once, the first time you use it.
+
+> **Which images work?** The objects must be clearly visible: **high-resolution aerial, drone or satellite images with pixels of about 0.1–1 m** (e.g. NAIP, drone orthomosaics). At 10 m (Sentinel-2) a car is smaller than one pixel, so the tool warns you and will find little. For overhead images, start with **YOLO26 aerial (DOTA)**: the COCO models learned from street-level photos and sometimes take roofs or piers for buses or boats. **Largest object** and the minimum score remove such false detections.
+
+1. **Model.** The dropdown groups the models; ⓘ on each row explains it.
+
+   | Model | Classes | Notes |
+   |---|---|---|
+   | **YOLO26 aerial (DOTA)** | 15 aerial classes: plane, ship, small / large vehicle, storage tank, harbour, bridge, helicopter, roundabout, swimming pool, sports fields | **Rotated boxes**; the best start for satellite and aerial images. YOLO & SAM add-on |
+   | **YOLO26** | COCO (80 everyday classes) | Fast, accurate boxes. YOLO & SAM add-on |
+   | YOLO26 outlines | COCO | An outline for every object (instance segmentation). YOLO & SAM add-on |
+   | Faster R-CNN v2 / Faster R-CNN / Faster R-CNN Mobile, RetinaNet v2, FCOS, SSD300, SSDlite | COCO | torchvision, deep-learning add-on only |
+   | Mask R-CNN v2 | COCO | Outlines (torchvision) |
+   | **SAM 2.1: segment everything** | none | Outlines every distinct object or region (buildings, fields, trees, ponds…) without naming it; class = `segment`. Slow: several seconds per tile. YOLO & SAM add-on |
+   | **Your trained models** | yours | From Train detection model; **Add a trained model…** adds a model folder from elsewhere |
+
+   - **Model size** (YOLO: nano, small, medium, large, extra large; SAM: tiny, small, base, large). Bigger is more accurate and slower. Nano is weak on small objects such as cars at 0.6 m; medium is the default.
+2. **Image.** Pick the layer and the bands to use as **red, green and blue**. Sentinel-2-style band names (B04 / B03 / B02) and 8-bit RGB images are set automatically. Choose the same band three times for a greyscale image. **Brightness stretch:** 2–98 % for satellite or 16-bit data, *None (0–255)* for ordinary 8-bit photos. Your own models use the stretch they were trained with, and the panel warns when the bands differ from their training bands.
+3. **What to find.** The class list follows the model (COCO, DOTA or your model's classes), with presets such as Vehicles, Ships & harbours or Aircraft. It is hidden for SAM segment-everything.
+4. **Area & settings.**
+   - Area of interest. Objects whose centre lies outside it are left out.
+   - **Minimum score** (default 0.4): lower finds more objects but also more false ones.
+   - **Zoom:** enlarges the image before the model sees it. If a car is only 10–20 pixels wide, try 2× or 3×. For your own models, **Auto** zooms the image so objects look as big as in the training images (from the pixel sizes). The panel shows the number of tiles.
+   - **Tile overlap** (default 20 %). An object cut by a tile edge is found whole in the neighbouring tile. Objects larger than the overlap are cut into pieces, and the pieces are joined back into one object.
+   - **Duplicate overlap (IoU):** same-class boxes that overlap more than this count as one object (non-maximum suppression).
+   - **Outlines with SAM** (box models only): Segment Anything 2.1 turns every box into the object's exact outline (tiny, small, base or large).
+   - **Largest object (m)** *(optional)*: leaves out detections whose longer side is bigger than this, e.g. 25 m for vehicles. It needs an image in metres (UTM or another projected coordinate system).
+   - Batch size and device. On a Mac the Apple GPU is used; if a model can't run on it, the tool falls back to the CPU on its own.
+5. **Output.** A layer name, and optionally **Also save to a folder on my computer**.
+
+The objects are added to Contents as a **vector layer**, coloured by class. Each object has its `class` and `score` (0–1), plus `width_m`, `height_m` and `area_m2` when the image is in metres. The result card shows the count per class. The GeoJSON file is in the job's folder, and **Export data** saves the layer as a Shapefile, GeoJSON or KML.
+
+## 21. Train detection model
+
+**Tools ▸ Train detection model** trains **YOLO26** or **YOLO11** (ultralytics) to find your own objects, e.g. a crop's bales, solar panels, boats of a certain type or damaged roofs. It needs the deep-learning add-on and the YOLO & SAM add-on.
+
+1. **Image.** The layer, the bands used as red, green and blue, and the brightness stretch (as in Detect object; the model remembers them).
+2. **Labelled objects.** A vector layer from Contents with your objects: **polygons** drawn around them (Training samples, a shapefile or GeoJSON) or **points** on them, and the **class attribute** that names each object's class. Points become square boxes of the **box size** you give (e.g. 5 m for cars). The panel counts the shapes per class.
+   - **Label every object** of your classes in the area you train on: an unlabelled object teaches the model that it is background. Use **Area** to train only where you labelled.
+   - Classes with fewer than about 20 objects are hard to learn.
+3. **Model.**
+   - **Boxes** (default): an upright box per object. Fastest; works with rough shapes or points.
+   - **Outlines:** the exact outline of every object (instance segmentation). Needs polygons.
+   - **Rotated boxes:** a box turned to fit each object; best for ships, planes, vehicles and buildings seen from above. Starts from weights pretrained on DOTA aerial images.
+   - **YOLO version** (YOLO26 or YOLO11) and **size** (nano to extra large). **Start from pretrained weights** (on) learns much faster from a few hundred objects.
+4. **Tiles.** **Tile size** (640 px by default) is the model's input. **Zoom** enlarges the image first so small objects get bigger: try 2× when objects are under about 15 pixels. The panel shows how many metres a tile covers. **Overlap** (20 %).
+5. **Training.** **Epochs** (100), **batch size** (8), **patience** for early stopping (30) and **validation %** (20). Validation tiles are chosen in spatial blocks, so overlapping tiles rarely end up on both sides.
+   - **Advanced:** learning rate, optimiser, vertical flips (on: seen from above there is no "up"), random rotation, mosaic augmentation, **tiles without objects** (background examples, 20 % of the tiles with objects), how much of a cut object must be inside a tile to label it (40 %), device and seed.
+6. **Output.** **Model name** and **Save in folder** (empty = the project's `models/` folder).
+
+**While training**, the panel shows the training loss, mAP50 and mAP50-95 per epoch, with the best epoch marked, plus precision and recall. **Cancel** stops after the current epoch and keeps the best model.
+
+**The result card** shows the validation **mAP50** (a detection counts when it overlaps the true object by at least 50 %), **mAP50-95** (stricter overlaps: how exact the boxes are), **precision** and **recall**, and AP50 per class with the number of training / validation objects. **Detect objects with it** opens Detect object with the model chosen and Zoom set to Auto.
+
+**The model folder:**
+
+```
+best.pt              weights of the best epoch
+last.pt              weights of the last epoch
+model_config.json    task, classes and colours, bands, stretch, tile size, pixel size, scores
+training_log.csv     one row per epoch
+report.html          scores, per-class AP, training curves, confusion matrix, PR curves, example predictions
+dataset/             the training tiles and YOLO label files (data.yaml): reusable with other YOLO tools
+run/, val/           everything ultralytics wrote
+```
+
+## 22. Export data
 
 **Tools ▸ Export data**, or right-click a layer ▸ **Export / save to computer**.
 
@@ -959,7 +1032,7 @@ Files are saved to your browser's Downloads folder.
 
 ---
 
-## 21. Downloads & jobs
+## 23. Downloads & jobs
 
 **Tools ▸ Downloads & jobs** lists background jobs (downloads, composites, product downloads, Sentinel-1 processing, …). Each job shows:
 - its progress, current step and **Cancel**
@@ -972,7 +1045,7 @@ Downloads that finish while the app is open are added to Contents automatically.
 
 ---
 
-## 22. Credentials
+## 24. Credentials
 
 Click **Credentials** (top right). Secrets are stored in your **operating-system keychain** (macOS Keychain, Windows Credential Locker, Linux Secret Service). They're never shown again or sent back to the browser, and are only used with the service they belong to. Each entry has a **Test** button.
 
@@ -987,7 +1060,7 @@ Click **Credentials** (top right). Secrets are stored in your **operating-system
 
 ---
 
-## 23. Command-line tool
+## 25. Command-line tool
 
 `lulc-fetch` does the downloading parts without the web app. An area can be given as `--bbox minlon,minlat,maxlon,maxlat`, `--geojson file.geojson`, `--point lon,lat --buffer-km 5`, or `--match existing.tif` (reuse a raster's exact grid).
 
@@ -1017,7 +1090,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 24. Data sources and band conventions
+## 26. Data sources and band conventions
 
 | Source | Login | Notes |
 |---|---|---|
@@ -1032,7 +1105,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 25. Files and folders
+## 27. Files and folders
 
 With a project open, these folders are inside the project folder (next to `lulc_project.json`). Without a project they are in the app's folder (the temporary workspace). `data/` is always also read from the app's folder. The list of recent projects is stored in `~/.lulc-fetch/recent.json`.
 
@@ -1044,7 +1117,7 @@ With a project open, these folders are inside the project folder (next to `lulc_
 | `downloads/` | Job outputs (downloads, maps, stacks…), one folder per job |
 | `tables/` | Tables you added, clustering results (with a `cluster` column), t-SNE maps (`tsne_1`, `tsne_2`), (CSV, TSV and Excel are converted to CSV; Parquet is kept) and Raster → table outputs (with a `.json` description) |
 | `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports; deep-learning models as folders (`best_model.pt`, `model_config.json`, `report.html`…) |
-| `addons/` | (desktop app) the deep-learning add-on (PyTorch), if installed |
+| `addons/` | (desktop app) the deep-learning add-on (PyTorch) and the YOLO & SAM add-on (ultralytics), if installed |
 | `training_data/` | Datasets made with Make training data when no folder is chosen (images/, labels/, classes.txt, dataset.json…) |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files, index exports, other exports |
 
@@ -1052,7 +1125,7 @@ All of these are excluded from git.
 
 ---
 
-## 26. Limits and known issues
+## 28. Limits and known issues
 
 - **Download size:** one download is capped at 60 M pixels (≈77 × 77 km at 10 m). Use a coarser pixel size or split the area.
 - **Map previews** of large rasters are drawn at reduced resolution (≈1400 px), and their statistics come from that preview unless you pick an area. **GeoTIFF exports are always full resolution.**
@@ -1070,7 +1143,7 @@ All of these are excluded from git.
 
 ---
 
-## 27. Troubleshooting
+## 29. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -1085,7 +1158,7 @@ All of these are excluded from git.
 
 ---
 
-## 28. For developers: adding a tool
+## 30. For developers: adding a tool
 
 The web app is a FastAPI backend (`webapp/server.py`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package.
 

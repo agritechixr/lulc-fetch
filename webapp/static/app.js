@@ -188,6 +188,8 @@
     tsne: '<circle cx="6" cy="7" r="1.5"/><circle cx="8" cy="9.5" r="1.5"/><circle cx="5" cy="11" r="1.5"/><circle cx="16" cy="6" r="1.5"/><circle cx="18" cy="8.5" r="1.5"/><circle cx="12" cy="17" r="1.5"/><circle cx="14.5" cy="18.5" r="1.5"/><circle cx="11" cy="20" r="1.5"/><path d="M3 3v18h18" opacity=".55"/>',
     dl: '<circle cx="5" cy="7" r="1.8"/><circle cx="5" cy="17" r="1.8"/><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/><circle cx="19" cy="12" r="1.8"/><path d="M6.7 7.5l3.6 4M6.7 16.5l3.6-4M6.7 7l3.5-1.5M6.7 17l3.5 1.5M13.8 5.8l3.6 5.3M13.8 18.2l3.6-5.3M13.8 12H17.2" opacity=".6"/>',
     dlmap: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 14l5-4 4 3 4-5 5 4" opacity=".6"/><circle cx="16.5" cy="16.5" r="3.2" fill="currentColor" stroke="none" opacity=".8"/>',
+    traindet: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".45"/><rect x="6" y="6" width="7" height="6" rx=".5"/><path d="M14 19l2.5-2.5L19 19M16.5 16.5V21" opacity=".9"/><path d="M6 15h5M6 17.5h3" opacity=".6"/>',
+    detect: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".45"/><rect x="6" y="7" width="7" height="6" rx=".5"/><rect x="12" y="13" width="6" height="5" rx=".5" fill="currentColor" fill-opacity=".35"/><path d="M6 5.5h3"/>',
     patches: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" opacity=".55"/><rect x="9" y="9" width="6" height="6" fill="currentColor" stroke="none" opacity=".8"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>',
   };
@@ -201,8 +203,10 @@
     { id: "raster2table", title: "Raster → table", icon: "table", subtitle: "Turn any image (multispectral, hyperspectral, SAR) into a table, with optional ground-truth labels" },
     { id: "ml", title: "Classical ML (tabular data)", icon: "ml", subtitle: "Machine-learning tools that work on tables" },
     { id: "rasterml", title: "Classical ML for raster", icon: "rasterml", subtitle: "Train SVM, Maximum Likelihood, Random Forest, SAM and more straight from an image and ground truth, and map it: RGB, multispectral, hyperspectral or embeddings" },
-    { id: "dltrain", title: "Deep learning: train a model", icon: "dl", subtitle: "Train U-Net, DeepLabV3+, PSPNet, FCN, SegFormer and more (MobileNetV2/V3, ResNet, EfficientNet backbones) on your Make-training-data patches, with early stopping and an HTML report" },
-    { id: "dlpredict", title: "Deep learning: classify an image", icon: "dlmap", subtitle: "Map a whole image with a trained deep-learning model (tiled, seamless), with a confidence layer" },
+    { id: "dltrain", title: "Train classify model", icon: "dl", subtitle: "Train U-Net, DeepLabV3+, PSPNet, FCN, SegFormer and more (MobileNetV2/V3, ResNet, EfficientNet backbones) on your Make-training-data patches, with early stopping and an HTML report" },
+    { id: "dlpredict", title: "Classify image", icon: "dlmap", subtitle: "Map a whole image with a model from Train classify model (deep learning, tiled, seamless), with a confidence layer" },
+    { id: "detect", title: "Detect object", icon: "detect", subtitle: "Find vehicles, ships, planes, people, storage tanks and more in high-resolution images: YOLO26 (incl. aerial DOTA model), Faster R-CNN, RetinaNet, Mask R-CNN, SAM 2.1 segment-everything, or your own trained models. Boxes or outlines as a vector layer" },
+    { id: "traindet", title: "Train detection model", icon: "traindet", subtitle: "Train YOLO26 / YOLO11 to find your own objects (boxes, outlines or rotated boxes) from an image and labelled polygons or points, with early stopping, live curves and an HTML report" },
     { id: "patches", title: "Make training data", icon: "patches", subtitle: "Cut large images and their ground truth into image / label patches for deep-learning training" },
     { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
@@ -268,6 +272,8 @@
     if (tool.id === "patches") refreshPt();
     if (tool.id === "dltrain") refreshDt();
     if (tool.id === "dlpredict") refreshDp();
+    if (tool.id === "detect") refreshOd();
+    if (tool.id === "traindet") refreshTd();
     if (tool.id === "samples") renderSamples();
     if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
@@ -644,6 +650,8 @@
     if (currentTool === "rasterml" && rm.ready) refreshRm();
     if (currentTool === "patches") refreshPt();
     if (currentTool === "dlpredict" && dlx.schema) renderDpLayers();
+    if (currentTool === "detect" && od.schema) renderOdLayers();
+    if (currentTool === "traindet" && td.schema) { renderTdLayers(); renderTdGt(); }
     if (currentTool === "samples") renderSamples();
     if (currentTool === "stack") refreshStack();
     if (currentTool === "ml" && mlSub === "predict" && mlx.schema) refreshPredictRasters();
@@ -715,8 +723,9 @@
     $$("button", m).forEach((b) => b.onclick = (e) => { e.stopPropagation(); hideCtx(); items[+b.dataset.i][1](); });
     m.classList.remove("hidden");
     const r = m.getBoundingClientRect();
-    m.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
-    m.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
+    m.scrollTop = 0;
+    m.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + "px";
+    m.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + "px";
   }
   function hideCtx() { $("#ctx-menu").classList.add("hidden"); }
 
@@ -1964,7 +1973,7 @@
   const SAVE_SPOTS = [  // [key, element the option goes before, what is saved]
     ["search", "#dl-go", "the downloaded files"], ["analyze", "#ex-go", "the exported GeoTIFF"], ["pca", "#pca-run", "the result GeoTIFF"],
     ["stack", "#st-run", "the stacked GeoTIFF"], ["raster2table", "#rt-run", "the table"], ["train", "#mt-run", "the model and its evaluation report"],
-    ["predict", "#mp-run", "the map"], ["rasterml", "#rm-run", "the classified map and the model (with its evaluation report)"], ["dlpredict", "#dp-run", "the classified map"], ["cluster", "#uc-run", "the table with clusters (and the model)"], ["tsne", "#ut-run", "the table with map coordinates"],
+    ["predict", "#mp-run", "the map"], ["rasterml", "#rm-run", "the classified map and the model (with its evaluation report)"], ["dlpredict", "#dp-run", "the classified map"], ["detect", "#od-run", "the detected objects (GeoJSON)"], ["cluster", "#uc-run", "the table with clusters (and the model)"], ["tsne", "#ut-run", "the table with map coordinates"],
   ];
   function saveToHtml(key, what, label = "Also save to a folder on my computer") {
     const dir = prefs.get(`save-dir:${key}`, key === "train" ? prefs.get("report-dir", "") : "") || prefs.get("save-dir:last", "");
@@ -2495,6 +2504,8 @@
     "rm-area": { what: "image is used", onChange: () => {} },
     "pt-area": { what: "image is cut into patches", onChange: () => ptChanged() },
     "dp-area": { what: "image is classified", onChange: () => {} },
+    "od-area": { what: "image is searched", onChange: () => odEstimate() },
+    "td-area": { what: "image is used for training", onChange: () => {} },
     "st-area": { what: "reference extent is used", onChange: () => {} },
   };
   const polygonLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
@@ -3328,7 +3339,7 @@
     }
     for (const j of list) {
       // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
-      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches", "dltrain", "dlpredict", "dlinstall"].includes(j.kind)) continue;
+      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches", "dltrain", "dlpredict", "detect", "dettrain", "dlinstall"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
@@ -3861,7 +3872,7 @@
     let left = r.left + r.width / 2 - pr.width / 2, top = r.bottom + 8;
     if (top + pr.height > innerHeight - 8) top = r.top - pr.height - 8;
     pop.style.left = Math.max(8, Math.min(left, innerWidth - pr.width - 8)) + "px";
-    pop.style.top = top + "px";
+    pop.style.top = Math.max(8, top) + "px";
     tipFor = btn;
   }
   function hideTip(force = false) {
@@ -5621,18 +5632,18 @@
         await trackJob(job, { title: "Installing the deep-learning add-on" });
         await dlStatus(true);
         toast("Deep-learning add-on installed");
-        renderAddon(panel).then((ok) => ok && (panel.id === "tab-dltrain" ? refreshDt() : refreshDp()));
+        renderAddon(panel).then((ok) => ok && ({ "tab-dltrain": refreshDt, "tab-detect": refreshOd, "tab-traindet": refreshTd }[panel.id] || refreshDp)());
       } catch (err) { if (notCancelled(err)) toast(err.message, true); }
       finally { btn.disabled = false; }
     };
     return false;
   }
-  function dlParamField(p, value) {
+  function dlParamField(p, value, scope = "dl") {
     if (p.kind === "multi") {
       const v = new Set(value || []);
       return `<div class="pca-field wide"><span>${esc(p.title)}${tipBtn(p.tip)}</span><div class="chk-row">${p.choices.map(([k, t]) => `<label><input type="checkbox" data-dlmulti="${p.name}" value="${k}" ${v.has(k) ? "checked" : ""}>${esc(t)}</label>`).join("")}</div></div>`;
     }
-    return mlField({ ...p, type: p.kind === "choice" ? "select" : p.kind, label: p.title, options: p.choices }, value, "dl");
+    return mlField({ ...p, type: p.kind === "choice" ? "select" : p.kind, label: p.title, options: p.choices }, value, scope);
   }
   function dlParams() {
     const out = {};
@@ -5670,11 +5681,12 @@
   function renderDtArchs() {
     const sc = dlx.schema;
     modelPicker($("#dt-archs"), { value: dlx.arch, onChange: (k) => { dlx.arch = k; renderDtArchs(); },
-      items: Object.entries(sc.archs).map(([k, a]) => ({ id: k, title: a.title, group: a.lib === "tv" ? "torchvision" : "segmentation-models-pytorch",
+      items: Object.entries(sc.archs).map(([k, a]) => ({ id: k, title: a.title, group: { tv: "torchvision", yolo: "YOLO · ultralytics (YOLO & SAM add-on)" }[a.lib] || "segmentation-models-pytorch",
         badge: k === "unet" ? "recommended" : "", meta: starMeta(a.accuracy, a.speed, 5), tip: a.desc })) });
     const a = sc.archs[dlx.arch], encs = a.encoders || sc.smp_encoders, cur = $("#dt-enc").value;
     $("#dt-enc").innerHTML = encs.map((e) => `<option value="${e}">${esc(sc.encoders[e])}</option>`).join("");
-    $("#dt-enc").value = encs.includes(cur) ? cur : encs.includes("tu-mobilenetv3_large_100") ? "tu-mobilenetv3_large_100" : encs[0];
+    $("#dt-enc").value = encs.includes(cur) ? cur : encs.includes("tu-mobilenetv3_large_100") ? "tu-mobilenetv3_large_100" : encs.includes("yolo-s") ? "yolo-s" : encs[0];
+    if (a.lib === "yolo") renderYoloAddon($("#dt-yolo"), "YOLO26 semantic", () => renderDtArchs()); else $("#dt-yolo").classList.add("hidden");
     $("#dt-name").value = $("#dt-name").dataset.touched ? $("#dt-name").value : `${(dlx.ds?.name || "model")}_${dlx.arch}`.slice(0, 60);
   }
   $("#dt-name").addEventListener("input", () => $("#dt-name").dataset.touched = "1");
@@ -5768,7 +5780,7 @@
         <div class="dist" style="margin-top:8px">${c.classes.map((k, i) => `<div style="grid-template-columns:minmax(0,1.6fr) 2fr auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(k.color || "#999")}"></i> ${esc(k.name)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * (ev.iou[i] || 0))}%;background:${esc(k.color || "")}"></span></span><b title="IoU">${pct(ev.iou[i])}</b></div>`).join("")}</div>
         <p class="hint" style="word-break:break-all">${esc(r.folder)}</p>
         <div class="row tight" style="flex-wrap:wrap"><a class="btn primary" href="${reportUrl}" target="_blank" rel="noopener">Open report</a><a class="btn" href="${reportUrl}&download=true">Download report</a>
-          <button class="btn" data-dt-reveal>Show in folder</button><button class="btn" data-dt-use>Classify an image with it</button></div>
+          <button class="btn" data-dt-reveal>Show in folder</button><button class="btn" data-dt-use>Classify image with it</button></div>
       </div>`;
     box.classList.remove("hidden");
     $("[data-dt-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e.message, true));
@@ -5785,7 +5797,7 @@
     try { dlx.models = await api("/api/dl/models"); } catch { dlx.models = []; }
     const sel = $("#dp-model"), cur = prefs.get("dp-model", "") || sel.value;
     sel.innerHTML = dlx.models.length ? dlx.models.map((m) => `<option value="${esc(m.folder)}">${esc(m.name)} · ${esc(m.arch)}${m.miou != null ? ` · mIoU ${fmt(100 * m.miou, 1)}%` : ""}</option>`).join("")
-      : `<option value="">No models yet: train one with Deep learning: train a model, or Browse…</option>`;
+      : `<option value="">No models yet: train one with Train classify model, or Browse…</option>`;
     if (dlx.models.some((m) => m.folder === cur)) sel.value = cur;
     dpModelChanged();
   }
@@ -5803,6 +5815,7 @@
       prefs.set("dp-model", ""); refreshDp();
     });
     if (m && !$("#dp-name").dataset.touched) $("#dp-name").value = `${m.name}_map`.slice(0, 60);
+    if (m && /^YOLO/.test(m.arch || "")) renderYoloAddon($("#dp-yolo"), "This model", () => dpModelChanged()); else $("#dp-yolo").classList.add("hidden");
     renderDpLayers();
   }
   $("#dp-name").addEventListener("input", () => $("#dp-name").dataset.touched = "1");
@@ -5857,6 +5870,429 @@
       if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
     } finally { btn.disabled = false; }
   };
+
+  // ------------------------------------------------------------------ YOLO & SAM add-on (ultralytics), on top of the PyTorch add-on
+  function renderYoloAddon(box, why, onReady) {
+    const st = dlx.status, ys = st?.yolo || {};
+    box.classList.toggle("hidden", !!ys.available);
+    if (ys.available) { box.innerHTML = ""; return true; }
+    box.innerHTML = `<div class="card dl-addon"><h2>YOLO &amp; SAM add-on needed</h2>
+      <p class="hint" style="margin-top:0">${esc(why)} uses <b>ultralytics</b> (YOLO26, YOLO11 and SAM 2.1), free and open source under the
+      <b>AGPL-3.0</b> licence (free to use; sharing a modified version requires sharing its source). It is installed once, from the internet
+      (about ${fmt((st?.size_mb?.yolo || 150) / 1000, 2)} GB), on top of the deep-learning add-on; LULC Fetch doesn't ship it.</p>
+      <div class="pkgs">pip install ultralytics</div>
+      <button class="btn primary big-btn" data-yolo-install>Install the YOLO &amp; SAM add-on</button></div>`;
+    $("[data-yolo-install]", box).onclick = async (e) => {
+      const btn = e.currentTarget; btn.disabled = true;
+      try {
+        const job = await api("/api/dl/install", { method: "POST", json: { variant: "yolo" } });
+        await trackJob(job, { title: "Installing the YOLO & SAM add-on" });
+        await dlStatus(true);
+        toast("YOLO & SAM add-on installed");
+        onReady?.();
+      } catch (err) { if (notCancelled(err)) toast(err.message, true); }
+      finally { btn.disabled = false; }
+    };
+    return false;
+  }
+
+  // red / green / blue band pickers for one image (Detect object, Train detection model)
+  function rgbDefaults(l) {
+    const info = l.info || {}, bm = info.band_map || {}, n = info.count || 1;
+    if (info.rgb) return [1, 2, 3];
+    if (["B04", "B03", "B02"].every((b) => b in bm)) return ["B04", "B03", "B02"].map((b) => bm[b]);
+    if (["red", "green", "blue"].every((b) => b in bm)) return ["red", "green", "blue"].map((b) => bm[b]);
+    if (Array.isArray(l.render?.rgb) && l.render.rgb.every((b) => typeof b === "number")) return l.render.rgb;
+    return n >= 3 ? [1, 2, 3] : [1, 1, 1];
+  }
+  function renderRgbPickers(el, l, onChange) {
+    const b = rgbDefaults(l), bands = l.info?.bands || [];
+    const all = Array.from({ length: l.info?.count || 1 }, (_, i) => `<option value="${i + 1}">${i + 1} · ${esc(bands[i]?.description || `band ${i + 1}`)}</option>`).join("");
+    el.innerHTML = ["Red", "Green", "Blue"].map((c, k) => `<label>${c}<select data-rgb="${k}">${all}</select></label>`).join("");
+    $$("[data-rgb]", el).forEach((s, k) => { s.value = b[k]; s.onchange = onChange; });
+  }
+  const rgbChosen = (el) => $$("[data-rgb]", el).map((s) => +s.value);
+  const rgbBody = (bands) => new Set(bands).size === 1 ? [bands[0]] : bands;
+  const defaultStretch = (l) => l.info?.rgb || l.info?.dtype === "uint8" ? "byte" : "percent";
+
+  // ------------------------------------------------------------------ Detect object (pretrained detectors, SAM, or your own models)
+  const od = { schema: null, model: prefs.get("od-model", null), layerId: null, classes: null, custom: [], classKey: null };
+  const OD_PRESETS = {
+    coco: [["All", null], ["Vehicles", ["car", "truck", "bus", "motorcycle", "bicycle", "train"]], ["Boats & planes", ["boat", "airplane"]],
+           ["People", ["person"]], ["Animals", ["cow", "sheep", "horse", "elephant", "giraffe", "zebra", "bird"]]],
+    dota: [["All", null], ["Vehicles", ["small vehicle", "large vehicle"]], ["Ships & harbours", ["ship", "harbor"]], ["Aircraft", ["plane", "helicopter"]],
+           ["Infrastructure", ["storage tank", "bridge", "roundabout", "swimming pool"]],
+           ["Sports fields", ["baseball diamond", "tennis court", "basketball court", "ground track field", "soccer ball field"]]],
+  };
+  const odRasters = () => layers.filter((l) => l.type === "raster" && !l.derived && l.path);
+  const odLayer = () => getLayer($("#od-layer").value);
+  const odCustom = () => od.model.startsWith("custom:") ? od.custom.find((m) => "custom:" + m.folder === od.model) : null;
+  const odSpec = () => odCustom() ? { family: "custom", outlines: odCustom().task !== "detect", size: odCustom().tile_px } : od.schema?.models[od.model];
+  async function refreshOd() {
+    if (!(await renderAddon($("#tab-detect")))) return;
+    if (!od.schema) {
+      od.schema = await api("/api/detect/schema");
+      [...$("#od-device").options].forEach((o) => { if (o.value !== "auto" && !dlx.status.devices.includes(o.value)) o.disabled = true; });
+    }
+    try { od.custom = await api("/api/det/models"); } catch { od.custom = []; }
+    if (!od.model) od.model = dlx.status.yolo?.available ? "yolo_obb" : "fasterrcnn_v2";
+    renderOdModels();
+    renderOdLayers();
+  }
+  // the class list depends on the model: COCO, DOTA, your model's classes, or none (SAM)
+  function odClassList() {
+    const m = odCustom();
+    if (m) return { key: "custom:" + m.folder, all: m.classes.map((c) => c.name), first: [], colors: Object.fromEntries(m.classes.map((c) => [c.name, c.color])), presets: [["All", null]] };
+    const spec = odSpec(), sc = od.schema;
+    if (!spec?.classes) return null;
+    const all = sc.classes[spec.classes];
+    return { key: spec.classes, all, first: spec.classes === "coco" ? sc.aerial : all, colors: sc.colors, presets: OD_PRESETS[spec.classes] || [["All", null]] };
+  }
+  function renderOdClasses() {
+    const cl = odClassList();
+    $("#od-classes-card").classList.toggle("hidden", !cl);
+    if (!cl) return;
+    if (od.classKey !== cl.key) {   // another class list: restore what was picked for it last time
+      od.classKey = cl.key;
+      od.classes = prefs.get(`od-classes:${cl.key}`, null);
+      if (od.classes) od.classes = od.classes.filter((c) => cl.all.includes(c));
+      if (!od.classes?.length) od.classes = null;
+      const box = (c) => `<label><input type="checkbox" data-odc="${esc(c)}"><i style="background:${esc(cl.colors[c] || "#999")}"></i>${esc(c)}</label>`;
+      $("#od-classes").innerHTML = cl.first.map(box).join("");
+      const rest = cl.all.filter((c) => !cl.first.includes(c));
+      $("#od-classes-more").innerHTML = rest.map(box).join("");
+      $("#od-classes-more").closest("details").classList.toggle("hidden", !rest.length);
+      if (!cl.first.length) { $("#od-classes").innerHTML = $("#od-classes-more").innerHTML; $("#od-classes-more").innerHTML = ""; $("#od-classes-more").closest("details").classList.add("hidden"); }
+      $("#od-presets").innerHTML = cl.presets.map(([t], i) => `<button class="chip" data-odp="${i}">${esc(t)}</button>`).join("");
+      $$("[data-odp]").forEach((b) => b.onclick = () => { od.classes = cl.presets[+b.dataset.odp][1]; syncOdClasses(); });
+      $$("[data-odc]").forEach((c) => c.onchange = () => {
+        const on = $$("[data-odc]").filter((x) => x.checked).map((x) => x.dataset.odc);
+        od.classes = on.length && on.length < cl.all.length ? on : null;
+        syncOdClasses();
+      });
+    }
+    syncOdClasses();
+  }
+  function syncOdClasses() {
+    const cl = odClassList();
+    if (!cl) return;
+    const set = od.classes ? new Set(od.classes) : null;
+    $$("[data-odc]").forEach((c) => c.checked = !set || set.has(c.dataset.odc));
+    $$("[data-odp]").forEach((b) => { const p = cl.presets[+b.dataset.odp][1]; b.classList.toggle("active", JSON.stringify(p) === JSON.stringify(od.classes)); });
+    $("#od-cls-hint").textContent = set ? `Looking for ${od.classes.length} class${od.classes.length > 1 ? "es" : ""}: ${od.classes.join(", ")}.` : `Looking for all ${cl.all.length} classes.`;
+    prefs.set(`od-classes:${cl.key}`, od.classes);
+  }
+  function renderOdModels() {
+    const ms = od.schema.models;
+    if (!ms[od.model] && !odCustom()) od.model = dlx.status.yolo?.available ? "yolo_obb" : "fasterrcnn_v2";
+    const ys = dlx.status?.yolo?.available, groups = { tv: "torchvision · COCO (PyTorch add-on)", yolo: "YOLO26 · ultralytics", sam: "Segment Anything" };
+    const needs = (fam) => fam !== "tv" && !ys ? "needs the YOLO & SAM add-on" : "";
+    const items = Object.entries(ms).map(([k, m]) => ({ id: k, title: m.title, group: groups[m.family] + (needs(m.family) ? " (add-on not installed)" : ""),
+        badge: k === "yolo_obb" ? "aerial" : k === "yolo_detect" ? "recommended" : "", meta: starMeta(m.accuracy, m.speed, 5),
+        tip: `${m.desc}${m.backbone ? ` Backbone: ${m.backbone}.` : ""}${m.mb ? ` Download ${m.mb} MB, once.` : ""}` }));
+    items.sort((a, b) => (a.group.startsWith("YOLO") ? 0 : a.group.startsWith("torch") ? 1 : 2) - (b.group.startsWith("YOLO") ? 0 : b.group.startsWith("torch") ? 1 : 2));
+    od.custom.forEach((m) => items.push({ id: "custom:" + m.folder, title: m.name, group: "Your trained models", badge: m.task === "obb" ? "rotated" : m.task === "segment" ? "outlines" : "",
+      meta: m.map50 != null ? `<span title="Validation mAP50">mAP50 <b>${fmt(100 * m.map50, 1)}%</b></span>` : "", tip: `${m.arch || ""} · ${m.classes.length} classes: ${m.classes.map((c) => c.name).join(", ")} · trained ${m.trained || ""}` }));
+    modelPicker($("#od-models"), { value: od.model, onChange: (k) => { od.model = k; prefs.set("od-model", k); renderOdModels(); odLayerChanged(true); }, items });
+    const m = odCustom(), spec = odSpec(), sc = od.schema;
+    // model size (YOLO n–x, SAM t–l)
+    const sizes = !m && spec.sizes ? [...spec.sizes] : [];
+    $("#od-size-wrap").classList.toggle("hidden", !sizes.length);
+    if (sizes.length) {
+      const cur = prefs.get(`od-size:${od.model}`, spec.default_size);
+      $("#od-size").innerHTML = sizes.map((z) => `<option value="${z}">${esc(spec.family === "sam" ? sc.sam_sizes[z] : `${z} · ${sc.sizes[z]}`)}</option>`).join("");
+      $("#od-size").value = sizes.includes(cur) ? cur : spec.default_size;
+    }
+    $("#od-model-info").innerHTML = m
+      ? `Your model · ${esc(m.arch || "")} · ${m.classes.length} classes · tiles of ${m.tile_px} px${m.pixel_size ? ` · learned at ${fmt(m.pixel_size, 2)} m per model pixel (Zoom Auto matches it)` : ""}${m.has_report ? ` · <a href="/api/det/report?folder=${encodeURIComponent(m.folder)}" target="_blank" rel="noopener">report</a>` : ""} · <a href="#" data-od-forget>remove from list</a>`
+      : `${esc(spec.desc)}${spec.backbone ? ` ${esc(spec.backbone)} backbone.` : ""} The model looks at tiles of ${spec.size} px.`;
+    $("[data-od-forget]", $("#od-model-info"))?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await api(`/api/det/models?folder=${encodeURIComponent(m.folder)}`, { method: "DELETE" }).catch((x) => toast(x.message, true));
+      od.model = "yolo_obb"; prefs.set("od-model", od.model); refreshOd();
+    });
+    // SAM outlines: only for box models
+    $("#od-sam-wrap").classList.toggle("hidden", !!spec.outlines);
+    // auto zoom only for your models
+    const zAuto = $("#od-zoom option[value=auto]");
+    zAuto.classList.toggle("hidden", !m); zAuto.disabled = !m;
+    if (m && !od.zoomTouched) $("#od-zoom").value = m.pixel_size ? "auto" : "1";
+    if (!m && $("#od-zoom").value === "auto") $("#od-zoom").value = "1";
+    const needAddon = !!m || spec.family !== "tv" || !!$("#od-sam").value;
+    if (needAddon) renderYoloAddon($("#od-yolo"), spec.family === "sam" ? "SAM 2.1" : "This model", () => refreshOd());
+    else $("#od-yolo").classList.add("hidden");
+    renderOdClasses();
+    odEstimate();
+  }
+  $("#od-size").onchange = () => { prefs.set(`od-size:${od.model}`, $("#od-size").value); odEstimate(); };
+  $("#od-sam").onchange = () => renderOdModels();
+  $("#od-zoom").addEventListener("change", () => od.zoomTouched = true);
+  $("#od-browse").onclick = async () => {
+    const f = await pickFolder({ title: "Choose a detection model folder (made with Train detection model)", start: prefs.get("od-last", ""), okLabel: "Use this model" });
+    if (!f) return;
+    try { const r = await api("/api/det/models/add", { method: "POST", json: { folder: f } }); prefs.set("od-last", f); od.model = "custom:" + r.folder; prefs.set("od-model", od.model); refreshOd(); }
+    catch (e) { toast(e.message, true); }
+  };
+  function renderOdLayers() {
+    const rasters = odRasters(), sel = $("#od-layer"), cur = sel.value || od.layerId;
+    sel.innerHTML = rasters.length ? rasters.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info?.count ?? "?"} bands</option>`).join("")
+      : `<option value="">Add a high-resolution image to Contents first (+ Add data)</option>`;
+    if (rasters.some((l) => l.id === cur)) sel.value = cur;
+    odLayerChanged();
+  }
+  function odLayerChanged(modelChanged = false) {
+    const l = odLayer();
+    if (!l) { $("#od-bands").innerHTML = ""; $("#od-check").textContent = ""; return; }
+    if (od.layerId !== l.id) {   // a new image: its own default bands and stretch
+      od.layerId = l.id;
+      renderRgbPickers($("#od-bands"), l, odCheck);
+      $("#od-stretch").value = defaultStretch(l);
+      if (!$("#od-name").dataset.touched) $("#od-name").value = `${l.name}_objects`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 60);
+    }
+    const m = odCustom();
+    if (m && modelChanged && m.stretch) $("#od-stretch").value = m.stretch;   // your model: the stretch it was trained with
+    odCheck();
+    odEstimate();
+  }
+  function odCheck() {
+    const l = odLayer(), m = odCustom(), spec = odSpec();
+    const b = rgbChosen($("#od-bands"));
+    const px = l?.info?.res?.[0];
+    const geo = l?.info?.crs && /4326/.test(l.info.crs);
+    const msgs = [];
+    if (b.length && new Set(b).size === 1) msgs.push("One band in all three colours: the image is used as greyscale.");
+    if (m && m.bands && b.length) {
+      const names = (l.info?.bands || []).map((x) => x.description);
+      const chosen = b.map((i) => names[i - 1]);
+      if (chosen.join() !== m.bands.join()) msgs.push(`<span style="color:var(--warn)">⚠ The model was trained on bands ${esc(m.bands.join(", "))}; you chose ${esc(chosen.join(", "))}.</span>`);
+    }
+    if (px && !geo && px >= 5 && spec?.family !== "sam") msgs.push(`<span style="color:var(--warn)">⚠ ${fmt(px, 1)} m pixels: vehicles, boats, people… are smaller than a pixel here, so detectors will find little. They need about 0.1–1 m pixels (aerial, drone, very-high-resolution satellite).</span>`);
+    else if (px && !geo && !m) msgs.push(`${fmt(px, 2)} m pixels${px > 0.6 && spec?.classes === "coco" ? ": small objects like cars are only a few pixels wide, try Zoom 2× or 3×" : ""}.`);
+    $("#od-check").innerHTML = msgs.join(" ");
+  }
+  function odEstimate() {
+    const l = odLayer(), spec = odSpec(), m = odCustom();
+    if (!l || !spec || !l.info?.width) { $("#od-est").textContent = ""; return; }
+    let zoom = $("#od-zoom").value === "auto" ? (m?.pixel_size && l.info.res ? l.info.res[0] / m.pixel_size : 1) : +$("#od-zoom").value;
+    const size = m ? m.tile_px : spec.size;
+    const T = Math.max(64, Math.round(size / zoom)), S = T - Math.round(T * +$("#od-overlap").value);
+    const clip = getClip("od-area");
+    let w = l.info.width, h = l.info.height;
+    if (clip && l.info.bounds) {   // rough share of the image covered by the area's bounding box
+      const [[y0, x0], [y1, x1]] = l.info.bounds, cs = (clip.type === "Polygon" ? clip.coordinates : clip.coordinates.flat()).flat();
+      w *= Math.min(1, (Math.max(...cs.map((c) => c[0])) - Math.min(...cs.map((c) => c[0]))) / ((x1 - x0) || 1));
+      h *= Math.min(1, (Math.max(...cs.map((c) => c[1])) - Math.min(...cs.map((c) => c[1]))) / ((y1 - y0) || 1));
+    }
+    const n = Math.max(1, Math.ceil(Math.max(w - (T - S), 1) / S)) * Math.max(1, Math.ceil(Math.max(h - (T - S), 1) / S));
+    $("#od-est").textContent = `About ${n.toLocaleString()} tile${n > 1 ? "s" : ""} of ${T} × ${T} image pixels${$("#od-zoom").value === "auto" ? ` (zoom ${fmt(zoom, 2)}×)` : ""}${spec.family === "sam" ? ". Segment everything takes several seconds per tile." : "."}`;
+  }
+  $("#od-layer").onchange = () => odLayerChanged();
+  ["#od-zoom", "#od-overlap"].forEach((s) => $(s).addEventListener("change", odEstimate));
+  $("#od-name").addEventListener("input", () => $("#od-name").dataset.touched = "1");
+  $("#od-run").onclick = async () => {
+    const err = $("#od-error"); err.classList.add("hidden");
+    const l = odLayer();
+    if (!l) return toast("Choose the image to search", true);
+    const m = odCustom(), spec = odSpec();
+    const name = $("#od-name").value.trim() || "objects";
+    const body = { input: { path: l.path, name: l.name, bands: rgbBody(rgbChosen($("#od-bands"))) },
+                   model: m ? "custom" : od.model, custom: m ? m.folder : null, size: !m && spec.sizes ? $("#od-size").value : null,
+                   sam_refine: !spec.outlines ? ($("#od-sam").value || null) : null,
+                   clip: getClip("od-area"), classes: odClassList() ? od.classes : null, score: +$("#od-score").value || 0.4,
+                   zoom: $("#od-zoom").value === "auto" ? "auto" : +$("#od-zoom").value,
+                   overlap: +$("#od-overlap").value, nms_iou: +$("#od-iou").value || 0.5, stretch: $("#od-stretch").value,
+                   batch_size: +$("#od-batch").value || 2, device: $("#od-device").value, max_size_m: +$("#od-maxsize").value || null, name };
+    const btn = $("#od-run"); btn.disabled = true; $("#od-result").classList.add("hidden");
+    try {
+      const job = await api("/api/detect/run", { method: "POST", json: body });
+      const done = await trackJob(job, { tool: "detect", title: `Detecting objects with ${m ? m.name : spec.title}`, save: "detect" });
+      const r = done.result;
+      const box = $("#od-result");
+      if (r.count) {
+        const vl = addVectorLayer(r.geojson, name, { color: r.classes[0]?.color || "#e6194b", weight: 2, fillOpacity: 0.12, path: r.path });
+        vl.classColors = Object.fromEntries(r.classes.map((c) => [c.name, c.color]));
+        vl.classes = r.classes.map((c) => ({ name: c.name, color: c.color }));
+        renderContents(); saveLayers();
+      }
+      const max = Math.max(1, ...r.classes.map((c) => c.count));
+      box.innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">${r.count ? `✓ ${r.count.toLocaleString()} object${r.count > 1 ? "s" : ""} found` : "No objects found"}</h2>
+        <div class="pca-sum">${esc(r.model)} · ${r.tiles.toLocaleString()} tiles of ${r.tile} px (${r.overlap} px overlap${r.zoom !== 1 ? `, zoom ${fmt(r.zoom, 2)}×` : ""}) · ${esc(r.device)} · ${r.seconds} s${r.too_big ? ` · ${r.too_big} larger than ${fmt(body.max_size_m)} m left out` : ""}</div>
+        ${r.count ? `<div class="dist" style="margin-top:8px">${r.classes.map((c) => `<div style="grid-template-columns:minmax(0,1.6fr) 2fr auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(c.color)}"></i> ${esc(c.name)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(1, 100 * c.count / max)}%;background:${esc(c.color)}"></span></span><b>${c.count.toLocaleString()}</b></div>`).join("")}</div>
+        <p class="hint">Added to Contents as a vector layer of ${r.outlines ? "outlines" : "boxes"}: every object has its class, score${r.count && r.geojson.features[0]?.properties.area_m2 != null ? ", width, height and area" : ""} (open its attribute table). Save it with Export data (Shapefile, GeoJSON, KML).</p>`
+        : `<p class="hint">Try a lower minimum score, another zoom (higher if objects are small in the image), or other classes. Pretrained models need high-resolution images where objects are clearly visible.</p>`}</div>`;
+      box.classList.remove("hidden");
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+
+  // ------------------------------------------------------------------ Train detection model (YOLO on labelled polygons / points)
+  const td = { schema: null, task: prefs.get("td-task", "detect"), layerId: null };
+  const tdLayer = () => getLayer($("#td-layer").value);
+  const tdGt = () => getLayer($("#td-gt").value);
+  async function refreshTd() {
+    if (!(await renderAddon($("#tab-traindet")))) return;
+    const ok = renderYoloAddon($("#td-yolo"), "Train detection model", () => refreshTd());
+    $("#tab-traindet .td-body").classList.toggle("hidden", !ok);
+    if (!ok) return;
+    if (!td.schema) {
+      td.schema = await api("/api/det/schema");
+      const sc = td.schema;
+      $("#td-basic").innerHTML = sc.params.filter((p) => !p.adv).map((p) => dlParamField(p, p.default, "td")).join("");
+      $("#td-adv").innerHTML = sc.params.filter((p) => p.adv).map((p) => dlParamField(p, p.default, "td")).join("");
+      const devSel = $('#td-adv [data-p="device"]');
+      [...devSel.options].forEach((o) => { if (o.value !== "auto" && !dlx.status.devices.includes(o.value)) o.disabled = true; });
+      $("#td-family").innerHTML = Object.entries(sc.families).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join("");
+      $("#td-size").innerHTML = Object.entries(sc.sizes).map(([k, t]) => `<option value="${k}">${k} · ${esc(t)}</option>`).join("");
+      $("#td-size").value = prefs.get("td-size", "s");
+      $("#td-folder").value = prefs.get("td-folder", "");
+    }
+    renderTdTasks();
+    renderTdLayers();
+    renderTdGt();
+  }
+  function renderTdTasks() {
+    const ts = td.schema.tasks;
+    modelPicker($("#td-tasks"), { value: td.task, onChange: (k) => { td.task = k; prefs.set("td-task", k); renderTdTasks(); renderTdGt(); },
+      items: Object.entries(ts).map(([k, t]) => ({ id: k, title: t.title, badge: k === "obb" ? "aerial" : k === "detect" ? "recommended" : "", tip: t.desc })) });
+  }
+  function renderTdLayers() {
+    const rasters = odRasters(), sel = $("#td-layer"), cur = sel.value || td.layerId;
+    sel.innerHTML = rasters.length ? rasters.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info?.count ?? "?"} bands</option>`).join("")
+      : `<option value="">Add the image to Contents first (+ Add data)</option>`;
+    if (rasters.some((l) => l.id === cur)) sel.value = cur;
+    tdLayerChanged();
+  }
+  function tdLayerChanged() {
+    const l = tdLayer();
+    if (!l) { $("#td-bands").innerHTML = ""; return; }
+    if (td.layerId !== l.id) {
+      td.layerId = l.id;
+      renderRgbPickers($("#td-bands"), l, () => {});
+      $("#td-stretch").value = defaultStretch(l);
+    }
+    tdTileHint();
+  }
+  $("#td-layer").onchange = tdLayerChanged;
+  function renderTdGt() {
+    const vecs = layers.filter((x) => x.type === "vector" && x.geojson?.features?.some((f) => /Polygon|Point/.test(f.geometry?.type || "")));
+    const sel = $("#td-gt"), cur = sel.value;
+    sel.innerHTML = vecs.length ? vecs.slice().reverse().map((x) => `<option value="${esc(x.id)}">${esc(x.name)} · ${x.geojson.features.length} shapes</option>`).join("")
+      : `<option value="">Draw objects with Training samples, or add a shapefile / GeoJSON</option>`;
+    if (vecs.some((x) => x.id === cur)) sel.value = cur;
+    const g = tdGt();
+    const keys = g ? [...new Set(g.geojson.features.flatMap((f) => Object.keys(f.properties || {})))] : [];
+    const fsel = $("#td-field"), fcur = fsel.value;
+    const pref = keys.includes(fcur) ? fcur : keys.find((k) => /^(class|label|name|type|category)$/i.test(k)) || keys[0];
+    fsel.innerHTML = keys.length ? keys.map((k) => `<option ${k === pref ? "selected" : ""}>${esc(k)}</option>`).join("") : `<option value="">(no attributes: one class, "object")</option>`;
+    tdGtInfo();
+  }
+  function tdGtInfo() {
+    const g = tdGt(), f = $("#td-field").value;
+    if (!g) { $("#td-gt-info").textContent = ""; $("#td-point-wrap").classList.add("hidden"); return; }
+    const feats = g.geojson.features, pts = feats.filter((x) => /Point/.test(x.geometry?.type || "")).length;
+    const polys = feats.filter((x) => /Polygon/.test(x.geometry?.type || "")).length;
+    $("#td-point-wrap").classList.toggle("hidden", !pts);
+    const counts = {};
+    feats.forEach((x) => { const v = f ? x.properties?.[f] : "object"; if (v != null && v !== "") counts[v] = (counts[v] || 0) + 1; });
+    const cls = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const colors = g.classColors || {};
+    $("#td-gt-info").innerHTML = `${polys} polygon${polys === 1 ? "" : "s"}${pts ? `, ${pts} point${pts === 1 ? "" : "s"}` : ""} · ${cls.length} class${cls.length === 1 ? "" : "es"}
+      <div class="dl-swatches">${cls.slice(0, 30).map(([k, n]) => `<span><i style="background:${esc(colors[k] || "#999")}"></i>${esc(k)} <small>${n}</small></span>`).join("")}</div>
+      ${td.task === "segment" && pts && !polys ? `<span style="color:var(--warn)">⚠ Outlines need polygons drawn around the objects; points only give boxes.</span>` : ""}
+      ${cls.some(([, n]) => n < 20) ? `<span class="hint">Classes with fewer than about 20 objects are hard to learn.</span>` : ""}`;
+  }
+  $("#td-gt").onchange = renderTdGt;
+  $("#td-field").onchange = tdGtInfo;
+  function tdTileHint() {
+    const l = tdLayer(), px = l?.info?.res?.[0], T = +$("#td-tile").value, z = +$("#td-zoom").value;
+    $("#td-tile-hint").textContent = px && !/4326/.test(l.info.crs || "") ? `Each tile covers ${fmt(T / z * px, 0)} × ${fmt(T / z * px, 0)} m of the image (${fmt(px / z, 2)} m per model pixel).` : "";
+  }
+  ["#td-tile", "#td-zoom"].forEach((s) => $(s).addEventListener("change", tdTileHint));
+  $("#td-size").onchange = () => prefs.set("td-size", $("#td-size").value);
+  $("#td-folder").addEventListener("input", () => prefs.set("td-folder", $("#td-folder").value));
+  $("#td-browse").onclick = async () => {
+    const f = await pickFolder({ title: "Save the model in…", start: $("#td-folder").value || prefs.get("save-dir:last", ""), okLabel: "Use this folder" });
+    if (f) { $("#td-folder").value = f; prefs.set("td-folder", f); }
+  };
+  $("#td-name").addEventListener("input", () => $("#td-name").dataset.touched = "1");
+  function tdParams() {
+    const out = {};
+    $$('#td-basic [data-scope="td"], #td-adv [data-scope="td"]').forEach((i) => {
+      out[i.dataset.p] = i.type === "checkbox" ? i.checked : i.type === "number" ? (i.value === "" ? null : +i.value) : i.value;
+    });
+    Object.keys(out).forEach((k) => out[k] === null && delete out[k]);
+    return out;
+  }
+  $("#td-run").onclick = async () => {
+    const err = $("#td-error"); err.classList.add("hidden");
+    const l = tdLayer(), g = tdGt();
+    if (!l) return toast("Choose the image", true);
+    if (!g) return toast("Choose the layer with your labelled objects", true);
+    const name = $("#td-name").value.trim() || "detector";
+    const body = { input: { path: l.path, name: l.name, bands: rgbBody(rgbChosen($("#td-bands"))) },
+                   ground_truth: { geojson: g.geojson, field: $("#td-field").value || null, point_size_m: +$("#td-point").value || 5 },
+                   task: td.task, family: $("#td-family").value, size: $("#td-size").value, pretrained: $("#td-pre").checked,
+                   tile_px: +$("#td-tile").value, zoom: +$("#td-zoom").value, overlap: +$("#td-overlap").value, clip: getClip("td-area"),
+                   stretch: $("#td-stretch").value, params: tdParams(), class_colors: g.classColors || null, name, folder: $("#td-folder").value.trim() || null };
+    const btn = $("#td-run"); btn.disabled = true;
+    $("#td-result").classList.add("hidden");
+    const live = $("#td-live"); live.classList.remove("hidden");
+    live.innerHTML = `<div class="dl-live-head"><b>Training…</b><span class="hint">Making training tiles and loading the model</span></div>`;
+    try {
+      const job = await api("/api/det/train", { method: "POST", json: body });
+      const done = await trackJob(job, { tool: "traindet", title: `Training ${td.schema.tasks[td.task].title.toLowerCase()} · ${name}`, onPoll: (j) => j.live && renderTdLive(j.live) });
+      if (done.live) renderTdLive(done.live, true);
+      showTdResult(done.result);
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+  // live curves: loss (left axis) and mAP (0–1, right axis) per epoch
+  function renderTdLive(L, final = false) {
+    const H = L.history || [];
+    if (!H.length) return;
+    const W = 460, Ht = 190, l = 38, r = 34, t = 10, b = 24;
+    const n = Math.max(L.epochs || H.length, H.length), X = (e) => l + (e - 1) / Math.max(1, n - 1) * (W - l - r);
+    const losses = H.map((h) => h.train_loss).filter((v) => v != null && isFinite(v));
+    const lmax = Math.max(...losses, 1e-6) * 1.05;
+    const YL = (v) => Ht - b - v / lmax * (Ht - b - t), YM = (v) => Ht - b - v * (Ht - b - t);
+    const line = (key, Y, color, dash = "") => { const pts = H.filter((h) => h[key] != null).map((h) => `${X(h.epoch).toFixed(1)},${Y(h[key]).toFixed(1)}`).join(" "); return pts ? `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" ${dash ? `stroke-dasharray="${dash}"` : ""}/>` : ""; };
+    const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => `<line x1="${l}" x2="${W - r}" y1="${YM(f)}" y2="${YM(f)}" class="grid"/><text x="${W - r + 4}" y="${YM(f) + 3}" class="tick">${f}</text><text x="${l - 4}" y="${YM(f) + 3}" class="tick" text-anchor="end">${fmt(f * lmax, 1)}</text>`).join("");
+    const be = L.best_epoch ? `<line x1="${X(L.best_epoch)}" x2="${X(L.best_epoch)}" y1="${t}" y2="${Ht - b}" stroke="#16a34a" stroke-dasharray="3 3"/>` : "";
+    const xt = [1, Math.ceil(n / 2), n].map((e) => `<text x="${X(e)}" y="${Ht - 8}" class="tick" text-anchor="middle">${e}</text>`).join("");
+    const last = H[H.length - 1], best = H.find((h) => h.epoch === L.best_epoch);
+    const pct = (v) => v == null ? "–" : fmt(100 * v, 1) + "%";
+    const eta = L.eta_s != null && !final ? ` · ~${fmtSecs(L.eta_s)} left` : "";
+    $("#td-live").innerHTML = `<div class="dl-live-head"><b>${final ? "Training curves" : `Epoch ${last.epoch} of ${L.epochs}`}</b><span class="hint">${esc(L.device || "")} · batch ${L.batch_size}${eta}</span></div>
+      <svg viewBox="0 0 ${W} ${Ht}" class="dl-chart">${grid}${xt}${be}${line("train_loss", YL, "#2563eb")}${line("map50", YM, "#16a34a", "4 3")}${line("map", YM, "#7c3aed", "4 3")}</svg>
+      <div class="dl-legend"><span style="color:#2563eb">■ training loss</span><span style="color:#16a34a">■ mAP50</span><span style="color:#7c3aed">■ mAP50-95</span><span class="hint" style="margin:0">loss on the left axis, mAP (validation) on the right · green line = best epoch</span></div>
+      <table class="dl-epochs"><tr><th>Epoch</th><th>Loss</th><th>mAP50</th><th>mAP50-95</th><th>Precision</th><th>Recall</th><th>s</th></tr>
+        ${H.slice(-6).reverse().map((h) => `<tr class="${h.epoch === L.best_epoch ? "best" : ""}"><td>${h.epoch}${h.epoch === L.best_epoch ? " ★" : ""}</td><td>${fmt(h.train_loss, 2)}</td><td>${pct(h.map50)}</td><td>${pct(h.map)}</td><td>${pct(h.precision)}</td><td>${pct(h.recall)}</td><td>${fmt(h.seconds, 0)}</td></tr>`).join("")}</table>
+      ${best && !final ? `<p class="hint" style="margin:6px 0 0">Best so far: epoch ${best.epoch}, mAP50-95 ${pct(best.map)}. <b>Cancel</b> stops after this epoch and keeps the best model.</p>` : ""}`;
+  }
+  function showTdResult(r) {
+    const c = r.config, v = c.val, pct = (x) => x == null ? "–" : fmt(100 * x, 1) + "%";
+    const reportUrl = `/api/det/report?folder=${encodeURIComponent(r.folder)}`;
+    const box = $("#td-result");
+    box.innerHTML = `<div class="card rm-head-card">
+        <div class="row between"><h2 style="margin:0">✓ Detection model trained</h2><span class="hint">${esc(c.arch_title)}</span></div>
+        <div class="metric-tiles" style="margin-top:8px">
+          <div class="metric"><b>${pct(v.map50)}</b><span>mAP50 ${tipBtn("Average precision when a detection must overlap the true object by at least 50 %, on the validation tiles.")}</span></div>
+          <div class="metric"><b>${pct(v.map)}</b><span>mAP50-95 ${tipBtn("Average precision over stricter overlaps (50–95 %): how exact the boxes are.")}</span></div>
+          <div class="metric"><b>${pct(v.precision)}</b><span>Precision</span></div><div class="metric"><b>${pct(v.recall)}</b><span>Recall</span></div></div>
+        ${c.stopped ? `<p class="hint">Training ${esc(c.stopped)} after ${c.epochs_run} epochs; the best epoch (${c.best_epoch}) was kept.</p>` : ""}
+        <div class="dist" style="margin-top:8px">${c.classes.map((k, i) => { const pc = v.per_class[i]; return `<div style="grid-template-columns:minmax(0,1.6fr) 2fr auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(k.color || "#999")}"></i> ${esc(k.name)} <small>${pc.train_objects}/${pc.val_objects}</small></span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * (pc.ap50 || 0))}%;background:${esc(k.color || "")}"></span></span><b title="AP50">${pct(pc.ap50)}</b></div>`; }).join("")}</div>
+        <p class="hint">Per class: AP50 on the validation tiles (objects for training / validation).</p>
+        <p class="hint" style="word-break:break-all">${esc(r.folder)}</p>
+        <div class="row tight" style="flex-wrap:wrap"><a class="btn primary" href="${reportUrl}" target="_blank" rel="noopener">Open report</a><a class="btn" href="${reportUrl}&download=true">Download report</a>
+          <button class="btn" data-td-reveal>Show in folder</button><button class="btn" data-td-use>Detect objects with it</button></div>
+      </div>`;
+    box.classList.remove("hidden");
+    $("[data-td-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e.message, true));
+    $("[data-td-use]", box).onclick = () => { od.model = "custom:" + r.folder; prefs.set("od-model", od.model); od.zoomTouched = false; switchTool("detect"); };
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   // ------------------------------------------------------------------ Training samples: draw labelled polygons / points
   const TS_PRESETS = {

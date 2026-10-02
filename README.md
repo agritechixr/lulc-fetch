@@ -19,8 +19,10 @@ A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your 
 | **Raster → table** | Turn any image into a CSV / Parquet table, with ground-truth labels as the last column |
 | **Classical ML for raster** | Train straight from an image and its ground truth (polygons, points or a class raster) and get a classified map in one step. No table needed. SVM (RBF / linear), Maximum Likelihood, Spectral Angle Mapper, Minimum Distance, Random Forest, k-NN (cosine) and more, for **RGB, multispectral, hyperspectral (100+ bands) and pixel embeddings** (AlphaEarth, TESSERA). The kind of data is detected, with suggested settings. |
 | **Make training data** | Cut a large image (one or several stacked layers) and its ground truth (class raster, shapefile or GeoJSON) into matching **image / label patches for deep learning**. Patch size and overlap in metres, ROI, edge padding, `classes.txt` and `dataset.json`. |
-| **Deep learning: train a model** | Semantic segmentation on your Make-training-data patches: **U-Net, U-Net++, DeepLabV3 / V3+, PSPNet, FPN, LinkNet, SegFormer, FCN, LR-ASPP** with **MobileNetV2 / V3, ResNet or EfficientNet** backbones (ImageNet-pretrained, any number of bands). Epochs, batch size, learning rate, early stopping, spatial-block validation split, losses for rare classes (Dice, focal, class weights), augmentation, live training curves, Cancel keeps the best model, resume. Writes the model plus an **HTML report** (curves, confusion matrix, per-class IoU / F1, example predictions). Runs on the Apple GPU, an NVIDIA GPU or the CPU. |
-| **Deep learning: classify an image** | Map a whole image with a trained model: seamless tiled prediction with blended overlaps, area of interest, confidence layer. |
+| **Train classify model** | Semantic segmentation on your Make-training-data patches: **U-Net, U-Net++, DeepLabV3 / V3+, PSPNet, FPN, LinkNet, SegFormer, FCN, LR-ASPP** with **MobileNetV2 / V3, ResNet or EfficientNet** backbones (ImageNet-pretrained, any number of bands), or **YOLO26 semantic** (ultralytics). Epochs, batch size, learning rate, early stopping, spatial-block validation split, losses for rare classes (Dice, focal, class weights), augmentation, live training curves, Cancel keeps the best model, resume. Writes the model plus an **HTML report** (curves, confusion matrix, per-class IoU / F1, example predictions). Runs on the Apple GPU, an NVIDIA GPU or the CPU. |
+| **Classify image** | Map a whole image with a model from Train classify model: seamless tiled prediction with blended overlaps, area of interest, confidence layer. |
+| **Detect object** | Find vehicles, ships, planes, storage tanks, people and more in high-resolution aerial, drone or satellite images. Pretrained, open source: **YOLO26** (COCO), **YOLO26 aerial** (DOTA, rotated boxes), YOLO26 outlines, torchvision **Faster R-CNN, RetinaNet, FCOS, SSD, Mask R-CNN**, **SAM 2.1** segment-everything, or **your own models**. Optional SAM outlines for any box model. Tiled with overlap, so objects cut by tile edges are joined back; zoom (automatic for your models); class, score and size filters. The result is a vector layer with class, score and size. |
+| **Train detection model** | Train **YOLO26 / YOLO11** on an image and your labelled polygons or points: boxes, outlines or rotated boxes, pretrained start (COCO / DOTA), tiles with zoom, spatial-block validation, early stopping, live mAP curves, Cancel keeps the best model, **HTML report** (per-class AP, confusion matrix, PR curves, example predictions). |
 | **Classical ML: supervised** | Train 16 models (Random Forest, XGBoost, LightGBM, SVM, Maximum Likelihood…) for classification or regression: choose the target and each column's role and type (numeric / categorical), preprocess (missing values, outlier clipping, skew transforms, scaling, removing redundant columns), tune hyperparameters with cross-validation, compare all models on a leaderboard, get honest spatially independent accuracy and an **HTML evaluation report** (confusion matrices, ROC / PR curves, residual plots…), then **classify an image** into a land-cover map |
 | **Classical ML: unsupervised** | **Clustering** with K-means, hierarchical (dendrogram), DBSCAN, HDBSCAN, spectral clustering and Gaussian mixture: automatic choice of k, quality scores, cluster profiles, comparison with known labels, and **unsupervised classification of images**. **t-SNE maps** to see how classes or clusters separate. |
 | **Export data** | Save any layer as GeoTIFF, PNG, Shapefile, GeoJSON or KML, for the whole layer or just an area |
@@ -95,15 +97,30 @@ python3 -m venv .venv
 
 On macOS, also run `brew install libomp` (needed by XGBoost and LightGBM).
 
-Deep-learning tools: `.venv/bin/pip install -e ".[web,dl]"` (or click *Install the deep-learning add-on* in the app). For an NVIDIA GPU on Windows / Linux, install PyTorch from [pytorch.org](https://pytorch.org/get-started/locally/) first.
+Deep-learning tools: `.venv/bin/pip install -e ".[web,dl]"` (or click *Install the deep-learning add-on* in the app). YOLO and SAM: `.venv/bin/pip install -e ".[yolo]"` (or *Install the YOLO & SAM add-on*); ultralytics is AGPL-3.0 and is never bundled with LULC Fetch. For an NVIDIA GPU on Windows / Linux, install PyTorch from [pytorch.org](https://pytorch.org/get-started/locally/) first.
 
 No account is needed to search and download imagery. Accounts are only needed for original Copernicus or USGS product downloads.
+
+## Tests
+
+`tests/` checks every tool end to end on small synthetic data (about 2 minutes; 30 seconds without deep learning):
+
+```bash
+.venv/bin/pip install -e ".[web,test]"
+.venv/bin/python -m pytest              # or: -m "not dl" for the quick run, --network to include imagery search
+```
+
+`tests/real/` runs every tool on the real data in `data/` and scores it against real ground truth (`pytest tests/real --real`,
+15–25 minutes). Each run writes a report with one folder per tool to `test_reports/` (open `test_reports/index.html`).
+See [tests/README.md](tests/README.md) for what is covered.
 
 ## Typical workflow
 
 **Find imagery** (or open a `.SAFE` product) → **Training samples** → **Stack layers** (optional) → **Raster → table** → **Train a model** → **Classify an image** → **Export**
 
-Deep learning: **Make training data** (image + ground truth → patches) → **Deep learning: train a model** → **Deep learning: classify an image** → **Export**
+Deep learning: **Make training data** (image + ground truth → patches) → **Train classify model** → **Classify image** → **Export**
+
+Object detection: high-resolution image → **Detect object** (pretrained) → **Export** (Shapefile / GeoJSON / KML), or label your objects (**Training samples**) → **Train detection model** → **Detect object**
 
 ## Command line
 
