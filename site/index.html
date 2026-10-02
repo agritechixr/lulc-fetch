@@ -88,6 +88,8 @@ nav .links a:hover { color: var(--text); text-decoration: none; }
 .card .ic { width: 42px; height: 42px; border-radius: 11px; background: var(--accent-2); color: var(--accent); display: grid; place-items: center; margin-bottom: 14px; }
 .card .ic svg { width: 22px; height: 22px; }
 .card h3 { font-size: 17px; margin-bottom: 6px; }
+.card.new { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.new-tag { display: inline-block; vertical-align: 2px; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 5px; background: var(--accent); color: #fff; margin-left: 4px; }
 .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
 .card ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
 
@@ -184,9 +186,9 @@ footer .links2 { display: flex; gap: 18px; }
 
 <header class="hero center">
   <div class="wrap">
-    <span class="eyebrow">Free · Open source · Mac &amp; Windows</span>
+    <span class="eyebrow">Free · Open source · Mac &amp; Windows · <b>New in 0.0.1 beta: deep learning</b></span>
     <h1>Land-cover maps from satellite images, <span>on your own computer</span></h1>
-    <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning models and classify images into land-use / land-cover maps, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
+    <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning and deep-learning models and classify images into land-use / land-cover maps, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
     <div class="cta">
       <a class="btn primary" id="cta-main" href="#download">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
@@ -202,7 +204,7 @@ footer .links2 { display: flex; gap: 18px; }
     </div>
     <div class="chips">
       <span>Sentinel-2</span><span>Landsat 8–9</span><span>Sentinel-1 SAR</span><span>Copernicus .SAFE</span><span>ESA WorldCover</span>
-      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
+      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings</span><span>U-Net · DeepLabV3+ · SegFormer</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
     </div>
   </div>
 </header>
@@ -216,7 +218,7 @@ footer .links2 { display: flex; gap: 18px; }
       <div class="step"><h3>Get imagery</h3><p>Search Sentinel-2 / Landsat for any area and date, cloud-free composites, or open your own .SAFE and GeoTIFF files.</p></div>
       <div class="step"><h3>Prepare</h3><p>30 spectral &amp; radar indices, PCA, and stacking of optical, radar and elevation layers into one image.</p></div>
       <div class="step"><h3>Label</h3><p>Draw training polygons per class, or use a shapefile or an existing land-cover map as ground truth.</p></div>
-      <div class="step"><h3>Train &amp; validate</h3><p>Random Forest, SVM, Maximum Likelihood, XGBoost and more, with spatially honest accuracy.</p></div>
+      <div class="step"><h3>Train &amp; validate</h3><p>Random Forest, SVM, Maximum Likelihood, XGBoost, or deep learning (U-Net, DeepLabV3+…), with spatially honest accuracy.</p></div>
       <div class="step"><h3>Map &amp; export</h3><p>Classify whole images with a confidence layer, then export as GeoTIFF, PNG, Shapefile or KML.</p></div>
     </div>
   </div>
@@ -227,11 +229,17 @@ footer .links2 { display: flex; gap: 18px; }
     <div class="center">
       <span class="eyebrow">Features</span>
       <h2>Everything for land-use / land-cover work</h2>
-      <p class="lead">Built on GDAL, scikit-learn, XGBoost and LightGBM, behind a friendly interface with hints on every option.</p>
+      <p class="lead">Built on GDAL, scikit-learn, XGBoost, LightGBM and PyTorch, behind a friendly interface with hints on every option.</p>
     </div>
     <div class="grid">
+      <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="7" r="1.8"/><circle cx="5" cy="17" r="1.8"/><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/><circle cx="19" cy="12" r="1.8"/><path d="M6.7 7.5l3.6 4M6.7 16.5l3.6-4M13.8 5.8l3.6 5.3M13.8 18.2l3.6-5.3"/></svg></div>
+        <h3>Deep learning <span class="new-tag">new</span></h3><p>Semantic segmentation with U-Net, U-Net++, DeepLabV3+, PSPNet, FPN, SegFormer, FCN and LR-ASPP on MobileNetV2 / V3, ResNet or EfficientNet backbones. Early stopping, live training curves, an HTML report, and seamless maps of whole scenes. Uses your Mac's GPU or an NVIDIA GPU.</p></div>
+      <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg></div>
+        <h3>Make training data <span class="new-tag">new</span></h3><p>Cut a large image and its ground truth (class raster or shapefile) into matching image / label patches. Patch size and overlap in metres, area of interest, and a classes.txt and dataset.json ready for training.</p></div>
+      <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="9" r="5"/><circle cx="15" cy="9" r="5"/><circle cx="12" cy="15" r="5"/></svg></div>
+        <h3>Band combinations &amp; metadata <span class="new-tag">new</span></h3><p>Right-click any image to show colour infrared, SWIR · NIR · Red, agriculture, urban and more, or any three bands. See full metadata: coordinate system, extent and per-band statistics.</p></div>
       <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
-        <h3>Find &amp; download imagery</h3><p>Sentinel-2 (10 m) and Landsat 8–9 (30 m) from open STAC catalogues: single dates, cloud-free median composites, WorldCover / Esri land cover, or original Copernicus and USGS products.</p></div>
+        <h3>Find &amp; download imagery</h3><p>Sentinel-2 (10 m) and Landsat 8–9 (30 m) from open STAC catalogues: single dates, cloud-free median composites, WorldCover / Esri land cover, or original Copernicus and USGS products. Drag a .SAFE folder or zip onto the window to open it.</p></div>
       <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></div>
         <h3>Indices, PCA &amp; stacking</h3><p>NDVI, EVI, SAVI, NDWI, NDBI, NBR, radar RVI and 20+ more, or your own formula. PCA, Kernel PCA, NMF, ICA. Stack optical, SAR and DEM layers.</p></div>
       <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg></div>
@@ -303,6 +311,29 @@ footer .links2 { display: flex; gap: 18px; }
 
     <div class="show">
       <div class="txt">
+        <span class="tag">Deep learning · new</span>
+        <h3>Train a U-Net in minutes, and watch it learn</h3>
+        <p>Turn your image and ground truth into patches with <b>Make training data</b>, pick an architecture and a backbone from the dropdown, and train. Loss and mIoU curves update after every epoch; early stopping keeps the best model, and Cancel never throws work away.</p>
+        <ul>
+          <li>U-Net, U-Net++, DeepLabV3 / V3+, PSPNet, FPN, LinkNet, SegFormer, FCN, LR-ASPP</li>
+          <li>ImageNet-pretrained backbones adapted to any number of bands</li>
+          <li>Spatial-block validation, Dice / focal losses and class weights for rare classes</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/dl.jpg" alt="Deep-learning training panel with live loss and mIoU curves next to a land-cover map predicted by U-Net" loading="lazy">
+    </div>
+
+    <div class="show rev">
+      <div class="txt">
+        <span class="tag">Deep-learning report</span>
+        <h3>See what the network gets right, and wrong</h3>
+        <p>Every model gets a one-file HTML report: mIoU, pixel accuracy, kappa, training curves with the best epoch, confusion matrices, IoU and F1 per class, and example patches shown as image, ground truth and prediction side by side.</p>
+      </div>
+      <img width="1355" height="1800" class="shot" src="assets/dlreport.jpg" alt="Deep-learning report with scores and training curves" loading="lazy">
+    </div>
+
+    <div class="show">
+      <div class="txt">
         <span class="tag">Tables &amp; editing</span>
         <h3>Edit tables like in a GIS, or with Python</h3>
         <p>Open any table or attribute table under the map. Add fields with the calculator (including polygon area and perimeter), edit cells, or run pandas code. Changes stay in a working copy until you choose to save or discard them.</p>
@@ -357,12 +388,12 @@ footer .links2 { display: flex; gap: 18px; }
     <div class="center">
       <span class="eyebrow">Download</span>
       <h2>Get LULC Fetch, free</h2>
-      <p class="lead">Ready-to-run apps: Python and all libraries are included, so there's nothing else to install.</p>
+      <p class="lead">Ready-to-run apps: Python and all libraries are included, so there's nothing else to install. Version 0.0.1 beta. The deep-learning tools install their PyTorch add-on from inside the app the first time you open them.</p>
     </div>
     <div class="dl">
       <div class="dlcard" id="dl-mac">
         <h3><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.77-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.27-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.42-3.66zM14.1 5.86c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28z"/></svg>Mac</h3>
-        <div class="req">Apple Silicon (M1, M2, M3, M4) · macOS 14 Sonoma or newer · about 165 MB</div>
+        <div class="req">Apple Silicon (M1–M5) · macOS 14 Sonoma or newer · about 175 MB</div>
         <a class="btn primary" href="https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-macOS-AppleSilicon.dmg">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
           Download for Mac <small>.dmg</small></a>
@@ -374,7 +405,7 @@ footer .links2 { display: flex; gap: 18px; }
       </div>
       <div class="dlcard" id="dl-win">
         <h3><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.4l7.4-1v7.1H3zm0 13.2l7.4 1v-7H3zm8.2 1.1L21 21v-8.4h-9.8zm0-15.4v7.2H21V3z"/></svg>Windows</h3>
-        <div class="req">Windows 10 / 11, 64-bit · about 205 MB</div>
+        <div class="req">Windows 10 / 11, 64-bit · about 210 MB</div>
         <a class="btn primary" href="https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-Windows.zip">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
           Download for Windows <small>.zip</small></a>
@@ -399,6 +430,7 @@ footer .links2 { display: flex; gap: 18px; }
       <details><summary>Do I need a Copernicus or USGS account?</summary><p>No account is needed to search and download Sentinel-2 / Landsat imagery and composites. Accounts are only needed for original full products (.SAFE, Landsat scenes). LULC Fetch keeps those credentials in your computer's secure keychain.</p></details>
       <details><summary>Why does my computer warn me the first time I open it?</summary><p>The app isn't signed with a paid Apple or Microsoft developer certificate yet, so macOS and Windows ask you to confirm once (Open Anyway / Run anyway). The full source code is public on GitHub.</p></details>
       <details><summary>Which machine-learning models are included?</summary><p>Random Forest, Extra Trees, Decision Tree, XGBoost, LightGBM, Histogram Gradient Boosting, SVM (RBF, linear, polynomial), Logistic Regression, SGD, Naive Bayes, Maximum Likelihood, Linear Discriminant, Minimum Distance, Spectral Angle Mapper, k-Nearest Neighbours and a neural network (MLP); for clustering K-means, hierarchical, DBSCAN, HDBSCAN, spectral and Gaussian mixture, plus t-SNE.</p></details>
+      <details><summary>Can it do deep learning?</summary><p>Yes. <b>Make training data</b> cuts your image and ground truth into patches, <b>Deep learning: train a model</b> trains U-Net, DeepLabV3+, PSPNet, SegFormer, FCN and more, and <b>Deep learning: classify an image</b> maps whole scenes. The first time, the app offers to install the free PyTorch add-on (about 0.8 GB on Mac; on Windows 1.1 GB for CPU only or 3.5 GB with NVIDIA GPU support). Training uses the Apple GPU on Macs and an NVIDIA GPU on Windows if there is one.</p></details>
       <details><summary>Where are my files stored?</summary><p>In <b>Documents ▸ LULC Fetch</b> by default, or in a project folder you choose. You can save any result to another folder as well.</p></details>
     </div>
   </div>
