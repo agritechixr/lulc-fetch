@@ -156,14 +156,34 @@ COMMON = [
     P("class_weight", "Class balancing", "select", "none", "'Balanced' gives rare classes more weight, which improves their accuracy (and macro F1) when classes have very different sizes. Not needed if you used stratified sampling.",
       options=[["none", "None"], ["balanced", "Balanced"]], tasks=["classification"]),
     P("cv_folds", "Cross-validation folds", "int", 0, "Extra check: train k times on different parts of the training data and report the spread. 0 = off (faster). 5 is common.", min=0, max=10, advanced=True),
-    P("missing", "Missing values", "select", "drop", "What to do with rows where a feature has no value: drop them (safest), or fill them in (median for numbers, a '(missing)' category for categories) so no rows are lost.",
-      options=[["drop", "Drop those rows"], ["impute", "Fill in (median / most frequent)"]], advanced=True),
     P("max_train_rows", "Max training rows", "int", None, "Large tables are randomly sampled down (keeping class proportions) to this many training rows. Empty = the model's sensible default.", min=100, max=10000000, advanced=True, placeholder="model default"),
-    P("scaling", "Feature scaling", "select", "auto", "Standardize bands (mean 0, std 1). Auto applies it only to models that need it (SVM, SGD, logistic, k-NN, MLP).",
-      options=[["auto", "Auto (recommended)"], ["standard", "Always"], ["none", "Never"]], advanced=True),
     P("block_size", "Block size (map units)", "float", None, "Side of the squares used by 'Spatial blocks', e.g. metres for UTM. Empty = automatic (about 64 blocks over the area). Use blocks larger than your typical field.",
       min=0.000001, max=1e7, advanced=True, placeholder="auto"),
     P("random_state", "Random seed", "int", 0, "Makes the split and training reproducible.", min=0, max=2**31 - 1, advanced=True),
+    # ---- preprocessing (applied in this order; learned from the training rows only and saved inside the model)
+    P("missing", "Missing values", "select", "drop", "Rows where a feature has no value: drop them (safest), or fill them in "
+      "(median for numbers, a separate '(missing)' category for categorical columns) so no rows are lost. "
+      "With 'Fill in', Classify an image also fills pixels where a band is missing.",
+      options=[["drop", "Drop those rows"], ["impute", "Fill in (median / '(missing)' category)"]], group="prep"),
+    P("drop_constant", "Remove constant columns", "bool", True, "Drop feature columns that have the same value in every training row: they carry no information.", group="prep"),
+    P("drop_correlated", "Remove near-duplicate columns", "select", "off", "If two numeric features are almost perfectly correlated "
+      "(e.g. B8 and B8A, or an index and its source bands), keep only one. Makes linear models, k-NN and Maximum Likelihood more stable. "
+      "Tree models rarely need it.", options=[["off", "Off"], ["0.99", "|r| ≥ 0.99"], ["0.95", "|r| ≥ 0.95"], ["0.9", "|r| ≥ 0.90"]], group="prep"),
+    P("outliers", "Outliers", "select", "none", "Clip extreme values (saturated pixels, cloud or shadow remnants, sensor spikes) to percentiles of the "
+      "training data, so a few odd pixels can't distort scaling or linear / distance-based models.",
+      options=[["none", "Keep as they are"], ["clip", "Clip to percentiles"]], group="prep"),
+    P("outlier_pct", "Clip percentile", "float", 1.0, "Values below this percentile and above (100 − this) are clipped. 1 = clip to the 1st–99th percentile; 0.5 is gentler.",
+      min=0.1, max=10, group="prep"),
+    P("skew", "Skewed features", "select", "none", "Make strongly skewed columns (e.g. radar backscatter in linear units, texture, distances) more "
+      "symmetric with a Yeo-Johnson power transform. Helps linear models, SVM, k-NN, MLP, Naive Bayes and Maximum Likelihood; trees don't care.",
+      options=[["none", "Leave as they are"], ["auto", "Transform skewed columns (|skew| > 1)"], ["all", "Transform all numeric columns"]], group="prep"),
+    P("scaling", "Feature scaling", "select", "auto", "Put features on a common scale. Auto = standard scaling for the models that need it (SVM, SGD, "
+      "logistic, k-NN, MLP) and none for trees. Standard: mean 0, std 1. Min–max: 0 to 1. Robust: median / interquartile range, "
+      "least affected by outliers.", options=[["auto", "Auto (recommended)"], ["standard", "Standard (z-score)"], ["minmax", "Min–max (0–1)"],
+                                              ["robust", "Robust (median / IQR)"], ["none", "None"]], group="prep"),
+    P("target_transform", "Target transform", "select", "none", "For a skewed target (biomass, yield, counts): train on log(1 + y) or a "
+      "Yeo-Johnson transform, then convert predictions back. Often lowers the error for skewed values.",
+      options=[["none", "None"], ["log", "log(1 + y)"], ["yeo-johnson", "Yeo-Johnson"]], tasks=["regression"], group="prep"),
 ]
 
 
@@ -422,6 +442,122 @@ def _fit_with_progress(model_id: str, est, X, y, sample_weight, task: str):
 
 # ------------------------------------------------------------------ training
 
+from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin  # noqa: E402
+
+
+class Clipper(TransformerMixin, BaseEstimator):
+    """Clip each column to percentiles learned on the training rows (outlier handling). NaN stays NaN."""
+
+    def __init__(self, pct: float = 1.0):
+        self.pct = pct
+
+    def fit(self, X, y=None):
+        X = np.asarray(X, dtype="float64")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.lo_, self.hi_ = np.nanpercentile(X, [self.pct, 100 - self.pct], axis=0)
+        self.lo_, self.hi_ = np.nan_to_num(self.lo_, nan=-np.inf), np.nan_to_num(self.hi_, nan=np.inf)
+        return self
+
+    def transform(self, X):
+        return np.clip(np.asarray(X, dtype="float64"), self.lo_, self.hi_)
+
+
+class SkewTransformer(TransformerMixin, BaseEstimator):
+    """Yeo-Johnson power transform on skewed columns (|skew| > threshold) or on all columns."""
+
+    def __init__(self, mode: str = "auto", threshold: float = 1.0):
+        self.mode, self.threshold = mode, threshold
+
+    def fit(self, X, y=None):
+        from scipy.stats import skew
+        from sklearn.preprocessing import PowerTransformer
+        X = np.asarray(X, dtype="float64")
+        sk = []
+        for col in X.T:
+            v = col[np.isfinite(col)]
+            sk.append(float(skew(v)) if len(v) > 2 and v.std() > 0 else 0.0)
+        self.skew_ = np.nan_to_num(np.array(sk))
+        self.cols_ = np.flatnonzero(np.abs(self.skew_) > self.threshold) if self.mode == "auto" else \
+            np.array([i for i, col in enumerate(X.T) if np.nanstd(col) > 0], dtype=int)
+        self.pt_ = PowerTransformer(method="yeo-johnson", standardize=False).fit(X[:, self.cols_]) if len(self.cols_) else None
+        return self
+
+    def transform(self, X):
+        X = np.array(X, dtype="float64", copy=True)
+        if self.pt_ is not None:
+            X[:, self.cols_] = self.pt_.transform(X[:, self.cols_])
+        return X
+
+
+class TargetTransformedRegressor(RegressorMixin, BaseEstimator):
+    """A regressor trained on a transformed target (log(1 + y) or Yeo-Johnson); predictions are converted back."""
+
+    def __init__(self, model=None, kind: str = "log"):
+        self.model, self.kind = model, kind
+
+    def prepare(self, y):
+        """Fit the target transform and return the transformed target."""
+        y = np.asarray(y, dtype="float64")
+        if self.kind == "log":
+            if y.min() <= -1:
+                raise ValueError("log(1 + y) needs target values above −1. Use Yeo-Johnson instead.")
+            return np.log1p(y)
+        from sklearn.preprocessing import PowerTransformer
+        self.pt_ = PowerTransformer(method="yeo-johnson").fit(y.reshape(-1, 1))
+        return self.pt_.transform(y.reshape(-1, 1)).ravel()
+
+    def fit(self, X, y, **kw):
+        self.model.fit(X, self.prepare(y), **kw)
+        return self
+
+    def predict(self, X):
+        p = np.asarray(self.model.predict(X), dtype="float64")
+        return np.expm1(p) if self.kind == "log" else self.pt_.inverse_transform(p.reshape(-1, 1)).ravel()
+
+    @property
+    def feature_importances_(self):
+        return self.model.feature_importances_
+
+
+def _remove_features(X_tr, features, cat_set, drop_constant: bool, corr: str, seed: int):
+    """Columns to drop, decided on the training rows only: constant columns and near-duplicate numeric columns."""
+    removed, keep = [], list(features)
+    if drop_constant:
+        for i, f in enumerate(features):
+            col = X_tr[:, i]
+            if f in cat_set:
+                const = len({str(v) for v in col}) <= 1
+            else:
+                v = np.asarray(col, dtype="float64")
+                v = v[np.isfinite(v)]
+                const = len(v) == 0 or v.min() == v.max()
+            if const and len(keep) > 1:
+                keep.remove(f)
+                removed.append({"feature": f, "reason": "constant (same value in every training row)"})
+    if corr != "off":
+        thr = float(corr)
+        num = [f for f in keep if f not in cat_set]
+        if len(num) > 1:
+            A = np.column_stack([np.asarray(X_tr[:, features.index(f)], dtype="float64") for f in num])
+            A = A[np.isfinite(A).all(axis=1)]
+            if len(A) > 50000:
+                A = A[np.random.default_rng(seed).choice(len(A), 50000, replace=False)]
+            if len(A) > 2:
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    r = np.nan_to_num(np.corrcoef(A.T))
+                dropped = set()
+                for i in range(len(num)):          # keeps the first column of each near-duplicate group
+                    if i in dropped:
+                        continue
+                    for j in range(i + 1, len(num)):
+                        if j not in dropped and abs(r[i, j]) >= thr and len(keep) > 1:
+                            dropped.add(j)
+                            keep.remove(num[j])
+                            removed.append({"feature": num[j], "reason": f"near-duplicate of {num[i]} (r = {r[i, j]:.3f})"})
+    return keep, removed
+
+
 def _cat_strings(X):
     """Categorical columns → strings (whole numbers lose their '.0', so codes from a raster match the table)."""
     def one(v):
@@ -629,10 +765,28 @@ def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, fe
         g_tr = g_tr[keep] if g_tr is not None else None
         log.info("Training set sampled from %s to %s rows", f"{sampled_from:,}", f"{cap:,}")
 
-    # ---- preprocessing: impute, scale numeric; one-hot encode categorical (part of the saved model)
-    scale = c["scaling"] == "standard" or (c["scaling"] == "auto" and m["scale"])
+    # ---- remove constant / near-duplicate columns (decided on the training rows only)
+    orig_features = list(features)  # X's column order
+    features, removed = (_remove_features(X_tr, orig_features, cat_set, c["drop_constant"], c["drop_correlated"], seed)
+                         if c["drop_constant"] or c["drop_correlated"] != "off" else (orig_features, []))
+    if removed:
+        keep_idx = [orig_features.index(f) for f in features]
+        X_tr, X_te = X_tr[:, keep_idx], X_te[:, keep_idx]
+        cat_cols = [f for f in features if f in cat_set]
+        num_cols = [f for f in features if f not in cat_set]
+        num_idx = [features.index(f) for f in num_cols]
+        cat_idx = [features.index(f) for f in cat_cols]
+        log.info("Removed %d column(s): %s", len(removed), ", ".join(r["feature"] for r in removed))
+
+    # ---- preprocessing: impute → clip outliers → skew transform → scale (numeric); one-hot (categorical). Saved in the model.
+    from sklearn.preprocessing import MinMaxScaler, RobustScaler
+    scaling = c["scaling"] if c["scaling"] != "auto" else ("standard" if m["scale"] else "none")
+    scale = scaling != "none"
     transformers = []
-    num_steps = ([("impute", SimpleImputer(strategy="median"))] if impute and num_nan else []) + ([("scale", StandardScaler())] if scale else [])
+    num_steps = ([("impute", SimpleImputer(strategy="median"))] if impute else []) + \
+                ([("clip", Clipper(c["outlier_pct"]))] if c["outliers"] == "clip" else []) + \
+                ([("skew", SkewTransformer(c["skew"]))] if c["skew"] != "none" else []) + \
+                ([("scale", {"standard": StandardScaler, "minmax": MinMaxScaler, "robust": RobustScaler}[scaling]())] if scale else [])
     if num_cols and (num_steps or cat_cols):
         transformers.append(("num", Pipeline(num_steps) if num_steps else "passthrough", num_idx))
     if cat_cols:
@@ -641,8 +795,18 @@ def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, fe
     pre = ColumnTransformer(transformers) if transformers else (Pipeline(num_steps) if num_steps else None)
 
     cw = c["class_weight"] if task == "classification" else "none"
+    tt = c["target_transform"] if task == "regression" else "none"
+    if tt == "log" and np.nanmin(y) <= -1:
+        raise ValueError("log(1 + y) needs target values above −1. Choose Yeo-Johnson instead.")
 
     def fit_one(params_i, Xa, ya, progress_fit=False):
+        if tt != "none":
+            wrap = TargetTransformedRegressor(kind=tt)
+            wrap.model = _fit_one(params_i, Xa, wrap.prepare(ya), progress_fit)
+            return wrap
+        return _fit_one(params_i, Xa, ya, progress_fit)
+
+    def _fit_one(params_i, Xa, ya, progress_fit=False):
         sw = None
         if cw == "balanced" and model in ("xgb", "hgb", "nb"):
             from sklearn.utils.class_weight import compute_sample_weight
@@ -750,6 +914,7 @@ def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, fe
               "categorical": cat_cols, "text_columns": [f for f in cat_cols if data[f].dtype == object], "table": str(table_path), "rows_total": int(ok.sum()), "rows_dropped": dropped,
               "missing": c["missing"], "rows_imputed": num_nan if impute else 0, "train_rows": len(X_tr),
               "train_rows_before_sampling": sampled_from, "test_rows": len(X_te), "scaled": bool(scale),
+              "preprocessing": _prep_summary(pre, c, scaling, tt, num_cols, removed, impute),
               "params": p, "common": c, "warnings": split_warnings + warn_msgs, "cv": cv, "split": split_info, "tuning": tune_report}
     from sklearn import metrics as mt
     if task == "classification":
@@ -817,7 +982,7 @@ def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, fe
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")[:60] or "model"
     bundle = {"pipeline": pipe, "classes": classes, "task": task, "features": features, "target": target,
-              "categorical": cat_cols, "model": model, "report": report, "evaluation": ev}
+              "categorical": cat_cols, "model": model, "report": report, "evaluation": ev, "imputes": bool(impute and num_cols)}
     path = out_dir / f"{stem}.joblib"
     joblib.dump(bundle, path, compress=3)
     report["path"] = str(path)
@@ -832,6 +997,33 @@ def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, fe
     log.info("%s trained in %.1f s · %s", m["title"], report["seconds"],
              f"accuracy {report['accuracy']:.3f}, kappa {report['kappa']:.3f}" if task == "classification" else f"R² {report['r2']:.3f}")
     return report
+
+
+def _find_step(pre, name):
+    if pre is None:
+        return None
+    if hasattr(pre, "named_transformers_"):
+        num = pre.named_transformers_.get("num")
+        return num.named_steps.get(name) if hasattr(num, "named_steps") else None
+    return pre.named_steps.get(name) if hasattr(pre, "named_steps") else None
+
+
+def _prep_summary(pre, c, scaling, tt, num_cols, removed, impute) -> dict:
+    """Human-readable list of the preprocessing steps the saved model applies, in order."""
+    steps = []
+    if impute:
+        steps.append("fill missing values (median; '(missing)' category for categorical)")
+    if c["outliers"] == "clip":
+        steps.append(f"clip outliers to the {c['outlier_pct']:g}–{100 - c['outlier_pct']:g} percentiles")
+    sk = _find_step(pre, "skew")
+    skewed = [num_cols[i] for i in sk.cols_] if sk is not None else []
+    if sk is not None:
+        steps.append(f"Yeo-Johnson transform on {len(skewed)} column(s)" + (f": {', '.join(skewed[:8])}" + ("…" if len(skewed) > 8 else "") if skewed else ""))
+    if scaling != "none":
+        steps.append({"standard": "standard scaling (z-score)", "minmax": "min–max scaling (0–1)", "robust": "robust scaling (median / IQR)"}[scaling])
+    if tt != "none":
+        steps.append({"log": "target trained as log(1 + y)", "yeo-johnson": "target Yeo-Johnson transformed"}[tt])
+    return {"steps": steps, "removed": removed, "scaling": scaling, "skewed_columns": skewed, "target_transform": tt}
 
 
 def compare(table_path: str | Path, *, target: str, features: list[str], task: str = "auto", common: dict | None = None,
@@ -963,7 +1155,7 @@ def predict_raster(model_path: str | Path, raster_path: str | Path, out_path: st
                                 resampling=Resampling.average if f > 1 else Resampling.nearest)
                 data = data.astype("float64").filled(np.nan) * scale + offset
                 X = data.reshape(len(idx), -1).T
-                ok = np.all(np.isfinite(X), axis=1)
+                ok = np.any(np.isfinite(X), axis=1) if bundle.get("imputes") else np.all(np.isfinite(X), axis=1)
                 if geom is not None:
                     st = transform * transform.translation(0, r0)
                     ok &= geometry_mask([geom], out_shape=(rows, out_w), transform=st, invert=True).ravel()

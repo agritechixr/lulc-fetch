@@ -30,6 +30,7 @@ from lulc_fetch.raster import read_to_grid
 from lulc_fetch.sources import DEFAULT_BANDS, S2_BANDS, SOURCES, get_source
 
 from . import aoi_io, credentials
+from . import workspace as ws
 from .jobs import JobManager
 
 log = logging.getLogger("webapp")
@@ -455,9 +456,9 @@ UPLOAD_EXTS = {".tif", ".tiff"}  # never accept uploaded VRTs: they can point at
 
 def _raster_path(rel: str, roots=RASTER_ROOTS) -> Path:
     """Resolve a client-supplied relative path, refusing anything outside the allowed folders."""
-    path = (Path.cwd() / rel).resolve()
+    path = (ws.root() / rel).resolve()
     for root in roots:
-        base = (Path.cwd() / root).resolve()
+        base = (ws.root() / root).resolve()
         if path.is_relative_to(base) and path.suffix.lower() in RASTER_EXTS and path.is_file():
             return path
     raise HTTPException(404, "No such GeoTIFF")
@@ -497,12 +498,12 @@ def formula_check(formula: str):
 def list_rasters():
     out = []
     for root, label in RASTER_ROOTS.items():
-        base = Path.cwd() / root
+        base = ws.root() / root
         if not base.is_dir():
             continue
         for p in sorted(base.rglob("*"), key=lambda p: -p.stat().st_mtime):
             if p.suffix.lower() in RASTER_EXTS and p.is_file() and len(p.relative_to(base).parts) <= 3:
-                out.append({"path": str(p.relative_to(Path.cwd())), "name": p.name, "group": label,
+                out.append({"path": ws.rel(p), "name": p.name, "group": label,
                             "size_mb": p.stat().st_size / 1e6, "modified": p.stat().st_mtime,
                             "deletable": root in ("uploads", "analysis")})
     return out
@@ -516,7 +517,7 @@ async def upload_raster(file: UploadFile = File(...)):
     name = Path(file.filename or "image.tif").name
     if Path(name).suffix.lower() not in UPLOAD_EXTS:
         raise HTTPException(400, "Upload a GeoTIFF (.tif / .tiff)")
-    dest = Path.cwd() / "uploads" / uuid.uuid4().hex[:8] / name
+    dest = ws.root() / "uploads" / uuid.uuid4().hex[:8] / name
     dest.parent.mkdir(parents=True, exist_ok=True)
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f, length=8 << 20)
@@ -526,7 +527,7 @@ async def upload_raster(file: UploadFile = File(...)):
     except Exception as e:
         shutil.rmtree(dest.parent, ignore_errors=True)
         raise HTTPException(400, f"Not a usable GeoTIFF: {e}")
-    return {"path": str(dest.relative_to(Path.cwd()))}
+    return {"path": ws.rel(dest)}
 
 
 @app.delete("/api/rasters")
@@ -634,9 +635,9 @@ def analyze_export(req: ExportRequest):
         label = re.sub(r"[^A-Za-z0-9_-]", "", f.get("name") or "") or "custom"
         items.append((label, f.get("formula", "")))
     suffix = "_".join(n for n, _ in items)[:60]
-    out = Path.cwd() / "analysis" / uuid.uuid4().hex[:8] / f"{src.stem}_{suffix}.tif"
+    out = ws.root() / "analysis" / uuid.uuid4().hex[:8] / f"{src.stem}_{suffix}.tif"
     export(src, out, items, band_map=req.band_map, scale=req.scale, offset=req.offset, clip=_clip(req.clip))
-    rel = str(out.relative_to(Path.cwd()))
+    rel = ws.rel(out)
     from urllib.parse import quote
     return {"path": rel, "name": out.name, "url": f"/api/rasters/file?path={quote(rel)}",
             "layers": [n for n, _ in items]}
@@ -644,14 +645,22 @@ def analyze_export(req: ExportRequest):
 
 # ------------------------------------------------------------------ Copernicus .SAFE products (Sentinel-1 / -2)
 
-PRODUCT_DIRS = ("data", ".")
+def _product_dirs() -> list[Path]:
+    """Where .SAFE products are looked for: the workspace (project) and the app's own data/ folder."""
+    dirs = [ws.root() / "data", ws.root(), ws.APP_DIR / "data", ws.APP_DIR]
+    out = []
+    for d in dirs:
+        if d.is_dir() and d.resolve() not in [x.resolve() for x in out]:
+            out.append(d)
+    return out
 
 
 def _product(path: str) -> dict:
     from lulc_fetch.safe import find_products
 
-    for p in find_products(*[Path.cwd() / d for d in PRODUCT_DIRS]):
-        if Path(p["path"]).resolve() == (Path.cwd() / path).resolve() or p["path"] == path:
+    target = (ws.root() / path).resolve()
+    for p in find_products(*_product_dirs()):
+        if Path(p["path"]).resolve() == target or p["path"] == path:
             return p
     raise HTTPException(404, "No such product in the data folder")
 
@@ -660,11 +669,13 @@ def _product(path: str) -> dict:
 def list_products():
     from lulc_fetch.safe import find_products
 
-    out = []
-    for p in find_products(*[Path.cwd() / d for d in PRODUCT_DIRS]):
-        rel = str(Path(p["path"]).resolve().relative_to(Path.cwd().resolve()))
-        out.append({**p, "path": rel})
-    return {"folder": str(Path.cwd() / "data"), "products": out}
+    out, seen = [], set()
+    for p in find_products(*_product_dirs()):
+        key = str(Path(p["path"]).resolve())
+        if key not in seen:
+            seen.add(key)
+            out.append({**p, "path": ws.rel(p["path"])})
+    return {"folder": str(ws.APP_DIR / "data"), "products": out}
 
 
 class ProductOpenRequest(BaseModel):
@@ -678,11 +689,11 @@ def open_product(req: ProductOpenRequest):
     from lulc_fetch import safe
 
     p = _product(req.path)
-    src = Path.cwd() / req.path
+    src = Path(p["path"])
     if p["kind"].startswith("S2"):
-        out = Path.cwd() / "imports" / p["name"] / f"{p['name']}_10m.vrt"
+        out = ws.root() / "imports" / p["name"] / f"{p['name']}_10m.vrt"
         safe.s2_to_vrt(src, out)
-        return {"kind": "raster", "path": str(out.relative_to(Path.cwd())),
+        return {"kind": "raster", "path": ws.rel(out),
                 "name": f"{p['title']} · {p['date']}"}
     aoi = _aoi(req.aoi) if req.aoi else None
     title = f"Sentinel-1 σ⁰ backscatter {p['date']} · {req.res:g} m{' · clipped' if aoi else ''}"
@@ -728,7 +739,7 @@ def pca_run(req: PcaRequest):
 
     def run(job):
         report = pca.run(src, job.dir / f"{stem}.tif", bands=req.bands, method=req.method, params=req.params, clip=clip)
-        report["path"] = str((job.dir / f"{stem}.tif").relative_to(Path.cwd()))
+        report["path"] = ws.rel(job.dir / f"{stem}.tif")
         return report
 
     return jobs.submit("pca", title, {"source": pca.METHODS[req.method]["full"]}, run).to_dict()
@@ -736,12 +747,12 @@ def pca_run(req: PcaRequest):
 
 # ------------------------------------------------------------------ Classical ML: tables (raster → table and future sub-tools)
 
-TABLE_DIR = Path.cwd() / "tables"
+TABLE_DIR = ws.Dir("tables")
 TABLE_EXTS = {".csv", ".parquet"}
 
 
 def _table_path(rel: str) -> Path:
-    p = (Path.cwd() / rel).resolve()
+    p = (ws.root() / rel).resolve()
     if not p.is_relative_to(TABLE_DIR.resolve()) or p.suffix.lower() not in TABLE_EXTS or not p.is_file():
         raise HTTPException(404, "No such table")
     return p
@@ -762,7 +773,7 @@ def list_tables():
                         meta = _json.loads(side.read_text())
                     except ValueError:
                         pass
-                out.append({"path": str(p.relative_to(Path.cwd())), "name": p.name, "size_mb": p.stat().st_size / 1e6,
+                out.append({"path": ws.rel(p), "name": p.name, "size_mb": p.stat().st_size / 1e6,
                             "modified": p.stat().st_mtime, "rows": meta.get("rows"), "columns": meta.get("columns"),
                             "target": meta.get("target"), "class_counts": meta.get("class_counts"),
                             "source": Path(meta.get("source", "")).name})
@@ -820,7 +831,7 @@ async def upload_table(file: UploadFile = File(...)):
             raise
         except Exception as e:
             raise HTTPException(400, f"Couldn't read {name}: {e}")
-    return {"path": str(out.relative_to(Path.cwd())), "name": out.name}
+    return {"path": ws.rel(out), "name": out.name}
 
 
 @app.get("/api/tables/rows")
@@ -856,8 +867,8 @@ def table_points(path: str, q: str = "", lon: str | None = None, lat: str | None
 def _picture_path(rel: str) -> Path:
     from lulc_fetch.images import PICTURE_EXTS
 
-    p = (Path.cwd() / rel).resolve()
-    if not p.is_relative_to((Path.cwd() / "uploads").resolve()) or p.suffix.lower() not in PICTURE_EXTS or not p.is_file():
+    p = (ws.root() / rel).resolve()
+    if not p.is_relative_to((ws.root() / "uploads").resolve()) or p.suffix.lower() not in PICTURE_EXTS or not p.is_file():
         raise HTTPException(404, "No such picture")
     return p
 
@@ -874,7 +885,7 @@ async def upload_picture(files: list[UploadFile] = File(...)):
     if len(pics) != 1:
         raise HTTPException(400, "Upload one picture (JPG, PNG, BMP, GIF or WebP) with its optional world file")
     pic_name = Path(pics[0].filename).name
-    dest_dir = Path.cwd() / "uploads" / uuid.uuid4().hex[:8]
+    dest_dir = ws.root() / "uploads" / uuid.uuid4().hex[:8]
     dest_dir.mkdir(parents=True)
     stem = Path(pic_name).stem
     for f in files:
@@ -890,7 +901,7 @@ async def upload_picture(files: list[UploadFile] = File(...)):
     except Exception as e:
         shutil.rmtree(dest_dir, ignore_errors=True)
         raise HTTPException(400, f"Couldn't read {pic_name}: {e}")
-    res["path"] = str(Path(res["path"]).relative_to(Path.cwd()))
+    res["path"] = ws.rel(Path(res["path"]))
     res["name"] = pic_name
     return res
 
@@ -915,7 +926,7 @@ def picture_georef(req: GeorefRequest):
         out = georeference(p, req.bounds)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"path": str(out.relative_to(Path.cwd()))}
+    return {"path": ws.rel(out)}
 
 
 class RasterTableRequest(BaseModel):
@@ -978,7 +989,7 @@ def raster_to_table_job(req: RasterTableRequest):
             i += 1
         shutil.move(tmp, dest)
         shutil.move(str(tmp) + ".json", str(dest) + ".json")
-        rep.update(path=str(dest.relative_to(Path.cwd())), name=dest.name)
+        rep.update(path=ws.rel(dest), name=dest.name)
         import json as _json
         Path(str(dest) + ".json").write_text(_json.dumps({k: v for k, v in rep.items() if k != "preview"}, indent=1))
         return rep
@@ -988,11 +999,11 @@ def raster_to_table_job(req: RasterTableRequest):
 
 # ------------------------------------------------------------------ Classical ML: train models and apply them
 
-MODEL_DIR = Path.cwd() / "models"
+MODEL_DIR = ws.Dir("models")
 
 
 def _model_path(rel: str) -> Path:
-    p = (Path.cwd() / rel).resolve()
+    p = (ws.root() / rel).resolve()
     if not p.is_relative_to(MODEL_DIR.resolve()) or p.suffix != ".joblib" or not p.is_file():
         raise HTTPException(404, "No such model")
     return p
@@ -1023,6 +1034,39 @@ class TrainRequest(BaseModel):
     name: str = Field("model", max_length=80)
     categorical: list[str] = Field(default_factory=list)
     tuning: dict = Field(default_factory=dict)
+    report_dir: str | None = Field(None, max_length=1000)  # also save the HTML evaluation report in this folder
+
+
+def _report_folder(folder: str) -> Path:
+    """Validate a folder typed by the user for saving evaluation reports (created if missing)."""
+    import os
+    import tempfile
+
+    raw = folder.strip().strip('"').strip("'")
+    d = Path(os.path.expandvars(os.path.expanduser(raw)))
+    if not raw or not d.is_absolute():
+        raise HTTPException(400, "Give a full folder path, e.g. /Users/you/Documents/reports or ~/Documents/reports")
+    if d.exists() and not d.is_dir():
+        raise HTTPException(400, f"{d} is a file, not a folder")
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=d, prefix=".lulc_write_test_"):
+            pass
+    except OSError as e:
+        raise HTTPException(400, f"Can't write to {d}: {e.strerror or e}")
+    return d
+
+
+def _copy_report(html: Path, folder: Path) -> Path:
+    """Copy an evaluation report into `folder` without overwriting an existing file."""
+    import shutil
+
+    dest, i = folder / html.name, 2
+    while dest.exists():
+        dest = folder / f"{html.name.removesuffix('.evaluation.html')}_{i}.evaluation.html"
+        i += 1
+    shutil.copy2(html, dest)
+    return dest
 
 
 class CompareRequest(BaseModel):
@@ -1062,6 +1106,8 @@ def ml_train(req: TrainRequest):
     if req.task not in ("auto", "classification", "regression"):
         raise HTTPException(400, "Unknown task")
 
+    report_dir = _report_folder(req.report_dir) if req.report_dir and req.report_dir.strip() else None
+
     def run(job):
         rep = ml.train(table, job.dir, target=req.target, features=req.features, model=req.model, task=req.task,
                        params=req.params, common=req.common, name=req.name, categorical=req.categorical,
@@ -1076,9 +1122,15 @@ def ml_train(req: TrainRequest):
         ev_tmp = tmp.with_suffix(".evaluation.html")
         if ev_tmp.exists():
             shutil.move(ev_tmp, dest.with_suffix(".evaluation.html"))
-            rep["evaluation_html"] = str(dest.with_suffix(".evaluation.html").relative_to(Path.cwd()))
-        rep["path"] = str(dest.relative_to(Path.cwd()))
-        rep["table"] = str(table.relative_to(Path.cwd()))
+            rep["evaluation_html"] = ws.rel(dest.with_suffix(".evaluation.html"))
+            if report_dir is not None:
+                try:
+                    rep["evaluation_saved_to"] = str(_copy_report(dest.with_suffix(".evaluation.html"), report_dir))
+                    log.info("Evaluation report saved to %s", rep["evaluation_saved_to"])
+                except OSError as e:  # never lose a trained model because of the copy
+                    rep.setdefault("warnings", []).append(f"Couldn't save the report to {report_dir}: {e}")
+        rep["path"] = ws.rel(dest)
+        rep["table"] = ws.rel(table)
         import json as _json
         Path(str(dest) + ".json").write_text(_json.dumps(rep, indent=1, default=str))
         Path(str(tmp) + ".json").unlink(missing_ok=True)
@@ -1086,6 +1138,78 @@ def ml_train(req: TrainRequest):
 
     title = f"Train {ml.MODELS[req.model]['title']} · {req.name}"
     return jobs.submit("train", title, {"source": ml.MODELS[req.model]["title"]}, run).to_dict()
+
+
+# ------------------------------------------------------------------ Classical ML: unsupervised (clustering, t-SNE)
+
+@app.get("/api/unsup/schema")
+def unsup_schema():
+    from lulc_fetch import unsupervised
+
+    return unsupervised.schema()
+
+
+class ClusterRequest(BaseModel):
+    table: str
+    features: list[str]
+    categorical: list[str] = Field(default_factory=list)
+    method: str = "kmeans"
+    params: dict = Field(default_factory=dict)
+    prep: dict = Field(default_factory=dict)
+    options: dict = Field(default_factory=dict)
+    compare: str | None = None
+    name: str = Field("clusters", max_length=80)
+
+
+def _rel(path: str | None) -> str | None:
+    return ws.rel(path) if path else None
+
+
+@app.post("/api/unsup/cluster")
+def unsup_cluster(req: ClusterRequest):
+    from lulc_fetch import unsupervised
+
+    table = _table_path(req.table)
+    if req.method not in unsupervised.METHODS:
+        raise HTTPException(400, f"Unknown method {req.method}")
+
+    def run(job):
+        rep = unsupervised.cluster(table, features=req.features, categorical=req.categorical, method=req.method, params=req.params,
+                                   prep=req.prep, options=req.options, compare=req.compare or None, name=req.name,
+                                   table_dir=TABLE_DIR, model_dir=MODEL_DIR)
+        rep["output_table"], rep["path"], rep["table"] = _rel(rep["output_table"]), _rel(rep.get("path")), _rel(rep["table"])
+        if rep["path"]:
+            import json as _json
+            Path(str(ws.root() / rep["path"]) + ".json").write_text(_json.dumps(rep, indent=1, default=str))
+        return rep
+
+    title = f"{unsupervised.METHODS[req.method]['title']} clustering · {table.name}"
+    return jobs.submit("cluster", title, {"source": "Classical ML"}, run).to_dict()
+
+
+class TsneRequest(BaseModel):
+    table: str
+    features: list[str]
+    categorical: list[str] = Field(default_factory=list)
+    params: dict = Field(default_factory=dict)
+    prep: dict = Field(default_factory=dict)
+    color: str | None = None
+    name: str = Field("tsne", max_length=80)
+
+
+@app.post("/api/unsup/tsne")
+def unsup_tsne(req: TsneRequest):
+    from lulc_fetch import unsupervised
+
+    table = _table_path(req.table)
+
+    def run(job):
+        rep = unsupervised.tsne(table, features=req.features, categorical=req.categorical, params=req.params, prep=req.prep,
+                                color=req.color or None, name=req.name, table_dir=TABLE_DIR)
+        rep["output_table"], rep["table"] = _rel(rep["output_table"]), _rel(rep["table"])
+        return rep
+
+    return jobs.submit("tsne", f"t-SNE · {table.name}", {"source": "Classical ML"}, run).to_dict()
 
 
 @app.get("/api/models")
@@ -1102,10 +1226,11 @@ def list_models():
                     rep = _json.loads(side.read_text())
                 except ValueError:
                     pass
-            out.append({"path": str(p.relative_to(Path.cwd())), "name": p.stem, "size_mb": p.stat().st_size / 1e6,
+            out.append({"path": ws.rel(p), "name": p.stem, "size_mb": p.stat().st_size / 1e6,
                         "modified": p.stat().st_mtime, **{k: rep.get(k) for k in (
                             "model", "model_title", "task", "target", "features", "accuracy", "kappa", "f1_macro", "r2", "rmse",
-                            "classes", "table", "train_rows", "has_proba", "source")}})
+                            "classes", "table", "train_rows", "has_proba", "source", "kind", "n_clusters", "method_title")},
+                        "silhouette": (rep.get("quality") or {}).get("silhouette")})
     return out
 
 
@@ -1121,6 +1246,27 @@ def model_report(path: str):
 def model_file(path: str):
     p = _model_path(path)
     return FileResponse(p, filename=p.name)
+
+
+class SaveReportRequest(BaseModel):
+    path: str                              # the model (.joblib)
+    folder: str = Field(max_length=1000)
+
+
+@app.post("/api/models/evaluation/save")
+def save_model_evaluation(req: SaveReportRequest):
+    """Save a copy of a model's HTML evaluation report in a folder of the user's choice."""
+    from lulc_fetch import evaluation
+
+    p = _model_path(req.path)
+    folder = _report_folder(req.folder)
+    html_path = p.with_suffix(".evaluation.html")
+    if not html_path.exists():
+        try:
+            evaluation.report_for_model(p, html_path)
+        except ValueError as e:
+            raise HTTPException(404, str(e))
+    return {"saved_to": str(_copy_report(html_path, folder))}
 
 
 @app.get("/api/models/evaluation")
@@ -1176,7 +1322,7 @@ def ml_predict(req: PredictRequest):
     def run(job):
         rep = ml.predict_raster(model, raster, job.dir / f"{stem}.tif", band_map=req.band_map, scale=req.scale,
                                 offset=req.offset, clip=clip, resolution=req.resolution, confidence=req.confidence)
-        rep["path"] = str((job.dir / f"{stem}.tif").relative_to(Path.cwd()))
+        rep["path"] = ws.rel(job.dir / f"{stem}.tif")
         return rep
 
     return jobs.submit("predict", f"Classify · {req.name}", {"source": "Classical ML"}, run).to_dict()
@@ -1218,7 +1364,7 @@ def stack_job(req: StackRequest):
 
     def run(job):
         rep = stack(items, ref, job.dir / f"{stem}.tif", clip=clip, factor=req.factor)
-        rep["path"] = str((job.dir / f"{stem}.tif").relative_to(Path.cwd()))
+        rep["path"] = ws.rel(job.dir / f"{stem}.tif")
         return rep
 
     return jobs.submit("stack", f"Stack layers · {req.name}", {"source": "Stack layers"}, run).to_dict()
@@ -1226,7 +1372,7 @@ def stack_job(req: StackRequest):
 
 # ------------------------------------------------------------------ layer export (GeoTIFF / PNG / shapefile / KML)
 
-EXPORT_DIR = Path.cwd() / "exports"
+EXPORT_DIR = ws.Dir("exports")
 
 
 def _export_target(name: str, ext: str, job=None) -> Path:
@@ -1264,6 +1410,7 @@ class LayerExportRequest(BaseModel):
     breaks: list[float] | None = None
     sieve: int = Field(8, ge=0, le=10000)
     clip: dict | None = None
+    folder: str | None = Field(None, max_length=1000)   # save into this folder of the user's computer
 
 
 @app.post("/api/layers/export")
@@ -1272,7 +1419,14 @@ def export_layer(req: LayerExportRequest):
     from urllib.parse import quote
 
     src = _raster_path(req.path)
+    folder = _report_folder(req.folder) if req.folder and req.folder.strip() else None
     plain = not (req.index or req.formula or req.composite or req.band or req.rgb) and not req.clip
+    if folder is not None or (src.suffix.lower() == ".vrt" and plain and req.format == "tif"):
+        if req.format in ("png", "pngw") and plain:
+            raise HTTPException(400, "Choose how to display the layer first")
+        _clip(req.clip)
+        return jobs.submit("export", f"Save {req.name} ({req.format.upper()})", {"format": req.format},
+                           lambda job: _export_to_folder(req, job, folder)).to_dict()
     if (plain or (req.rgb and not req.clip)) and req.format == "tif":  # the file itself: no work needed
         result = {"url": f"/api/rasters/file?path={quote(req.path)}", "name": src.name, "size_mb": src.stat().st_size / 1e6}
         job = jobs.submit("export", f"Export {req.name}", {"format": req.format}, lambda job: result)
@@ -1316,11 +1470,31 @@ def _export_layer_now(req: "LayerExportRequest", job) -> dict:
     return _export_url(out, job)
 
 
+def _export_to_folder(req: "LayerExportRequest", job, folder: Path | None) -> dict:
+    """Export into the job folder, then (optionally) save into the user's folder. Plain VRTs are written as GeoTIFF."""
+    src = _raster_path(req.path)
+    plain = not (req.index or req.formula or req.composite or req.band or req.rgb) and not req.clip
+    if req.rgb and not req.clip and req.format == "tif":
+        plain = True
+    if plain and req.format == "tif":
+        out = _vrt_to_tif(src, _export_target(req.name, "tif", job)) if src.suffix.lower() == ".vrt" else src
+        res = {**(_export_url(out, job) if out != src else {"url": f"/api/rasters/file?path={req.path}", "name": src.name,
+                                                             "size_mb": src.stat().st_size / 1e6})}
+    else:
+        res = _export_layer_now(req, job)
+        out = job.dir / res["name"]
+    if folder is not None:
+        res["saved"] = _save_into(out, folder)
+        res["saved_to"] = str(folder)
+    return res
+
+
 class VectorExportRequest(BaseModel):
     geojson: dict
     format: str  # shp | geojson | kml
     name: str = "layer"
     clip: dict | None = None
+    folder: str | None = Field(None, max_length=1000)
 
 
 @app.post("/api/vector/export")
@@ -1338,7 +1512,11 @@ def export_vector(req: VectorExportRequest):
         out = vector_io.write_geojson(feats, _export_target(req.name, "geojson"))
     else:
         raise HTTPException(400, f"Unknown format {req.format}")
-    return {**_export_url(out), "features": len(feats)}
+    res = {**_export_url(out), "features": len(feats)}
+    if req.folder and req.folder.strip():
+        res["saved"] = _save_into(out, _report_folder(req.folder))
+        res["saved_to"] = str(_report_folder(req.folder))
+    return res
 
 
 @app.get("/api/exports/{export_id}/{name}")
@@ -1347,6 +1525,322 @@ def export_file(export_id: str, name: str):
     if not path.is_relative_to(EXPORT_DIR.resolve()) or not path.is_file():
         raise HTTPException(404, "No such export")
     return FileResponse(path, filename=path.name)
+
+
+# ------------------------------------------------------------------ projects, folder browser, saving copies, cache
+
+def _abs_folder(raw: str) -> Path:
+    import os
+    raw = (raw or "").strip().strip('"').strip("'")
+    d = Path(os.path.expandvars(os.path.expanduser(raw)))
+    if not raw or not d.is_absolute():
+        raise HTTPException(400, "Give a full folder path, e.g. /Users/you/Documents or ~/Documents")
+    return d
+
+
+def _project_info(with_state: bool = False) -> dict:
+    p = ws.project()
+    return {"project": p, "temporary": p is None, "workspace": str(ws.root()), "app_dir": str(ws.APP_DIR),
+            "recent": ws.recent(), **({"state": ws.load_state()} if with_state and p else {})}
+
+
+def _switch_guard():
+    busy = [j for j in jobs.list() if j.status in ("queued", "running")]
+    if busy:
+        raise HTTPException(409, f"Wait for {len(busy)} running job(s) to finish (or cancel them) before switching projects")
+
+
+@app.get("/api/project")
+def project_get():
+    return _project_info(with_state=True)
+
+
+class ProjectNewRequest(BaseModel):
+    name: str = Field(max_length=80)
+    folder: str = Field(max_length=1000)
+
+
+@app.post("/api/project/new")
+def project_new(req: ProjectNewRequest):
+    _switch_guard()
+    try:
+        folder = ws.create(req.name, _abs_folder(req.folder))
+        ws.open_project(folder)
+    except (ValueError, OSError) as e:
+        raise HTTPException(400, str(e))
+    jobs.clear_finished()
+    log.info("Project %s created in %s", req.name, folder)
+    return _project_info(with_state=True)
+
+
+class ProjectOpenRequest(BaseModel):
+    folder: str = Field(max_length=1000)
+
+
+@app.post("/api/project/open")
+def project_open(req: ProjectOpenRequest):
+    _switch_guard()
+    try:
+        ws.open_project(_abs_folder(req.folder))
+    except (ValueError, OSError) as e:
+        raise HTTPException(400, str(e))
+    jobs.clear_finished()
+    log.info("Project opened: %s", ws.root())
+    return _project_info(with_state=True)
+
+
+@app.post("/api/project/close")
+def project_close():
+    _switch_guard()
+    ws.close_project()
+    jobs.clear_finished()
+    return _project_info()
+
+
+class ProjectStateRequest(BaseModel):
+    state: dict
+
+
+@app.put("/api/project/state")
+def project_state(req: ProjectStateRequest):
+    try:
+        return {"saved": ws.save_state(req.state)}
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.delete("/api/project/recent")
+def project_forget(folder: str):
+    ws.forget(folder)
+    return {"recent": ws.recent()}
+
+
+class RevealRequest(BaseModel):
+    path: str | None = None
+
+
+@app.post("/api/project/reveal")
+def project_reveal(req: RevealRequest):
+    """Show the project folder (or a saved file's folder) in Finder / Explorer / the file manager."""
+    import subprocess
+    import sys
+
+    target = Path(req.path).expanduser() if req.path else ws.root()
+    if not target.is_absolute():
+        target = ws.root() / target
+    folder = target if target.is_dir() else target.parent
+    if not folder.is_dir():
+        raise HTTPException(404, "Folder not found")
+    cmd = ["open", str(folder)] if sys.platform == "darwin" else ["explorer", str(folder)] if sys.platform.startswith("win") else ["xdg-open", str(folder)]
+    try:
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        raise HTTPException(500, f"Couldn't open the folder: {e}")
+    return {"ok": True}
+
+
+@app.get("/api/fs/list")
+def fs_list(path: str = ""):
+    """Folders inside a folder, for the folder picker (folders only; file contents are never read)."""
+    import os
+
+    p = _abs_folder(path) if path.strip() else Path.home()
+    if not p.is_dir():
+        raise HTTPException(404, f"{p} is not a folder")
+    dirs = []
+    try:
+        for c in sorted(p.iterdir(), key=lambda c: c.name.lower()):
+            try:
+                if c.is_dir() and not c.name.startswith(".") and not c.name.endswith((".app", ".photoslibrary")):
+                    dirs.append({"name": c.name, "path": str(c), "project": ws.is_project(c)})
+            except OSError:
+                continue
+            if len(dirs) >= 800:
+                break
+    except PermissionError:
+        raise HTTPException(403, f"No permission to read {p}")
+    home = Path.home()
+    shortcuts = [("Home", home), ("Desktop", home / "Desktop"), ("Documents", home / "Documents"), ("Downloads", home / "Downloads")]
+    if ws.project():
+        shortcuts.insert(0, ("This project", ws.root()))
+    shortcuts.append(("App folder", ws.APP_DIR))
+    return {"path": str(p), "parent": str(p.parent) if p.parent != p else None, "dirs": dirs,
+            "project": ws.is_project(p), "writable": os.access(p, os.W_OK),
+            "shortcuts": [{"name": n, "path": str(d)} for n, d in shortcuts if d.is_dir()]}
+
+
+class MkdirRequest(BaseModel):
+    parent: str = Field(max_length=1000)
+    name: str = Field(max_length=120)
+
+
+@app.post("/api/fs/mkdir")
+def fs_mkdir(req: MkdirRequest):
+    import re
+
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", req.name).strip(" .")
+    if not name:
+        raise HTTPException(400, "Give the folder a name")
+    d = _abs_folder(req.parent) / name
+    try:
+        d.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        raise HTTPException(400, f"{name} already exists")
+    except OSError as e:
+        raise HTTPException(400, f"Can't create the folder: {e.strerror or e}")
+    return {"path": str(d)}
+
+
+def _unique(folder: Path, name: str) -> Path:
+    dest, i, stem, suf = folder / name, 2, Path(name).stem, Path(name).suffix
+    if name.endswith(".evaluation.html"):
+        stem, suf = name[: -len(".evaluation.html")], ".evaluation.html"
+    while dest.exists():
+        dest = folder / f"{stem}_{i}{suf}"
+        i += 1
+    return dest
+
+
+def _companions(src: Path) -> list[Path]:
+    """Files that belong with src: shapefile parts, sidecar descriptions, world files, model reports."""
+    out = []
+    if src.suffix.lower() == ".shp":
+        out += [src.with_suffix(e) for e in (".shx", ".dbf", ".prj", ".cpg")]
+    out += [Path(str(src) + ".json"), Path(str(src) + ".aux.xml"), src.with_suffix(".pgw"), src.with_suffix(".tfw")]
+    if src.suffix == ".joblib":
+        out.append(src.with_suffix(".evaluation.html"))
+    return [p for p in out if p.is_file()]
+
+
+def _save_into(src: Path, folder: Path) -> list[str]:
+    """Copy a workspace file (and its companions) into folder without overwriting. Zipped shapefiles are unpacked."""
+    import shutil
+    import zipfile
+
+    saved = []
+    if src.suffix.lower() == ".zip" and zipfile.is_zipfile(src):
+        with zipfile.ZipFile(src) as z:
+            members = [m for m in z.namelist() if not m.endswith("/") and "/" not in m.strip("/") and ".." not in m]
+            if any(m.lower().endswith(".shp") for m in members):
+                stems = {Path(m).stem for m in members}
+                rename = {}
+                for st in stems:
+                    new, i = st, 2
+                    while any((folder / f"{new}{Path(m).suffix}").exists() for m in members if Path(m).stem == st):
+                        new = f"{st}_{i}"
+                        i += 1
+                    rename[st] = new
+                for m in members:
+                    dest = folder / f"{rename[Path(m).stem]}{Path(m).suffix}"
+                    with z.open(m) as fin, open(dest, "wb") as fout:
+                        shutil.copyfileobj(fin, fout)
+                    saved.append(str(dest))
+                return saved
+    dest = _unique(folder, src.name)
+    shutil.copy2(src, dest)
+    saved.append(str(dest))
+    for c in _companions(src):
+        name = dest.name + c.name[len(src.name):] if c.name.startswith(src.name) else dest.stem + c.name[len(src.stem):]
+        if c.suffix == ".html" and src.suffix == ".joblib":
+            name = dest.with_suffix("").name + ".evaluation.html"
+        shutil.copy2(c, folder / name)
+        saved.append(str(folder / name))
+    return saved
+
+
+def _vrt_to_tif(src: Path, out: Path) -> Path:
+    """A .SAFE import (a VRT that points at the original product) written as a real GeoTIFF."""
+    import rasterio
+    from rasterio.shutil import copy as rio_copy
+
+    with rasterio.open(src) as ds:
+        big = ds.width * ds.height * ds.count > 2**31
+    rio_copy(src, out, driver="GTiff", compress="deflate", tiled=True, blockxsize=512, blockysize=512,
+             BIGTIFF="YES" if big else "IF_SAFER", predictor=2)
+    return out
+
+
+class SaveFilesRequest(BaseModel):
+    paths: list[str] = Field(max_length=200)
+    folder: str = Field(max_length=1000)
+
+
+@app.post("/api/files/save")
+def files_save(req: SaveFilesRequest):
+    """Save copies of workspace files (tool outputs, layers, tables, models) into a folder of the user's choice."""
+    folder = _report_folder(req.folder)
+    saved, skipped = [], []
+    base = ws.root().resolve()
+    for raw in req.paths:
+        src = (ws.root() / raw).resolve()
+        if not src.is_file() or not (src.is_relative_to(base) or src.is_relative_to(ws.APP_DIR)):
+            skipped.append({"path": raw, "reason": "not a file in this workspace"})
+            continue
+        try:
+            if src.suffix.lower() == ".vrt":
+                saved.append(str(_vrt_to_tif(src, _unique(folder, src.with_suffix(".tif").name))))
+            else:
+                saved += _save_into(src, folder)
+        except OSError as e:
+            skipped.append({"path": raw, "reason": str(e)})
+    log.info("Saved %d file(s) to %s", len(saved), folder)
+    return {"folder": str(folder), "saved": saved, "skipped": skipped}
+
+
+CACHE_DIRS = ("downloads", "analysis", "uploads", "exports", "imports")
+
+
+@app.get("/api/cache")
+def cache_info():
+    """Sizes of the workspace's working folders (the cache of the temporary workspace, or the project's files)."""
+    import time as _t
+
+    out = []
+    for d in CACHE_DIRS:
+        p = ws.root() / d
+        size, n, oldest = 0, 0, None
+        if p.is_dir():
+            for f in p.rglob("*"):
+                if f.is_file():
+                    st = f.stat()
+                    size += st.st_size
+                    n += 1
+                    oldest = min(oldest or st.st_mtime, st.st_mtime)
+        out.append({"folder": d, "size_mb": size / 1e6, "files": n, "oldest_days": None if oldest is None else (_t.time() - oldest) / 86400})
+    return {"workspace": str(ws.root()), "temporary": ws.project() is None, "folders": out}
+
+
+class CacheCleanRequest(BaseModel):
+    folders: list[str]
+    older_than_days: float = Field(7, ge=0, le=3650)
+
+
+@app.post("/api/cache/clean")
+def cache_clean(req: CacheCleanRequest):
+    """Delete working files older than N days (whole job / upload folders, so layers never half-break)."""
+    import shutil
+    import time as _t
+
+    cutoff = _t.time() - req.older_than_days * 86400
+    running = {j.id for j in jobs.list() if j.status in ("queued", "running")}
+    freed, removed = 0, 0
+    for d in req.folders:
+        if d not in CACHE_DIRS:
+            continue
+        p = ws.root() / d
+        if not p.is_dir():
+            continue
+        for item in p.iterdir():
+            if item.name in running:
+                continue
+            files = [f for f in item.rglob("*") if f.is_file()] if item.is_dir() else [item]
+            if not files or max(f.stat().st_mtime for f in files) > cutoff:
+                continue
+            freed += sum(f.stat().st_size for f in files)
+            shutil.rmtree(item, ignore_errors=True) if item.is_dir() else item.unlink(missing_ok=True)
+            removed += 1
+    log.info("Cleaned %d item(s), %.1f MB", removed, freed / 1e6)
+    return {"removed": removed, "freed_mb": freed / 1e6}
 
 
 # ------------------------------------------------------------------ static UI
@@ -1368,7 +1862,7 @@ def main():
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     url = f"http://127.0.0.1:{args.port}"
-    print(f"\n  lulc-fetch web UI → {url}\n  Downloads are saved in {Path.cwd() / 'downloads'}\n")
+    print(f"\n  lulc-fetch web UI → {url}\n  Downloads are saved in {ws.root() / 'downloads'}\n")
     if not args.no_browser:
         import threading
         import webbrowser
