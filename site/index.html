@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LULC Fetch: land-cover mapping on your own computer</title>
+<meta name="description" content="Free desktop app to find Sentinel-2 and Landsat imagery, compute indices, train machine-learning models (Random Forest, SVM, Maximum Likelihood, XGBoost…) and classify satellite images into land-use / land-cover maps. Works offline. Mac and Windows.">
+<meta property="og:title" content="LULC Fetch: land-cover maps from satellite images">
+<meta property="og:description" content="Find imagery, train classical ML models and map land use / land cover, all on your own computer. Free and open source.">
+<meta property="og:image" content="assets/hero.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.png">
+<style>
+:root {
+  --bg: #ffffff; --bg-2: #f5f8f6; --panel: #ffffff; --text: #14211b; --muted: #5b6b63; --border: #e2e9e5;
+  --accent: #1f7a5a; --accent-2: #e7f4ee; --accent-ink: #ffffff; --shadow: 0 1px 2px rgba(16,40,30,.06), 0 8px 30px rgba(16,40,30,.08);
+  --radius: 14px; --max: 1160px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0e1513; --bg-2: #121c19; --panel: #16211d; --text: #e7efeb; --muted: #98aaa1; --border: #24332d;
+          --accent: #3fb68b; --accent-2: #173328; --accent-ink: #06130e; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35); }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+img { max-width: 100%; height: auto; display: block; }
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 20px; }
+section { padding: 84px 0; }
+section.alt { background: var(--bg-2); }
+h1, h2, h3 { line-height: 1.2; margin: 0; letter-spacing: -.01em; }
+h2 { font-size: clamp(26px, 3.4vw, 38px); }
+.lead { font-size: 18px; color: var(--muted); max-width: 720px; }
+.eyebrow { display: inline-block; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; }
+.center { text-align: center; }
+.center .lead { margin-left: auto; margin-right: auto; }
+
+/* nav */
+nav { position: sticky; top: 0; z-index: 50; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: saturate(160%) blur(10px); border-bottom: 1px solid var(--border); }
+nav .wrap { display: flex; align-items: center; gap: 22px; height: 64px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--text); }
+.brand img { width: 30px; height: 30px; }
+.brand:hover { text-decoration: none; }
+nav .links { display: flex; gap: 20px; margin-left: auto; font-size: 15px; }
+nav .links a { color: var(--muted); }
+nav .links a:hover { color: var(--text); text-decoration: none; }
+.btn { display: inline-flex; align-items: center; gap: 9px; padding: 11px 18px; border-radius: 10px; font-weight: 650; font-size: 15px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); cursor: pointer; transition: transform .08s, box-shadow .15s, background .15s; white-space: nowrap; }
+.btn:hover { text-decoration: none; box-shadow: var(--shadow); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.small { padding: 7px 13px; font-size: 14px; }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn small { font-weight: 500; opacity: .8; font-size: 12.5px; }
+
+/* hero */
+.hero { padding: 72px 0 40px; background: radial-gradient(1200px 500px at 50% -10%, var(--accent-2), transparent 70%); }
+.hero h1 { font-size: clamp(34px, 5.4vw, 60px); max-width: 900px; margin: 0 auto; }
+.hero h1 span { color: var(--accent); }
+.hero .lead { margin: 18px auto 0; font-size: 19px; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 30px; }
+.cta-note { color: var(--muted); font-size: 13.5px; margin-top: 12px; }
+.frame { margin: 48px auto 0; max-width: 1080px; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 30px 80px rgba(16,40,30,.18), var(--shadow); background: var(--panel); }
+.frame .bar { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); }
+.frame .bar i { width: 11px; height: 11px; border-radius: 50%; background: #e5e7eb; }
+.frame .bar i:nth-child(1) { background: #ff5f57; } .frame .bar i:nth-child(2) { background: #febc2e; } .frame .bar i:nth-child(3) { background: #28c840; }
+.frame .bar span { margin-left: 10px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.frame img { cursor: zoom-in; }
+
+/* data chips */
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 34px; }
+.chips span { padding: 6px 13px; border: 1px solid var(--border); border-radius: 999px; font-size: 14px; color: var(--muted); background: var(--panel); }
+
+/* workflow */
+.steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-top: 40px; counter-reset: s; }
+.step { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 18px; position: relative; }
+.step::before { counter-increment: s; content: counter(s); position: absolute; top: -13px; left: 18px; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: 13px; display: grid; place-items: center; }
+.step h3 { font-size: 16px; margin: 6px 0 6px; }
+.step p { margin: 0; font-size: 14px; color: var(--muted); }
+
+/* features */
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 40px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; transition: border-color .15s, transform .15s; }
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card .ic { width: 42px; height: 42px; border-radius: 11px; background: var(--accent-2); color: var(--accent); display: grid; place-items: center; margin-bottom: 14px; }
+.card .ic svg { width: 22px; height: 22px; }
+.card h3 { font-size: 17px; margin-bottom: 6px; }
+.card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.card ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+
+/* showcase rows */
+.show { display: grid; grid-template-columns: 1fr 1.35fr; gap: 48px; align-items: center; margin-top: 70px; }
+.show:first-of-type { margin-top: 44px; }
+.show.rev { grid-template-columns: 1.35fr 1fr; }
+.show.rev .txt { order: 2; }
+.show h3 { font-size: 26px; margin-bottom: 12px; }
+.show p { color: var(--muted); margin: 0 0 12px; }
+.show ul { padding-left: 20px; margin: 0; color: var(--muted); }
+.show li { margin: 4px 0; }
+.shot { border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); cursor: zoom-in; background: var(--panel); }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 6px; background: var(--accent-2); color: var(--accent); margin-bottom: 12px; }
+
+/* honest accuracy */
+.compare { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; max-width: 760px; margin: 36px auto 0; }
+.big { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center; }
+.big b { display: block; font-size: 46px; line-height: 1.1; }
+.big.warn b { color: #c2410c; } .big.ok b { color: var(--accent); }
+.big span { color: var(--muted); font-size: 14.5px; }
+
+/* data types */
+.types { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-top: 40px; }
+.type { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+.type b { display: block; font-size: 16px; margin-bottom: 4px; }
+.type span { color: var(--muted); font-size: 13.5px; }
+.type i { display: block; height: 6px; border-radius: 3px; margin-bottom: 12px; }
+
+/* local */
+.local { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 36px; }
+
+/* download */
+.dl { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 40px; }
+.dlcard { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px; display: flex; flex-direction: column; }
+.dlcard.hl { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, var(--shadow); }
+.dlcard h3 { font-size: 21px; display: flex; align-items: center; gap: 10px; }
+.dlcard h3 svg { width: 24px; height: 24px; }
+.dlcard .req { color: var(--muted); font-size: 14px; margin: 4px 0 16px; }
+.dlcard ol { padding-left: 20px; margin: 18px 0 0; color: var(--muted); font-size: 14.5px; }
+.dlcard ol li { margin: 6px 0; }
+.dlcard code { font-size: 12.5px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; word-break: break-all; }
+.other { text-align: center; color: var(--muted); font-size: 14.5px; margin-top: 22px; }
+
+/* faq */
+.faq { max-width: 820px; margin: 36px auto 0; }
+details { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 0 20px; margin-bottom: 10px; }
+summary { cursor: pointer; font-weight: 650; padding: 16px 0; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--accent); font-size: 22px; line-height: 1; }
+details[open] summary::after { content: "–"; }
+details p { margin: 0 0 16px; color: var(--muted); }
+
+footer { border-top: 1px solid var(--border); padding: 36px 0; color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; align-items: center; }
+footer nav { position: static; background: none; border: 0; backdrop-filter: none; }
+footer .links2 { display: flex; gap: 18px; }
+
+/* lightbox */
+.lb { position: fixed; inset: 0; background: rgba(5,12,9,.86); display: none; place-items: center; z-index: 100; padding: 24px; cursor: zoom-out; }
+.lb.open { display: grid; }
+.lb img { max-height: 92vh; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+
+@media (max-width: 960px) {
+  .steps { grid-template-columns: repeat(2, 1fr); row-gap: 26px; }
+  .grid, .local { grid-template-columns: repeat(2, 1fr); }
+  .types { grid-template-columns: repeat(2, 1fr); }
+  .show, .show.rev { grid-template-columns: 1fr; gap: 22px; }
+  .show.rev .txt { order: 0; }
+  nav .links { display: none; }
+}
+@media (max-width: 620px) {
+  section { padding: 60px 0; }
+  .grid, .local, .dl, .compare, .steps, .types { grid-template-columns: 1fr; }
+  .hero { padding-top: 48px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#workflow">How it works</a>
+      <a href="#data">Data</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+    </div>
+    <a class="btn small primary" href="#download">Download</a>
+  </div>
+</nav>
+
+<header class="hero center">
+  <div class="wrap">
+    <span class="eyebrow">Free · Open source · Mac &amp; Windows</span>
+    <h1>Land-cover maps from satellite images, <span>on your own computer</span></h1>
+    <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning models and classify images into land-use / land-cover maps, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
+    <div class="cta">
+      <a class="btn primary" id="cta-main" href="#download">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
+        <span id="cta-label">Download free</span></a>
+      <a class="btn" href="https://github.com/agritechixr/lulc-fetch">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>
+        View on GitHub</a>
+    </div>
+    <p class="cta-note">Mac (Apple Silicon, macOS 14+) · Windows 10 / 11 · Apache 2.0 licence</p>
+    <div class="frame">
+      <div class="bar"><i></i><i></i><i></i><span>LULC Fetch: Bengaluru land cover classified with Random Forest from Sentinel-2</span></div>
+      <img width="1800" height="1100" src="assets/hero.jpg" alt="LULC Fetch showing a land-cover map of Bengaluru classified from Sentinel-2 with Random Forest, with the accuracy report">
+    </div>
+    <div class="chips">
+      <span>Sentinel-2</span><span>Landsat 8–9</span><span>Sentinel-1 SAR</span><span>Copernicus .SAFE</span><span>ESA WorldCover</span>
+      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
+    </div>
+  </div>
+</header>
+
+<section id="workflow">
+  <div class="wrap center">
+    <span class="eyebrow">How it works</span>
+    <h2>From a satellite image to a land-cover map</h2>
+    <p class="lead">One app for the whole workflow, laid out like a desktop GIS: layers on the left, map in the middle, tools on the right.</p>
+    <div class="steps" style="text-align:left">
+      <div class="step"><h3>Get imagery</h3><p>Search Sentinel-2 / Landsat for any area and date, cloud-free composites, or open your own .SAFE and GeoTIFF files.</p></div>
+      <div class="step"><h3>Prepare</h3><p>30 spectral &amp; radar indices, PCA, and stacking of optical, radar and elevation layers into one image.</p></div>
+      <div class="step"><h3>Label</h3><p>Draw training polygons per class, or use a shapefile or an existing land-cover map as ground truth.</p></div>
+      <div class="step"><h3>Train &amp; validate</h3><p>Random Forest, SVM, Maximum Likelihood, XGBoost and more, with spatially honest accuracy.</p></div>
+      <div class="step"><h3>Map &amp; export</h3><p>Classify whole images with a confidence layer, then export as GeoTIFF, PNG, Shapefile or KML.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="features" class="alt">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Features</span>
+      <h2>Everything for land-use / land-cover work</h2>
+      <p class="lead">Built on GDAL, scikit-learn, XGBoost and LightGBM, behind a friendly interface with hints on every option.</p>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+        <h3>Find &amp; download imagery</h3><p>Sentinel-2 (10 m) and Landsat 8–9 (30 m) from open STAC catalogues: single dates, cloud-free median composites, WorldCover / Esri land cover, or original Copernicus and USGS products.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></div>
+        <h3>Indices, PCA &amp; stacking</h3><p>NDVI, EVI, SAVI, NDWI, NDBI, NBR, radar RVI and 20+ more, or your own formula. PCA, Kernel PCA, NMF, ICA. Stack optical, SAR and DEM layers.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg></div>
+        <h3>Classical ML for rasters</h3><p>Image plus ground truth to classified map in one run: SVM, Maximum Likelihood, Spectral Angle Mapper, Random Forest, k-NN and more. RGB, multispectral, hyperspectral and embeddings.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19V5M4 19h16"/><path d="M8 15l3-4 3 2 5-6"/></svg></div>
+        <h3>Supervised ML</h3><p>16 models with preprocessing, hyperparameter tuning, a model leaderboard, spatially independent validation and a full HTML evaluation report.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="8" r="2"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="16" r="2"/><circle cx="17" cy="16" r="2"/></svg></div>
+        <h3>Unsupervised ML</h3><p>K-means, hierarchical, DBSCAN, HDBSCAN, spectral clustering and Gaussian mixture with automatic choice of k, plus t-SNE maps. Cluster images without labels.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></div>
+        <h3>Tables &amp; attribute editing</h3><p>View tables and attribute tables under the map, with a field calculator, area and length of shapes, Python (pandas) scripts and safe save-or-discard editing.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18l5-12 7 4 4 8z"/></svg></div>
+        <h3>Training samples</h3><p>Draw labelled polygons and points for each class on the map, with ready-made LULC class palettes. Import shapefiles, GeoJSON and KML.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+        <h3>Projects</h3><p>Keep layers, results, tables and models in one project folder. It autosaves and reopens where you left off, and any result can be saved to your own folder.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 14v6h16v-6"/></svg></div>
+        <h3>Export anywhere</h3><p>GeoTIFF, PNG (with world file), Shapefile, GeoJSON, KML, CSV and Parquet, for the whole layer or just your area of interest.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="tour">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">A closer look</span>
+      <h2>Real results, not mock-ups</h2>
+      <p class="lead">Every screenshot below is LULC Fetch working on real Sentinel-2 data of Bengaluru, India.</p>
+    </div>
+
+    <div class="show">
+      <div class="txt">
+        <span class="tag">Classical ML for raster</span>
+        <h3>One click from image to map</h3>
+        <p>Pick an image and its ground truth (polygons, points or a land-cover raster), choose a model, and get a classified map with a confidence layer and a full accuracy report.</p>
+        <ul>
+          <li>Detects RGB, multispectral, hyperspectral, SAR and pixel embeddings, and suggests suitable models</li>
+          <li>SVM (RBF / linear), Maximum Likelihood, Spectral Angle Mapper, Minimum Distance, Random Forest, XGBoost …</li>
+          <li>PCA band reduction for 100+ band hyperspectral data</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/hero.jpg" alt="Classified land-cover map of Bengaluru with training-pixel counts and accuracy metrics" loading="lazy">
+    </div>
+
+    <div class="show rev">
+      <div class="txt">
+        <span class="tag">Index analysis</span>
+        <h3>30 indices, checked for you</h3>
+        <p>Vegetation, water, built-up, burn, snow and radar indices in one click, or type your own formula. LULC Fetch reads band names, warns when a band is missing, and converts raw values to reflectance automatically.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/ndvi.jpg" alt="NDVI map of Bengaluru computed from Sentinel-2" loading="lazy">
+    </div>
+
+    <div class="show">
+      <div class="txt">
+        <span class="tag">Evaluation report</span>
+        <h3>Know how good your model really is</h3>
+        <p>Every trained model comes with a stand-alone HTML report you can share or print: overall accuracy, kappa, confusion matrices with producer's and user's accuracy, per-class scores, ROC and precision–recall curves, calibration and feature importance.</p>
+      </div>
+      <img width="1355" height="1800" class="shot" src="assets/report.jpg" alt="HTML evaluation report with accuracy tiles and confusion matrices" loading="lazy">
+    </div>
+
+    <div class="show rev">
+      <div class="txt">
+        <span class="tag">Unsupervised learning</span>
+        <h3>Find natural groups, no labels needed</h3>
+        <p>Six clustering methods with automatic choice of the number of clusters, quality scores, cluster profiles and comparison with known labels. Save a clustering as a model to make an unsupervised land-cover map.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/cluster.jpg" alt="Clustering results with cluster sizes and a 2D scatter view" loading="lazy">
+    </div>
+
+    <div class="show">
+      <div class="txt">
+        <span class="tag">Tables &amp; editing</span>
+        <h3>Edit tables like in a GIS, or with Python</h3>
+        <p>Open any table or attribute table under the map. Add fields with the calculator (including polygon area and perimeter), edit cells, or run pandas code. Changes stay in a working copy until you choose to save or discard them.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/calc.jpg" alt="Field calculator dialog with live preview" loading="lazy">
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="honest">
+  <div class="wrap center">
+    <span class="eyebrow">Honest accuracy</span>
+    <h2>Accuracy you can trust</h2>
+    <p class="lead">Neighbouring pixels look almost identical. When test pixels are picked at random, they are near-copies of the training pixels, and the accuracy looks far better than the map really is. LULC Fetch holds out whole polygons or spatial blocks for testing, and tells you which method it used.</p>
+    <div class="compare">
+      <div class="big warn"><b>79.5%</b><span>Random pixel test: the usual, optimistic number</span></div>
+      <div class="big ok"><b>53.9%</b><span>By-polygon test: the same model, measured honestly</span></div>
+    </div>
+    <p class="cta-note" style="margin-top:18px">Same Random Forest, same data. Example from testing LULC Fetch.</p>
+  </div>
+</section>
+
+<section id="data">
+  <div class="wrap center">
+    <span class="eyebrow">Any number of bands</span>
+    <h2>Works with the data you have</h2>
+    <p class="lead">Every model accepts any number of channels, from 3-band photos to hyperspectral cubes and learned embeddings.</p>
+    <div class="types" style="text-align:left">
+      <div class="type"><i style="background:linear-gradient(90deg,#ef4444,#22c55e,#3b82f6)"></i><b>RGB</b><span>Drone and aerial photos, georeferenced JPG / PNG</span></div>
+      <div class="type"><i style="background:#16a34a"></i><b>Multispectral</b><span>Sentinel-2, Landsat 8–9 and other 4–30 band sensors</span></div>
+      <div class="type"><i style="background:linear-gradient(90deg,#7c3aed,#06b6d4,#84cc16,#f59e0b,#ef4444)"></i><b>Hyperspectral</b><span>100+ narrow bands, with PCA band reduction</span></div>
+      <div class="type"><i style="background:#475569"></i><b>SAR</b><span>Sentinel-1 VV / VH calibrated backscatter</span></div>
+      <div class="type"><i style="background:#0284c7"></i><b>Embeddings</b><span>Google AlphaEarth (64-D), TESSERA (128-D)</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap center">
+    <span class="eyebrow">Private by design</span>
+    <h2>Your data stays on your computer</h2>
+    <div class="local" style="text-align:left">
+      <div class="card"><h3>Runs locally</h3><p>Everything runs on your own machine: no upload, no cloud processing, no account needed for analysis.</p></div>
+      <div class="card"><h3>Works offline</h3><p>All analysis, machine learning and editing work without internet. Internet is only used to find and download imagery, for basemaps and for address search.</p></div>
+      <div class="card"><h3>Free &amp; open</h3><p>Open source under the Apache 2.0 licence. Inspect it, improve it, and use it in research, teaching or projects.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Download</span>
+      <h2>Get LULC Fetch, free</h2>
+      <p class="lead">Ready-to-run apps: Python and all libraries are included, so there's nothing else to install.</p>
+    </div>
+    <div class="dl">
+      <div class="dlcard" id="dl-mac">
+        <h3><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.77-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.27-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.78.74 2.99.72 1.24-.02 2.02-1.12 2.77-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.42-3.66zM14.1 5.86c.63-.77 1.06-1.83.94-2.89-.91.04-2.02.61-2.67 1.37-.58.67-1.1 1.76-.96 2.8 1.02.08 2.06-.52 2.69-1.28z"/></svg>Mac</h3>
+        <div class="req">Apple Silicon (M1, M2, M3, M4) · macOS 14 Sonoma or newer · about 165 MB</div>
+        <a class="btn primary" href="https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-macOS-AppleSilicon.dmg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
+          Download for Mac <small>.dmg</small></a>
+        <ol>
+          <li>Open the downloaded <b>.dmg</b> and drag <b>LULC Fetch</b> onto <b>Applications</b>.</li>
+          <li>The first time, double-click it. If macOS says it can't check the app, open <b>System Settings ▸ Privacy &amp; Security</b> and click <b>Open Anyway</b>.</li>
+          <li>From then on, just double-click it. It opens in your browser.</li>
+        </ol>
+      </div>
+      <div class="dlcard" id="dl-win">
+        <h3><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.4l7.4-1v7.1H3zm0 13.2l7.4 1v-7H3zm8.2 1.1L21 21v-8.4h-9.8zm0-15.4v7.2H21V3z"/></svg>Windows</h3>
+        <div class="req">Windows 10 / 11, 64-bit · about 205 MB</div>
+        <a class="btn primary" href="https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-Windows.zip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
+          Download for Windows <small>.zip</small></a>
+        <ol>
+          <li>Right-click the downloaded <b>LULC-Fetch-Windows.zip</b> ▸ <b>Extract All…</b></li>
+          <li>Open the extracted folder and double-click <b>LULC Fetch.exe</b>.</li>
+          <li>If "Windows protected your PC" appears, click <b>More info ▸ Run anyway</b> (only the first time).</li>
+        </ol>
+      </div>
+    </div>
+    <p class="other">Linux or an Intel Mac? <a href="https://github.com/agritechixr/lulc-fetch#run-from-source-for-development">Run from source</a> with Python. All versions: <a href="https://github.com/agritechixr/lulc-fetch/releases">Releases page</a>.</p>
+  </div>
+</section>
+
+<section class="alt" id="faq">
+  <div class="wrap">
+    <div class="center"><span class="eyebrow">FAQ</span><h2>Questions</h2></div>
+    <div class="faq">
+      <details><summary>Is LULC Fetch free?</summary><p>Yes. It's free and open source under the Apache 2.0 licence. The imagery sources it uses (Copernicus, USGS, Earth Search, Microsoft Planetary Computer) are free too.</p></details>
+      <details><summary>Do I need to know programming?</summary><p>No. Everything is done with menus, forms and the map, with a hint (ⓘ) on every option. If you do know Python, you can also edit tables with pandas inside the app.</p></details>
+      <details><summary>Does it need internet?</summary><p>Only to search and download imagery, for background maps and for address search. Opening your own files, indices, PCA, stacking, every machine-learning tool, editing and export work offline.</p></details>
+      <details><summary>Do I need a Copernicus or USGS account?</summary><p>No account is needed to search and download Sentinel-2 / Landsat imagery and composites. Accounts are only needed for original full products (.SAFE, Landsat scenes). LULC Fetch keeps those credentials in your computer's secure keychain.</p></details>
+      <details><summary>Why does my computer warn me the first time I open it?</summary><p>The app isn't signed with a paid Apple or Microsoft developer certificate yet, so macOS and Windows ask you to confirm once (Open Anyway / Run anyway). The full source code is public on GitHub.</p></details>
+      <details><summary>Which machine-learning models are included?</summary><p>Random Forest, Extra Trees, Decision Tree, XGBoost, LightGBM, Histogram Gradient Boosting, SVM (RBF, linear, polynomial), Logistic Regression, SGD, Naive Bayes, Maximum Likelihood, Linear Discriminant, Minimum Distance, Spectral Angle Mapper, k-Nearest Neighbours and a neural network (MLP); for clustering K-means, hierarchical, DBSCAN, HDBSCAN, spectral and Gaussian mixture, plus t-SNE.</p></details>
+      <details><summary>Where are my files stored?</summary><p>In <b>Documents ▸ LULC Fetch</b> by default, or in a project folder you choose. You can save any result to another folder as well.</p></details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links2">
+      <a href="https://github.com/agritechixr/lulc-fetch">GitHub</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/releases">Releases</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/issues">Report a problem</a>
+    </div>
+    <span>Apache 2.0 licence</span>
+  </div>
+</footer>
+
+<div class="lb" id="lb"><img alt=""></div>
+<script>
+  // highlight the visitor's system and point the main button at its download
+  (function () {
+    const ua = navigator.userAgent, win = /Windows/i.test(ua), mac = /Macintosh|Mac OS X/i.test(ua) && !/iPhone|iPad/i.test(ua);
+    const main = document.getElementById("cta-main"), label = document.getElementById("cta-label");
+    if (win) { label.textContent = "Download for Windows"; main.href = "https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-Windows.zip"; document.getElementById("dl-win").classList.add("hl"); }
+    else if (mac) { label.textContent = "Download for Mac"; main.href = "https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-macOS-AppleSilicon.dmg"; document.getElementById("dl-mac").classList.add("hl"); }
+  })();
+  // click a screenshot to see it large
+  const lb = document.getElementById("lb");
+  document.querySelectorAll(".shot, .frame img").forEach((img) => img.addEventListener("click", () => { lb.querySelector("img").src = img.src; lb.classList.add("open"); }));
+  lb.addEventListener("click", () => lb.classList.remove("open"));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") lb.classList.remove("open"); });
+</script>
+</body>
+</html>
