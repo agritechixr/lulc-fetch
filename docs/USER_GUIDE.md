@@ -51,7 +51,7 @@ The app runs entirely on your computer. Searching and downloading uses free publ
 ---
 
 ### Desktop app (Mac and Windows)
-Ready-made apps for Mac (Apple Silicon and Intel) and Windows are on the GitHub **Releases** page; see the README for download and first-start steps. They're built automatically by the *Build desktop apps* workflow whenever a version tag (e.g. `v0.2.0`) is pushed. On Windows, extract the zip and run **LULC Fetch.exe** (build it yourself with `packaging\build_windows.ps1`).
+Ready-made apps for Mac (Apple Silicon, macOS 14+) and Windows are on the GitHub **Releases** page; see the README for download and first-start steps. They're built automatically by the *Build desktop apps* workflow whenever a version tag (e.g. `v0.2.0`) is pushed. On Windows, extract the zip and run **LULC Fetch.exe** (build it yourself with `packaging\build_windows.ps1`).
 
 On a Mac, `./packaging/build_mac.sh` builds **`dist/LULC Fetch.app`** and a disk image **`dist/LULC-Fetch.dmg`**. Python and every library are bundled inside (about 370 MB), so the target Mac needs nothing else installed.
 
