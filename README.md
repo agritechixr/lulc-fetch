@@ -40,24 +40,32 @@ Across the app:
 
 ## Download (Mac and Windows: no installation of Python needed)
 
-Get the latest version from the **[Releases page](https://github.com/agritechixr/lulc-fetch/releases/latest)**:
+### Step 1: download the file for your computer
 
-| Your computer | Download |
+1. Open the **[Releases page](https://github.com/agritechixr/lulc-fetch/releases/latest)**. You can also find it on this repository's main page: in the right-hand column, click **Releases** (or the version number under it, e.g. *v0.1.0*).
+2. Scroll down to **Assets** at the bottom of the newest release. Click **Assets** if the list is folded.
+3. Click the file for your computer. Your browser saves it in your **Downloads** folder.
+
+| Your computer | Click this file |
 |---|---|
-| Mac with Apple Silicon (M1, M2, M3, M4) | `LULC-Fetch-macOS-AppleSilicon.dmg` |
-| Mac with an Intel processor | `LULC-Fetch-macOS-Intel.dmg` |
-| Windows 10 / 11 (64-bit) | `LULC-Fetch-Windows.zip` |
+| Mac with Apple Silicon (M1, M2, M3, M4) | **LULC-Fetch-macOS-AppleSilicon.dmg** |
+| Mac with an Intel processor | **LULC-Fetch-macOS-Intel.dmg** |
+| Windows 10 / 11 (64-bit) | **LULC-Fetch-Windows.zip** |
 
-Not sure which Mac you have? Apple menu ▸ About This Mac: "Chip: Apple M…" means Apple Silicon.
+Not sure which Mac you have? Apple menu ▸ **About This Mac**: "Chip: Apple M…" means Apple Silicon, and "Processor: Intel…" means Intel.
+
+The files are large (about 170–200 MB), because Python and all libraries are inside. Ignore the "Source code (zip / tar.gz)" files: those are for developers.
+
+### Step 2: install and open
 
 **Mac**
-1. Open the `.dmg` and drag **LULC Fetch** into **Applications**.
+1. In your **Downloads** folder, double-click **LULC-Fetch-macOS-…dmg**. A window opens showing LULC Fetch and an Applications folder: drag **LULC Fetch** onto **Applications**. You can then eject the disk image (the eject button next to *LULC Fetch* in Finder's sidebar).
 2. The first time, double-click it. macOS says it can't check the app, because it isn't signed with an Apple developer ID yet. Go to **System Settings ▸ Privacy & Security**, scroll down, and click **Open Anyway** next to LULC Fetch. Alternatively, run this once in Terminal:
    `xattr -dr com.apple.quarantine "/Applications/LULC Fetch.app"`
 3. From then on, just double-click it.
 
 **Windows**
-1. Right-click `LULC-Fetch-Windows.zip` ▸ **Extract All…**, for example into `C:\Users\<you>\LULC Fetch`.
+1. In your **Downloads** folder, right-click **LULC-Fetch-Windows.zip** ▸ **Extract All…** ▸ **Extract**. The app only runs from the extracted folder, not from inside the zip.
 2. Open the extracted folder and double-click **LULC Fetch.exe**. If Windows shows "Windows protected your PC", click **More info ▸ Run anyway**. That happens once, because the app isn't signed yet.
 3. Optional: right-click `LULC Fetch.exe` ▸ *Show more options* ▸ **Send to ▸ Desktop (create shortcut)**.
 
