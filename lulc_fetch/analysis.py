@@ -144,6 +144,79 @@ def inspect(path: str | Path) -> dict:
         }
 
 
+def metadata(path: str | Path, max_px: int = 512) -> dict:
+    """Everything worth knowing about a raster file, for the Metadata dialog."""
+    import re as _re
+
+    path = Path(path)
+    with rasterio.open(path) as src:
+        band_map, how = detect_band_map(src.descriptions, src.count)
+        mapped = {v: k for k, v in band_map.items()}
+        w, s, e, n = transform_bounds(src.crs, "EPSG:4326", *src.bounds, densify_pts=21) if src.crs else (None,) * 4
+        crs = src.crs
+        units = None
+        if crs:
+            try:
+                units = crs.linear_units if not crs.is_geographic else "degree"
+            except Exception:
+                units = None
+        bands = []
+        stats = _read(src, list(range(1, src.count + 1)), max_px=max_px) if src.count <= 64 else None
+        for i in range(1, src.count + 1):
+            b = {"index": i, "description": src.descriptions[i - 1] or "", "mapped_as": mapped.get(i),
+                 "dtype": src.dtypes[i - 1], "nodata": None if src.nodatavals[i - 1] is None or np.isnan(src.nodatavals[i - 1]) else src.nodatavals[i - 1],
+                 "scale": src.scales[i - 1], "offset": src.offsets[i - 1], "unit": src.units[i - 1] or None,
+                 "color": src.colorinterp[i - 1].name, "tags": {k: v for k, v in src.tags(i).items() if len(v) < 300}}
+            if stats is not None:
+                v = stats[i - 1][np.isfinite(stats[i - 1])]
+                if v.size:
+                    b.update(min=float(v.min()), max=float(v.max()), mean=float(v.mean()), std=float(v.std()),
+                             p2=float(np.percentile(v, 2)), p98=float(np.percentile(v, 98)), valid_pct=100 * v.size / stats[i - 1].size)
+            try:
+                b["has_colormap"] = bool(src.colormap(i))
+            except ValueError:
+                b["has_colormap"] = False
+            bands.append(b)
+        prof = src.profile
+        out = {
+            "file": str(path), "name": path.name, "driver": src.driver, "size_mb": round(path.stat().st_size / 1e6, 3),
+            "width": src.width, "height": src.height, "count": src.count, "dtype": src.dtypes[0],
+            "nodata": None if src.nodata is None or np.isnan(src.nodata) else src.nodata,
+            "compression": src.compression.name if src.compression else None, "interleave": src.interleaving.name if src.interleaving else None,
+            "block_size": list(src.block_shapes[0]) if src.block_shapes else None, "tiled": bool(prof.get("tiled")),
+            "overviews": src.overviews(1) if src.count else [],
+            "crs": crs.to_string() if crs else None, "crs_name": (crs.to_wkt().split('"')[1] if crs and '"' in crs.to_wkt() else None),
+            "epsg": crs.to_epsg() if crs else None, "units": units,
+            "pixel_size": [abs(src.res[0]), abs(src.res[1])], "origin": [src.transform.c, src.transform.f],
+            "bounds": {"left": src.bounds.left, "bottom": src.bounds.bottom, "right": src.bounds.right, "top": src.bounds.top},
+            "bounds_lonlat": {"west": w, "south": s, "east": e, "north": n},
+            "transform": list(src.transform)[:6],
+            "band_map_source": how, "bands": bands,
+            "tags": {k: v for k, v in src.tags().items() if len(v) < 2000},
+            "stats_note": f"Statistics from a {max_px}-pixel overview" if stats is not None else "Statistics skipped (more than 64 bands)",
+        }
+        if path.suffix.lower() == ".vrt":
+            out["sources"] = len(src.files) - 1
+        for dom in ("IMAGE_STRUCTURE",):
+            md = src.tags(ns=dom)
+            if md:
+                out[dom.lower()] = md
+    # Sentinel products opened from a .SAFE (imports/<product>/…)
+    from .safe import product_name
+    for part in path.parts:
+        if product_name(part):
+            m = _re.match(r"(S2[ABCD])_MSI(L1C|L2A)_(\d{8})T(\d{6})_N(\d{4})_R(\d{3})_T(\w{5})_", part)
+            if m:
+                sat, lvl, d, t, base, orbit, tile = m.groups()
+                out["product"] = {"product": part, "satellite": sat, "level": lvl, "date": f"{d[:4]}-{d[4:6]}-{d[6:]}",
+                                  "time_utc": f"{t[:2]}:{t[2:4]}:{t[4:]}", "tile": tile, "relative_orbit": orbit,
+                                  "processing_baseline": f"{base[:2]}.{base[2:]}"}
+            else:
+                out["product"] = {"product": part}
+            break
+    return out
+
+
 def _is_rgb(src) -> bool:
     """A true-colour picture (e.g. a drone / aerial photo or a georeferenced JPG): show it as it is."""
     from rasterio.enums import ColorInterp
@@ -329,8 +402,9 @@ def _render_native(src, spec: dict, max_px: int | None):
         for i, a in enumerate(arrays):
             if natural:
                 lo, hi = 0, (255 if src.dtypes[0] == "uint8" else float(np.nanmax(a)) if valid.any() else 1)
-            else:
-                lo, hi = np.percentile(a[valid], [2, 98]) if valid.any() else (0, 1)
+            else:   # contrast stretch: 2–98 % (default), 1–99 % or min–max of the visible pixels
+                pct = {"p1": (1, 99), "minmax": (0, 100)}.get(spec.get("stretch"), (2, 98))
+                lo, hi = np.percentile(a[valid], pct) if valid.any() else (0, 1)
             rgba[i] = (np.clip((np.nan_to_num(a, nan=lo) - lo) / max(hi - lo, 1e-9), 0, 1) * 255).astype("uint8")
         rgba[3] = valid * 255
         meta = {"kind": "rgb", "title": title, "bands": list(names)}

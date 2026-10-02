@@ -26,3 +26,6 @@ data/
 imports/
 tables/
 models/
+training_data/
+.app_state.json
+logs/
