@@ -2,6 +2,8 @@
 
 A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your own computer as a **desktop-GIS-style web app** (layers, tools, map), with a **command-line tool** for downloads.
 
+⬇️ **[Download for Mac or Windows](#download-mac-and-windows-no-installation-of-python-needed)**: ready-to-run apps, no Python needed.
+
 📖 **Full explanation of every tool: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)**
 
 ## What it can do
@@ -36,7 +38,41 @@ Across the app:
 - **ⓘ hints** on every option.
 - **Credentials** for Copernicus and USGS EarthExplorer, kept in your OS keychain.
 
-## Install and run
+## Download (Mac and Windows: no installation of Python needed)
+
+Get the latest version from the **[Releases page](https://github.com/agritechixr/lulc-fetch/releases/latest)**:
+
+| Your computer | Download |
+|---|---|
+| Mac with Apple Silicon (M1, M2, M3, M4) | `LULC-Fetch-macOS-AppleSilicon.dmg` |
+| Mac with an Intel processor | `LULC-Fetch-macOS-Intel.dmg` |
+| Windows 10 / 11 (64-bit) | `LULC-Fetch-Windows.zip` |
+
+Not sure which Mac you have? Apple menu ▸ About This Mac: "Chip: Apple M…" means Apple Silicon.
+
+**Mac**
+1. Open the `.dmg` and drag **LULC Fetch** into **Applications**.
+2. The first time, double-click it. macOS says it can't check the app, because it isn't signed with an Apple developer ID yet. Go to **System Settings ▸ Privacy & Security**, scroll down, and click **Open Anyway** next to LULC Fetch. Alternatively, run this once in Terminal:
+   `xattr -dr com.apple.quarantine "/Applications/LULC Fetch.app"`
+3. From then on, just double-click it.
+
+**Windows**
+1. Right-click `LULC-Fetch-Windows.zip` ▸ **Extract All…**, for example into `C:\Users\<you>\LULC Fetch`.
+2. Open the extracted folder and double-click **LULC Fetch.exe**. If Windows shows "Windows protected your PC", click **More info ▸ Run anyway**. That happens once, because the app isn't signed yet.
+3. Optional: right-click `LULC Fetch.exe` ▸ *Show more options* ▸ **Send to ▸ Desktop (create shortcut)**.
+
+**Using the app**
+- LULC Fetch opens in your web browser, and a small window lets you reopen it, open your data folder, or quit. Closing that window stops the app.
+- Everything runs on your own computer. The internet is only used to find and download satellite images, for background maps and for address search. All analysis and machine learning work offline.
+- Your files are kept in **Documents ▸ LULC Fetch**. Put Copernicus `.SAFE` products in its `data` folder. Projects can live in any folder.
+
+## Build the apps yourself
+
+- **Mac:** `./packaging/build_mac.sh` → `dist/LULC Fetch.app` and `dist/LULC-Fetch.dmg`. Needs the source setup below and `brew install libomp`.
+- **Windows:** in PowerShell, `.\packaging\build_windows.ps1` → `dist\LULC Fetch\LULC Fetch.exe` and `dist\LULC-Fetch-Windows.zip`.
+- **GitHub builds them automatically:** push a version tag (`git tag v0.2.0 && git push origin v0.2.0`), and the *Build desktop apps* workflow builds both Mac versions and the Windows version, tests them, and publishes them on a Release. You can also run it by hand from the **Actions** tab.
+
+## Run from source (for development)
 
 Requires Python 3.10+.
 

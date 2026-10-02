@@ -50,6 +50,31 @@ The app runs entirely on your computer. Searching and downloading uses free publ
 
 ---
 
+### Desktop app (Mac and Windows)
+Ready-made apps for Mac (Apple Silicon and Intel) and Windows are on the GitHub **Releases** page; see the README for download and first-start steps. They're built automatically by the *Build desktop apps* workflow whenever a version tag (e.g. `v0.2.0`) is pushed. On Windows, extract the zip and run **LULC Fetch.exe** (build it yourself with `packaging\build_windows.ps1`).
+
+On a Mac, `./packaging/build_mac.sh` builds **`dist/LULC Fetch.app`** and a disk image **`dist/LULC-Fetch.dmg`**. Python and every library are bundled inside (about 370 MB), so the target Mac needs nothing else installed.
+
+**Install:** open the `.dmg` and drag LULC Fetch to Applications.
+- An app built on your own Mac opens normally.
+- A copy downloaded from elsewhere needs right-click ▸ **Open** the first time, because it isn't signed with an Apple developer ID.
+
+**Start:** double-click the app. It starts the local server, opens LULC Fetch in your default browser, and shows a small window: **Open LULC Fetch** · **Data folder** · **Quit**.
+- Closing that window, or pressing Cmd+Q, stops the app.
+- Clicking the Dock icon reopens the page.
+- Starting it again while it's running just reopens the page.
+
+**Your files** are in `~/Documents/LULC Fetch` (downloads, tables, models, uploads, logs …). Put `.SAFE` products in `~/Documents/LULC Fetch/data`. Projects can live in any folder. The log is `logs/app.log`.
+
+**Offline use:** all tools that work on your own files run without internet: opening products, indices, PCA, stacking, Raster → table, every ML tool, editing, Python, projects and export. These need internet:
+- Find imagery and land-cover downloads;
+- basemap tiles (offline, choose View ▸ Basemap ▸ No basemap);
+- address search.
+
+To use a different data folder, start the app with the `LULC_HOME` environment variable set; `LULC_PORT` changes the port (default 8765).
+
+**Rebuild** after changing the code: `./packaging/build_mac.sh`. The app is built for the Mac it's built on (Apple Silicon or Intel).
+
 ## 2. The workspace
 
 The window is laid out like a desktop GIS (QGIS / ArcGIS):

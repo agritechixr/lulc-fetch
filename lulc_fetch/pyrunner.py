@@ -94,19 +94,21 @@ def main(in_path, script_path, out_path, meta_path):
                "removed": [c for c in before["columns"] if c not in after]}, open(meta_path, "w"))
 
 
-if __name__ == "__main__":
+def cli(args: list[str]):
+    """Entry point: run the script, report only the user's lines on error, exit 1 on failure."""
     try:
-        main(*sys.argv[1:5])
+        main(*args[:4])
     except SystemExit:
         raise
     except BaseException:
         import traceback
         tb = traceback.format_exc().splitlines()
         # only the user's script lines and the error itself (not the runner's or pandas' internals)
-        lines = []
-        for i, ln in enumerate(tb):
-            if ln.startswith('  File "<your script>"'):
-                lines.append(ln.strip().replace('File "<your script>", ', ""))
+        lines = [ln.strip().replace('File "<your script>", ', "") for ln in tb if ln.startswith('  File "<your script>"')]
         lines.append(tb[-1])
         print("\n".join(lines), file=sys.stderr)
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    cli(sys.argv[1:5])

@@ -13,7 +13,21 @@ import threading
 import time
 from pathlib import Path
 
-APP_DIR = Path.cwd().resolve()            # where the app was started (holds data/ with your .SAFE products)
+def _app_dir() -> Path:
+    """The app's own folder (temporary workspace + data/ with .SAFE products).
+
+    LULC_HOME if set; ~/Documents/LULC Fetch for the installed Mac app; otherwise the folder it was started in.
+    """
+    import sys
+    env = os.environ.get("LULC_HOME")
+    if env:
+        return Path(env).expanduser().resolve()
+    if getattr(sys, "frozen", False):
+        return (Path.home() / "Documents" / "LULC Fetch").resolve()
+    return Path.cwd().resolve()
+
+
+APP_DIR = _app_dir()
 PROJECT_FILE = "lulc_project.json"
 SUBDIRS = ("downloads", "analysis", "tables", "models", "uploads", "exports", "imports")
 CONFIG_DIR = Path.home() / ".lulc-fetch"
@@ -34,7 +48,7 @@ def rel(p: str | Path) -> str:
     """Path for the browser: relative to the workspace when inside it, otherwise absolute."""
     p = Path(p).resolve()
     try:
-        return str(p.relative_to(_root.resolve()))
+        return p.relative_to(_root.resolve()).as_posix()   # forward slashes on every OS (Windows accepts them too)
     except ValueError:
         return str(p)
 

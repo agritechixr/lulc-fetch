@@ -1159,7 +1159,7 @@
   // the Save dialog: lists the changes and warns before overwriting the existing table / layer
   function askSaveEdits(t) {
     const isAttr = t.kind === "attr", l = isAttr ? editLayer(t) : null;
-    const what = isAttr ? l?.name : (t.origPath || t.path).split("/").pop();
+    const what = isAttr ? l?.name : (t.origPath || t.path).split(/[\\/]/).pop();
     const n = (t.log?.length || 0) + (t.pending?.size ? 1 : 0);
     $("#se-title").textContent = `Save changes to ${what}`;
     $("#se-summary").innerHTML = `<b>${n}</b> change${n === 1 ? "" : "s"} since you started editing:`;
@@ -1735,7 +1735,7 @@
     const ok = $("#fp-ok");
     if (fp.mode === "project") {
       ok.textContent = "Open project"; ok.disabled = !isProj;
-      $("#fp-hint").innerHTML = isProj ? `Open <b>${esc(t.split("/").pop())}</b>` : "Choose a folder marked <span class='fp-badge'>project</span>.";
+      $("#fp-hint").innerHTML = isProj ? `Open <b>${esc(t.split(/[\\/]/).pop())}</b>` : "Choose a folder marked <span class='fp-badge'>project</span>.";
     } else {
       ok.textContent = fp.okLabel || "Select this folder"; ok.disabled = false;
       $("#fp-hint").innerHTML = `<code>${esc(t)}</code>${!fp.sel && fp.info && !fp.info.writable ? ' <span style="color:var(--warn)">(read-only)</span>' : ""}`;
@@ -1996,7 +1996,7 @@
         const job = await api("/api/layers/export", { method: "POST", json: body });
         r = (await trackJob(job, { title: `Saving ${l.name}` })).result;
       } else return toast("This layer can't be saved as a file", true);
-      toast(`Saved ${r.saved?.map((p) => p.split("/").pop()).join(", ")} in ${r.saved_to}`);
+      toast(`Saved ${r.saved?.map((p) => p.split(/[\\/]/).pop()).join(", ")} in ${r.saved_to}`);
       status(`Saved ${l.name} in ${r.saved_to}`);
     } catch (e) { if (notCancelled(e)) toast(e.message, true); }
   }
@@ -2006,7 +2006,7 @@
     prefs.set("save-dir:last", folder);
     try {
       const r = await api("/api/files/save", { method: "POST", json: { paths: [it.path], folder } });
-      toast(r.saved.length ? `Saved ${r.saved.map((p) => p.split("/").pop()).join(", ")} in ${r.folder}` : `Not saved: ${r.skipped[0]?.reason}`, !r.saved.length);
+      toast(r.saved.length ? `Saved ${r.saved.map((p) => p.split(/[\\/]/).pop()).join(", ")} in ${r.folder}` : `Not saved: ${r.skipped[0]?.reason}`, !r.saved.length);
     } catch (e) { toast(e.message, true); }
   }
 
@@ -2102,7 +2102,7 @@
       return `<div class="ws-row"><span>${esc(t.name)}<small>${esc(t.path)}${t.rows != null ? ` · ${t.rows.toLocaleString()} rows` : ""} · ${t.size_mb < 1 ? "<1" : Math.round(t.size_mb)} MB</small></span>
         <button class="btn small ${inC ? "" : "primary"}" data-addt="${esc(t.path)}">${inC ? "Open" : "Add"}</button></div>`;
     }).join("");
-    $$("#ws-list [data-addt]").forEach((b) => b.onclick = () => { addItem({ kind: "table", name: b.dataset.addt.split("/").pop(), path: b.dataset.addt }, { open: true }); b.textContent = "Added ✓"; });
+    $$("#ws-list [data-addt]").forEach((b) => b.onclick = () => { addItem({ kind: "table", name: b.dataset.addt.split(/[\\/]/).pop(), path: b.dataset.addt }, { open: true }); b.textContent = "Added ✓"; });
     $$("#ws-list [data-add]").forEach((b) => b.onclick = () => busy(b, "Adding…", async () => {
       await addRasterFromPath(b.dataset.add);
       b.textContent = "Added ✓";
@@ -2288,7 +2288,7 @@
         }
         if (r.saved) {
           const note = $('[data-save="export"] .save-note');
-          note.innerHTML = `✓ Saved ${esc(r.saved.map((p) => p.split("/").pop()).join(", "))} in <code>${esc(r.saved_to)}</code> · <a href="#" data-reveal>Show in folder</a>`;
+          note.innerHTML = `✓ Saved ${esc(r.saved.map((p) => p.split(/[\\/]/).pop()).join(", "))} in <code>${esc(r.saved_to)}</code> · <a href="#" data-reveal>Show in folder</a>`;
           note.classList.remove("hidden");
           $("[data-reveal]", note).onclick = (ev) => { ev.preventDefault(); api("/api/project/reveal", { method: "POST", json: { path: r.saved[0] } }).catch((x) => toast(x.message, true)); };
           toast(`Saved in ${r.saved_to}`);
@@ -3789,7 +3789,7 @@
       ${rows.map((r) => `<tr>${r.map((v, i) => `<td class="${isLbl(columns[i]) ? "lbl" : ""}">${v == null || v === "" ? "–" : esc(v)}</td>`).join("")}</tr>`).join("")}</table>`;
   }
   function previewTable(path) {  // tables open in the data viewer under the map (paging, sorting, search, statistics)
-    addItem({ kind: "table", name: path.split("/").pop(), path }, { open: true });
+    addItem({ kind: "table", name: path.split(/[\\/]/).pop(), path }, { open: true });
   }
 
 
@@ -3925,7 +3925,7 @@
       <p class="hint">Saved as <code>${esc(r.path)}</code>. It's also listed under <a href="#" data-goml>Classical ML ▸ Your tables</a>.</p>`;
     box.classList.remove("hidden");
     $("[data-tp]", box).onclick = () => previewTable(r.path);
-    addItem({ kind: "table", name: r.path.split("/").pop(), path: r.path, rows: r.rows, cols: r.columns.length });
+    addItem({ kind: "table", name: r.path.split(/[\\/]/).pop(), path: r.path, rows: r.rows, cols: r.columns.length });
     $("[data-goml]", box).onclick = (e) => { e.preventDefault(); switchTool("ml"); openMlSub(null); };
   }
 
@@ -3970,14 +3970,14 @@
     const d = mlx.desc;
     if (!d) { $("#mt-target").innerHTML = ""; $("#mt-cols").innerHTML = ""; $("#mt-table-info").innerHTML = `No tables yet? Create one with <a href="#" class="goto-rt"><b>Raster → table</b></a>.`; wireGotoRt(); return; }
     const meta = d.meta || {};
-    $("#mt-table-info").innerHTML = `${d.rows.toLocaleString()} rows × ${d.columns.length} columns${meta.source ? ` · from ${esc(String(meta.source).split("/").pop())}` : ""}${meta.crs ? ` · ${esc(meta.crs)}` : ""}`;
+    $("#mt-table-info").innerHTML = `${d.rows.toLocaleString()} rows × ${d.columns.length} columns${meta.source ? ` · from ${esc(String(meta.source).split(/[\\/]/).pop())}` : ""}${meta.crs ? ` · ${esc(meta.crs)}` : ""}`;
     const labelGuess = meta.target && d.columns.some((c) => c.name === meta.target) ? meta.target : d.columns[d.columns.length - 1].name;
     $("#mt-target").innerHTML = d.columns.map((c) => `<option value="${esc(c.name)}" ${c.name === labelGuess ? "selected" : ""}>${esc(c.name)} (${c.type}${c.type !== "number" ? `, ${c.unique} values` : ""})</option>`).join("");
     mlx.cols = {};
     $("#mt-task").value = "auto";
     renderColumns(true);
     renderTargetInfo();
-    $("#mt-name").value = `${MODEL_TITLE()}_${(meta.source ? String(meta.source).split("/").pop() : "table").replace(/\.[^.]+$/, "")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 60);
+    $("#mt-name").value = `${MODEL_TITLE()}_${(meta.source ? String(meta.source).split(/[\\/]/).pop() : "table").replace(/\.[^.]+$/, "")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 60);
   }
   const MODEL_TITLE = () => (mlx.schema?.models[mlx.model]?.title || "model").replace(/[^A-Za-z0-9]+/g, "");
   const ID_COLS = ["poly_id", "sample_id", "fid", "id", "objectid"];
@@ -4007,7 +4007,12 @@
       const name = tr.dataset.col;
       $("[data-role]", tr).onchange = (e) => {
         const v = e.target.value;
-        if (v === "target") { const old = $("#mt-target").value; if (mlx.cols[old]) mlx.cols[old].role = "ignore"; $("#mt-target").value = name; $("#mt-task").value = "auto"; renderColumns(false); renderTargetInfo(); return; }
+        if (v === "target") {
+          const old = $("#mt-target").value;
+          $("#mt-target").value = name; $("#mt-task").value = "auto";
+          restoreOldTarget(old);
+          renderColumns(false); renderTargetInfo(); return;
+        }
         if (name === $("#mt-target").value) { e.target.value = "target"; return toast("Choose another target column first", true); }
         mlx.cols[name].role = v; tr.className = v === "ignore" ? "is-off" : ""; updateFeatHint();
       };
@@ -4062,7 +4067,16 @@
     renderModelCards();
   }
   $("#mt-table").onchange = () => loadTableDesc($("#mt-table").value);
-  $("#mt-target").onchange = () => { $("#mt-task").value = "auto"; const t = $("#mt-target").value; if (mlx.cols[t]) mlx.cols[t].role = "ignore"; renderColumns(false); renderTargetInfo(); };
+  // the previous target goes back to its normal role (e.g. a numeric column becomes a feature again)
+  function restoreOldTarget(old) {
+    const c = mlx.desc?.columns.find((x) => x.name === old);
+    if (c && mlx.cols[old] && old !== $("#mt-target").value) mlx.cols[old].role = colDefaults(c).role;
+    const t = $("#mt-target").value;
+    if (mlx.cols[t]) mlx.cols[t].role = "ignore";
+    mlx.prevTarget = t;
+  }
+  $("#mt-target").onfocus = () => { mlx.prevTarget = $("#mt-target").value; };
+  $("#mt-target").onchange = () => { $("#mt-task").value = "auto"; restoreOldTarget(mlx.prevTarget); renderColumns(false); renderTargetInfo(); };
   $$("#mt-task-choice [data-task]").forEach((b) => b.onclick = () => { $("#mt-task").value = b.dataset.task; renderTargetInfo(); });
   $("#mt-col-filter").oninput = () => renderColumns(false);
   const bulk = (fn) => { if (!mlx.desc) return; mlx.desc.columns.forEach((c) => { if (c.name !== $("#mt-target").value) mlx.cols[c.name].role = fn(c) ? "feature" : "ignore"; }); renderColumns(false); };
@@ -4369,7 +4383,7 @@
     rs.innerHTML = rasters.length ? rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("") : `<option value="">No raster layers</option>`;
     const m = mpModel();
     // prefer the layer the model was trained from
-    const srcName = m?.source?.source ? String(m.source.source).split("/").pop() : null;
+    const srcName = m?.source?.source ? String(m.source.source).split(/[\\/]/).pop() : null;
     const pick = rasters.find((l) => l.id === rcur) || rasters.find((l) => srcName && l.path.endsWith(srcName)) || rasters[0];
     if (pick) rs.value = pick.id;
     renderPredictForm();
@@ -4479,7 +4493,7 @@
     try { pg.desc = await api(`/api/tables/describe?path=${encodeURIComponent(path)}`); }
     catch (e) { $(`#${pre}-table-info`).textContent = e.message; return; }
     const d = pg.desc, meta = d.meta || {};
-    $(`#${pre}-table-info`).innerHTML = `${d.rows.toLocaleString()} rows × ${d.columns.length} columns${meta.source ? ` · from ${esc(String(meta.source).split("/").pop())}` : ""}`;
+    $(`#${pre}-table-info`).innerHTML = `${d.rows.toLocaleString()} rows × ${d.columns.length} columns${meta.source ? ` · from ${esc(String(meta.source).split(/[\\/]/).pop())}` : ""}`;
     const labelCols = new Set([...(meta.label_columns || []), meta.target].filter(Boolean));
     d.columns.forEach((c) => {
       const skip = COORDS.includes(c.name) || ID_COLS.includes(c.name.toLowerCase()) || labelCols.has(c.name) || c.type === "text" || /(^|_)id$/i.test(c.name);
@@ -4495,10 +4509,10 @@
     if (pre === "uc") $("#uc-compare").innerHTML = opts("None");
     else $("#ut-color").innerHTML = opts("No colour (or pick after the run)");
     if (pre === "uc") {
-      $("#uc-name").value = (path.split("/").pop().replace(/\.[^.]+$/, "") || "clusters").replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 50);
+      $("#uc-name").value = (path.split(/[\\/]/).pop().replace(/\.[^.]+$/, "") || "clusters").replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 50);
       const sm = $('#ml-sub-cluster [data-p="save_model"]');
       if (sm) sm.checked = !!(meta.band_columns && meta.band_columns.length);
-    } else $("#ut-name").value = (path.split("/").pop().replace(/\.[^.]+$/, "") || "tsne").replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 50);
+    } else $("#ut-name").value = (path.split(/[\\/]/).pop().replace(/\.[^.]+$/, "") || "tsne").replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 50);
     renderUnsupCols(pre);
   }
   function renderUnsupCols(pre) {
@@ -4615,7 +4629,7 @@
         name: $("#uc-name").value || "clusters" } });
       const done = await trackJob(job, { tool: "ml", save: "cluster", title: `${ux.schema.methods[ux.method].title} clustering` });
       showClusterResult(done.result, $("#uc-result"));
-      addItem({ kind: "table", name: done.result.output_table.split("/").pop(), path: done.result.output_table });
+      addItem({ kind: "table", name: done.result.output_table.split(/[\\/]/).pop(), path: done.result.output_table });
       if (done.result.path) refreshModels();
     } catch (e) {
       if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
@@ -4633,7 +4647,7 @@
         color: $("#ut-color").value || null, name: $("#ut-name").value || "tsne" } });
       const done = await trackJob(job, { tool: "ml", save: "tsne", title: "t-SNE map" });
       showTsneResult(done.result, $("#ut-result"));
-      addItem({ kind: "table", name: done.result.output_table.split("/").pop(), path: done.result.output_table });
+      addItem({ kind: "table", name: done.result.output_table.split(/[\\/]/).pop(), path: done.result.output_table });
     } catch (e) {
       if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
     } finally { btn.disabled = false; }
