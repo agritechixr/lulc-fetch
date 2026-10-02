@@ -10,8 +10,12 @@ on:
       platforms:
         description: "Which apps to build"
         type: choice
-        options: [all, windows, macos]
+        options: [all, windows, macos, macos-arm, macos-intel]
         default: all
+      release_tag:
+        description: "Also add the apps to this existing release (e.g. v0.1.0); empty = don't"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -23,9 +27,9 @@ jobs:
       matrix:
         include:
           # the oldest macOS version a build runs on is the build machine's version (set in the app)
-          - { os: macos-14, name: macOS-AppleSilicon, family: macos, min_macos: "14.0" }
-          - { os: macos-15-intel, name: macOS-Intel, family: macos, min_macos: "15.0" }
-          - { os: windows-latest, name: Windows, family: windows, min_macos: "" }
+          - { os: macos-14, name: macOS-AppleSilicon, family: macos, sub: macos-arm, min_macos: "14.0" }
+          - { os: macos-15-intel, name: macOS-Intel, family: macos, sub: macos-intel, min_macos: "15.0" }
+          - { os: windows-latest, name: Windows, family: windows, sub: windows, min_macos: "" }
     runs-on: ${{ matrix.os }}
     steps:
       - name: Skip?
@@ -33,7 +37,7 @@ jobs:
         shell: bash
         run: |
           want="${{ github.event.inputs.platforms || 'all' }}"
-          if [ "$want" = "all" ] || [ "$want" = "${{ matrix.family }}" ]; then echo "run=yes" >> "$GITHUB_OUTPUT"; else echo "run=no" >> "$GITHUB_OUTPUT"; fi
+          if [ "$want" = "all" ] || [ "$want" = "${{ matrix.family }}" ] || [ "$want" = "${{ matrix.sub }}" ]; then echo "run=yes" >> "$GITHUB_OUTPUT"; else echo "run=no" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v4
         if: steps.skip.outputs.run == 'yes'
       - uses: actions/setup-python@v5
@@ -75,7 +79,7 @@ jobs:
 
   release:
     needs: build
-    if: ${{ !cancelled() && github.ref_type == 'tag' }}
+    if: ${{ !cancelled() && (github.ref_type == 'tag' || github.event.inputs.release_tag != '') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -84,6 +88,7 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
           files: artifacts/*
           fail_on_unmatched_files: false
           body: |
