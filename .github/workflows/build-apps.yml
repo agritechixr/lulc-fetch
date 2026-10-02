@@ -22,9 +22,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, name: macOS-AppleSilicon, family: macos }
-          - { os: macos-15-intel, name: macOS-Intel, family: macos }
-          - { os: windows-latest, name: Windows, family: windows }
+          # the oldest macOS version a build runs on is the build machine's version (set in the app)
+          - { os: macos-14, name: macOS-AppleSilicon, family: macos, min_macos: "14.0" }
+          - { os: macos-15-intel, name: macOS-Intel, family: macos, min_macos: "15.0" }
+          - { os: windows-latest, name: Windows, family: windows, min_macos: "" }
     runs-on: ${{ matrix.os }}
     steps:
       - name: Skip?
@@ -46,11 +47,13 @@ jobs:
         if: steps.skip.outputs.run == 'yes'
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[web]" pyinstaller
+          # prefer ready-made packages: never compile GDAL / rasterio etc. from source
+          pip install --prefer-binary -e ".[web]" pyinstaller
       - name: Build (macOS)
         if: steps.skip.outputs.run == 'yes' && runner.os == 'macOS'
         env:
           LULC_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}
+          LULC_MIN_MACOS: ${{ matrix.min_macos }}
         run: |
           ./packaging/build_mac.sh
           mv dist/LULC-Fetch.dmg "dist/LULC-Fetch-${{ matrix.name }}.dmg"
@@ -88,9 +91,9 @@ jobs:
 
             | Computer | File |
             |---|---|
-            | Mac with Apple Silicon (M1–M4) | `LULC-Fetch-macOS-AppleSilicon.dmg` |
-            | Mac with Intel processor | `LULC-Fetch-macOS-Intel.dmg` |
-            | Windows 10 / 11 | `LULC-Fetch-Windows.zip` |
+            | Mac with Apple Silicon (M1–M4), macOS 14 or newer | `LULC-Fetch-macOS-AppleSilicon.dmg` |
+            | Mac with Intel processor, macOS 15 or newer | `LULC-Fetch-macOS-Intel.dmg` |
+            | Windows 10 / 11 (64-bit) | `LULC-Fetch-Windows.zip` |
 
             No Python or other software needed. See the README for first-start steps (the app isn't signed yet,
             so macOS / Windows ask once before opening it).

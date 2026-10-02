@@ -55,10 +55,10 @@ if MAC:
         info_plist={
             "CFBundleName": "LULC Fetch",
             "CFBundleDisplayName": "LULC Fetch",
-            "CFBundleShortVersionString": os.environ.get("LULC_VERSION", "0.1.0"),
-            "CFBundleVersion": os.environ.get("LULC_VERSION", "0.1.0"),
+            "CFBundleShortVersionString": os.environ.get("LULC_VERSION", "0.1.0").lstrip("v"),
+            "CFBundleVersion": os.environ.get("LULC_VERSION", "0.1.0").lstrip("v"),
             "NSHighResolutionCapable": True,
-            "LSMinimumSystemVersion": "12.0",
+            "LSMinimumSystemVersion": os.environ.get("LULC_MIN_MACOS") or "14.0",
             "NSHumanReadableCopyright": "Apache License 2.0",
         },
     )
