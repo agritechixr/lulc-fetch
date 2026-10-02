@@ -186,9 +186,9 @@ footer .links2 { display: flex; gap: 18px; }
 
 <header class="hero center">
   <div class="wrap">
-    <span class="eyebrow">Free · Open source · Mac &amp; Windows · <b>New in 0.0.1 beta: deep learning</b></span>
+    <span class="eyebrow">Free · Open source · Mac &amp; Windows · <b>Coming next: object detection with YOLO26 &amp; SAM</b></span>
     <h1>Land-cover maps from satellite images, <span>on your own computer</span></h1>
-    <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning and deep-learning models and classify images into land-use / land-cover maps, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
+    <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning and deep-learning models, classify images into land-use / land-cover maps and detect objects such as vehicles and ships, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
     <div class="cta">
       <a class="btn primary" id="cta-main" href="#download">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
@@ -204,7 +204,7 @@ footer .links2 { display: flex; gap: 18px; }
     </div>
     <div class="chips">
       <span>Sentinel-2</span><span>Landsat 8–9</span><span>Sentinel-1 SAR</span><span>Copernicus .SAFE</span><span>ESA WorldCover</span>
-      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings</span><span>U-Net · DeepLabV3+ · SegFormer</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
+      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings</span><span>U-Net · DeepLabV3+ · SegFormer</span><span>YOLO26 · SAM 2.1</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
     </div>
   </div>
 </header>
@@ -218,8 +218,8 @@ footer .links2 { display: flex; gap: 18px; }
       <div class="step"><h3>Get imagery</h3><p>Search Sentinel-2 / Landsat for any area and date, cloud-free composites, or open your own .SAFE and GeoTIFF files.</p></div>
       <div class="step"><h3>Prepare</h3><p>30 spectral &amp; radar indices, PCA, and stacking of optical, radar and elevation layers into one image.</p></div>
       <div class="step"><h3>Label</h3><p>Draw training polygons per class, or use a shapefile or an existing land-cover map as ground truth.</p></div>
-      <div class="step"><h3>Train &amp; validate</h3><p>Random Forest, SVM, Maximum Likelihood, XGBoost, or deep learning (U-Net, DeepLabV3+…), with spatially honest accuracy.</p></div>
-      <div class="step"><h3>Map &amp; export</h3><p>Classify whole images with a confidence layer, then export as GeoTIFF, PNG, Shapefile or KML.</p></div>
+      <div class="step"><h3>Train &amp; validate</h3><p>Random Forest, SVM, Maximum Likelihood, XGBoost, or deep learning (U-Net, DeepLabV3+, YOLO26…), with spatially honest accuracy.</p></div>
+      <div class="step"><h3>Map &amp; export</h3><p>Classify whole images with a confidence layer or detect objects in them, then export as GeoTIFF, PNG, Shapefile or KML.</p></div>
     </div>
   </div>
 </section>
@@ -232,8 +232,12 @@ footer .links2 { display: flex; gap: 18px; }
       <p class="lead">Built on GDAL, scikit-learn, XGBoost, LightGBM and PyTorch, behind a friendly interface with hints on every option.</p>
     </div>
     <div class="grid">
+      <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2" opacity=".5"/><rect x="6" y="7" width="7" height="6" rx=".5"/><rect x="12" y="13" width="6" height="5" rx=".5"/></svg></div>
+        <h3>Detect object <span class="new-tag">next release</span></h3><p>Find vehicles, ships, planes, storage tanks, people and more in aerial, drone and very-high-resolution satellite images. Open-source pretrained YOLO26 (including a model trained on DOTA aerial images, with rotated boxes), Faster R-CNN, RetinaNet and Mask R-CNN, or SAM 2.1 to outline everything. Results are a vector layer with class, score and size.</p></div>
+      <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2" opacity=".5"/><rect x="6" y="6" width="7" height="6" rx=".5"/><path d="M14 19l2.5-2.5L19 19M16.5 16.5V21"/></svg></div>
+        <h3>Train detection model <span class="new-tag">next release</span></h3><p>Teach YOLO26 or YOLO11 your own objects from polygons or points you draw: boxes, outlines or rotated boxes. Tiles and zoom are handled for you, with live mAP curves, early stopping and an HTML report, and the model is ready to use in Detect object.</p></div>
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="7" r="1.8"/><circle cx="5" cy="17" r="1.8"/><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/><circle cx="19" cy="12" r="1.8"/><path d="M6.7 7.5l3.6 4M6.7 16.5l3.6-4M13.8 5.8l3.6 5.3M13.8 18.2l3.6-5.3"/></svg></div>
-        <h3>Deep learning <span class="new-tag">new</span></h3><p>Semantic segmentation with U-Net, U-Net++, DeepLabV3+, PSPNet, FPN, SegFormer, FCN and LR-ASPP on MobileNetV2 / V3, ResNet or EfficientNet backbones. Early stopping, live training curves, an HTML report, and seamless maps of whole scenes. Uses your Mac's GPU or an NVIDIA GPU.</p></div>
+        <h3>Train classify model &amp; Classify image <span class="new-tag">new</span></h3><p>Semantic segmentation with U-Net, U-Net++, DeepLabV3+, PSPNet, FPN, SegFormer, FCN and LR-ASPP on MobileNetV2 / V3, ResNet or EfficientNet backbones, and (next release) YOLO26 semantic. Early stopping, live training curves, an HTML report, and seamless maps of whole scenes. Uses your Mac's GPU or an NVIDIA GPU.</p></div>
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg></div>
         <h3>Make training data <span class="new-tag">new</span></h3><p>Cut a large image and its ground truth (class raster or shapefile) into matching image / label patches. Patch size and overlap in metres, area of interest, and a classes.txt and dataset.json ready for training.</p></div>
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="9" r="5"/><circle cx="15" cy="9" r="5"/><circle cx="12" cy="15" r="5"/></svg></div>
@@ -307,6 +311,20 @@ footer .links2 { display: flex; gap: 18px; }
         <p>Six clustering methods with automatic choice of the number of clusters, quality scores, cluster profiles and comparison with known labels. Save a clustering as a model to make an unsupervised land-cover map.</p>
       </div>
       <img width="1800" height="1100" class="shot" src="assets/cluster.jpg" alt="Clustering results with cluster sizes and a 2D scatter view" loading="lazy">
+    </div>
+
+    <div class="show rev">
+      <div class="txt">
+        <span class="tag">Object detection · next release</span>
+        <h3>Count every car, ship and plane in an aerial image</h3>
+        <p><b>Detect object</b> searches the whole image tile by tile and joins objects cut by tile edges back together. Here YOLO26, pretrained on the DOTA aerial dataset, finds 858 vehicles, ships and more in 4 seconds on a 0.6 m NAIP image of Seattle, with no training.</p>
+        <ul>
+          <li>YOLO26 (boxes, outlines, rotated boxes), Faster R-CNN, RetinaNet, FCOS, SSD, Mask R-CNN</li>
+          <li>SAM 2.1: outline any detected object, or segment everything</li>
+          <li><b>Train detection model</b>: your own classes from labelled polygons or points</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/detect.jpg" alt="Aerial image of downtown Seattle with about 850 vehicles outlined by rotated boxes, detected by YOLO26 trained on DOTA" loading="lazy">
     </div>
 
     <div class="show">
@@ -388,7 +406,7 @@ footer .links2 { display: flex; gap: 18px; }
     <div class="center">
       <span class="eyebrow">Download</span>
       <h2>Get LULC Fetch, free</h2>
-      <p class="lead">Ready-to-run apps: Python and all libraries are included, so there's nothing else to install. Version 0.0.1 beta. The deep-learning tools install their PyTorch add-on from inside the app the first time you open them.</p>
+      <p class="lead">Ready-to-run apps: Python and all libraries are included, so there's nothing else to install. Version 0.0.1 beta. The deep-learning tools install their PyTorch add-on from inside the app the first time you open them. Object detection (Detect object, Train detection model) arrives in the next release; to try it now, run LULC Fetch from source (see GitHub).</p>
     </div>
     <div class="dl">
       <div class="dlcard" id="dl-mac">
@@ -430,7 +448,7 @@ footer .links2 { display: flex; gap: 18px; }
       <details><summary>Do I need a Copernicus or USGS account?</summary><p>No account is needed to search and download Sentinel-2 / Landsat imagery and composites. Accounts are only needed for original full products (.SAFE, Landsat scenes). LULC Fetch keeps those credentials in your computer's secure keychain.</p></details>
       <details><summary>Why does my computer warn me the first time I open it?</summary><p>The app isn't signed with a paid Apple or Microsoft developer certificate yet, so macOS and Windows ask you to confirm once (Open Anyway / Run anyway). The full source code is public on GitHub.</p></details>
       <details><summary>Which machine-learning models are included?</summary><p>Random Forest, Extra Trees, Decision Tree, XGBoost, LightGBM, Histogram Gradient Boosting, SVM (RBF, linear, polynomial), Logistic Regression, SGD, Naive Bayes, Maximum Likelihood, Linear Discriminant, Minimum Distance, Spectral Angle Mapper, k-Nearest Neighbours and a neural network (MLP); for clustering K-means, hierarchical, DBSCAN, HDBSCAN, spectral and Gaussian mixture, plus t-SNE.</p></details>
-      <details><summary>Can it do deep learning?</summary><p>Yes. <b>Make training data</b> cuts your image and ground truth into patches, <b>Deep learning: train a model</b> trains U-Net, DeepLabV3+, PSPNet, SegFormer, FCN and more, and <b>Deep learning: classify an image</b> maps whole scenes. The first time, the app offers to install the free PyTorch add-on (about 0.8 GB on Mac; on Windows 1.1 GB for CPU only or 3.5 GB with NVIDIA GPU support). Training uses the Apple GPU on Macs and an NVIDIA GPU on Windows if there is one.</p></details>
+      <details><summary>Can it do deep learning?</summary><p>Yes. <b>Make training data</b> cuts your image and ground truth into patches, <b>Train classify model</b> trains U-Net, DeepLabV3+, PSPNet, SegFormer, FCN, YOLO26 semantic and more, and <b>Classify image</b> maps whole scenes. <b>Detect object</b> finds vehicles, ships, planes, storage tanks, people and more in high-resolution aerial or drone images with open-source pretrained models (YOLO26, including an aerial model trained on DOTA, Faster R-CNN, RetinaNet, Mask R-CNN, and SAM 2.1 segment-everything), and <b>Train detection model</b> teaches YOLO your own objects from labelled polygons or points (both in the next release; available now when running from source). The first time, the app offers to install the free PyTorch add-on (about 0.8 GB on Mac; on Windows 1.1 GB for CPU only or 3.5 GB with NVIDIA GPU support); YOLO and SAM need a second, smaller add-on (ultralytics, AGPL-3.0). Training uses the Apple GPU on Macs and an NVIDIA GPU on Windows if there is one.</p></details>
       <details><summary>Where are my files stored?</summary><p>In <b>Documents ▸ LULC Fetch</b> by default, or in a project folder you choose. You can save any result to another folder as well.</p></details>
     </div>
   </div>
