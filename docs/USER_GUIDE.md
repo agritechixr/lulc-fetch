@@ -19,15 +19,16 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 13. [Classical ML: Classify an image](#13-classical-ml-classify-an-image)
 14. [Classical ML: Clustering (unsupervised)](#14-classical-ml-clustering-unsupervised)
 15. [Classical ML: t-SNE map (unsupervised)](#15-classical-ml-t-sne-map-unsupervised)
-16. [Export data](#16-export-data)
-17. [Downloads & jobs](#17-downloads--jobs)
-18. [Credentials](#18-credentials)
-19. [Command-line tool](#19-command-line-tool)
-20. [Data sources and band conventions](#20-data-sources-and-band-conventions)
-21. [Files and folders](#21-files-and-folders)
-22. [Limits and known issues](#22-limits-and-known-issues)
-23. [Troubleshooting](#23-troubleshooting)
-24. [For developers: adding a tool](#24-for-developers-adding-a-tool)
+16. [Classical ML for raster](#16-classical-ml-for-raster)
+17. [Export data](#17-export-data)
+18. [Downloads & jobs](#18-downloads--jobs)
+19. [Credentials](#19-credentials)
+20. [Command-line tool](#20-command-line-tool)
+21. [Data sources and band conventions](#21-data-sources-and-band-conventions)
+22. [Files and folders](#22-files-and-folders)
+23. [Limits and known issues](#23-limits-and-known-issues)
+24. [Troubleshooting](#24-troubleshooting)
+25. [For developers: adding a tool](#25-for-developers-adding-a-tool)
 
 ---
 
@@ -186,6 +187,59 @@ The data viewer opens below the map when you open a table, an attribute table or
 - **Rows on the map:** click a row. For a vector layer, the feature is highlighted in yellow and the map zooms to it. For a table with `lon` / `lat` columns, the point is marked. **Show on map** adds all matching rows as a point layer (up to 20,000, sampled).
 - **Column statistics:** for every column, the type, missing values, distinct values, min / median / mean / max / standard deviation, and a mini histogram (numbers) or the most frequent values (text).
 - **Train a model** opens Classical ML ▸ Train a model with the table selected. ⬇ downloads the file.
+
+**Editing tables and attribute tables:** click **✎ Edit** in the viewer's toolbar. This starts an **edit session**: every change goes to a working copy, and the original table or layer is not touched until you save.
+
+| Action | How |
+|---|---|
+| Add a field | **+ Add field**: a name, an optional type and an optional expression. Leave the expression empty for an empty field you fill in by hand. |
+| Calculate values | **ƒx Field calculator**: create a new field or update an existing one with an expression. Tick *Only the rows matching the current search* to change just the filtered rows. A live preview shows the first results and the type. |
+| Python | **🐍 Python**: change the data with pandas (see below) |
+| Edit a cell | Double-click it, type, then Enter (moves down), Tab (moves right) or Esc (cancel) |
+| Field options | **⋯** on a column header: Calculate values · Rename · Convert to decimal number / whole number / text · Delete field |
+| Delete rows / features | Tick the rows (or tick the header box for the whole page), then **Delete selected** |
+| Add a row | **+ Add row** (tables) |
+| Undo | **↶ Undo**: steps back through the changes of this session |
+| Copy the filtered rows | **New table / New layer from filtered rows** saves the rows matching the search as a new table or vector layer |
+
+The edit bar counts the **unsaved changes**.
+
+**Saving: 💾 Save…** (or ✎ Edit again, or closing the tab) opens the *Save changes* dialog. It lists every change made in the session and warns before anything is overwritten. You choose:
+- **Overwrite** the existing table or layer.
+  - Tables: tools that use the table (Train a model, Clustering …) see the new version. The previous version is kept: right-click the table ▸ **Restore previous version**.
+  - Vector layers: the layer in Contents (and in the project) is changed, and this can't be undone afterwards. The original file on your computer, e.g. the shapefile you added, is never changed. Use right-click ▸ *Save to folder…* to write a new file.
+- **Save as new**: a new table or layer, with the name you give. The original stays exactly as it was.
+- **Discard changes**: the original stays as it was.
+- **Keep editing.**
+
+If you don't save, nothing is applied. Reloading the page brings back the original vector layer. An unsaved table session is kept, and offered again (save or discard) the next time you click ✎ Edit.
+
+**Python (🐍):** write Python with the data as a pandas DataFrame called `df`.
+
+```python
+df["tons"] = df["yield"] * 2.5                                   # a calculated column
+df["class"] = np.where(df["yield"] >= 3, "high", "low")         # groups
+df = df[df["crop"] != "rice"]                                    # keep only some rows
+df = df.rename(columns={"lon": "longitude"})                    # rename
+df["yield"] = df["yield"].fillna(df["yield"].median())          # fill missing values
+print(df.groupby("crop")["yield"].agg(["count", "mean"]))       # see results
+```
+
+- Available names: `pd`, `np`, `math`, `re` and `datetime`.
+- For vector layers, `df["geometry"]` holds the shapes (read-only), with helpers `area_m2(g)`, `area_ha(g)`, `perimeter_m(g)`, `length_m(g)` and `centroid_xy(g)`, measured in the local UTM zone. Rows you drop delete those features.
+- **Insert an example…** offers ready-made snippets that use your column names.
+- **▶ Test** runs the script and shows the printed output, a summary (rows before → after, columns added / removed) and a preview, without changing anything.
+- **Run & apply** changes the working copy. It is one change in the session, so it can be undone, and like everything else it reaches the original only when you save.
+- Scripts run on your computer in a separate process. Cancel stops them, and there's a 10-minute limit. Errors show only your script's line and the message.
+
+**Expressions** (field calculator)
+- Field names go in square brackets, text in quotes: `[Production] / [Area]`, `iif([Yield] > 2, 'high', 'low')`, `concat([State], ' - ', [District])`, `[crop] = 'rice' and [yield] > 3`.
+- Operators: `+ - * / ** %`, comparisons (`=` or `==`, `!=`, `<`, `<=`, `>`, `>=`), `and`, `or`, `not`.
+- Functions: `abs round sqrt log log10 exp floor ceil min max clip iif coalesce isnull upper lower title strip len concat replace substr contains startswith endswith text number integer`.
+- Vector layers also have geometry values: `$area` (m²), `$area_ha`, `$area_km2`, `$perimeter` (m), `$length` (m), `$x` / `$y` (centroid longitude / latitude) and `$id`.
+- Expressions are checked safely: only these operators and functions run.
+
+Renamed or deleted band / label columns are updated in a table's description, so the ML tools keep working. CSV files don't store column types (a number converted to text is read back as a number); use Parquet if types matter.
 
 **Pictures:** scroll to zoom and drag to pan. *Fit* and *1:1* reset the view. **Place on map** works as described above.
 
@@ -436,6 +490,7 @@ Band names are kept (B04, VV, NDVI…), so the stack still opens in true colour 
    | **Outliers** | keep (default) · *clip to percentiles* (1 = 1st–99th) | Saturated pixels, cloud or shadow remnants, sensor spikes |
    | **Skewed features** | leave (default) · Yeo-Johnson on skewed columns (\|skew\| > 1) · on all numeric columns | Radar backscatter in linear units, texture, distances. For linear models, SVM, k-NN, MLP, Naive Bayes and Maximum Likelihood; trees don't need it. |
    | **Feature scaling** | *Auto* (default: standard scaling for SVM, SGD, logistic regression, k-NN and MLP; none for trees and probabilistic models) · Standard (z-score) · Min–max (0–1) · Robust (median / IQR) · None | Robust is least affected by outliers |
+   | **Reduce bands (PCA)** | no (default) · auto (only above 30 bands) · 10 / 20 / 30 / 50 components | Hyperspectral data or embeddings with Maximum Likelihood, LDA, k-NN, SVM |
    | **Target transform** *(regression only)* | none (default) · log(1 + y) · Yeo-Johnson | Skewed targets such as biomass, yield or counts. Predictions are converted back automatically. |
 
    Every step is learned from the **training rows only** and refitted inside each cross-validation and tuning fold, so no information leaks from the test split. The steps are saved inside the model, so Classify an image repeats them exactly. The results and the evaluation report list the steps that were applied, and which columns were removed and why.
@@ -445,10 +500,11 @@ Band names are kept (B04, VV, NDVI…), so the stack still opens in true colour 
 |---|---|
 | Trees | **Random Forest** *(recommended)*, Extra Trees, Decision Tree |
 | Boosting | XGBoost, LightGBM, Histogram Gradient Boosting |
-| Kernel | SVM (RBF kernel) |
+| Kernel | SVM (RBF, linear or polynomial kernel) |
 | Linear | SGD (log-loss or linear SVM), Logistic Regression |
 | Probabilistic | Naive Bayes, **Maximum Likelihood** (classic remote-sensing Gaussian classifier), Linear Discriminant |
-| Neighbours / Neural | k-Nearest Neighbours, neural network (MLP) |
+| Distance | **Minimum Distance** (nearest class mean), **Spectral Angle Mapper** (spectral shape / cosine; hyperspectral and embeddings) |
+| Neighbours / Neural | k-Nearest Neighbours (Euclidean, cosine or Manhattan distance), neural network (MLP) |
 
 6. **Parameters:** 2–4 key settings per model, with defaults tuned for pixel data. The rest is under *Advanced*:
    - validation split, test share, class balancing
@@ -613,7 +669,66 @@ The tool explains these results: this data has no well-separated natural groups.
 
 In t-SNE, the distances between far-apart groups and the sizes of groups don't mean anything. What matters is which points sit together.
 
-## 16. Export data
+## 16. Classical ML for raster
+
+**Tools ▸ Classical ML for raster.** Train a classifier straight from an **image** and its **ground truth**, and get a classified map in one run. There is no table step: the labelled pixels are read from the raster for that run only.
+
+It works with any number of bands:
+- **RGB** (3)
+- **multispectral** (Sentinel-2, Landsat: 4–30)
+- **hyperspectral** (100+)
+- **SAR**
+- **pixel embeddings**, such as Google **AlphaEarth** Satellite Embeddings (64-D) or **TESSERA** (128-D)
+
+1. **Image:** any raster layer.
+   - The tool **detects the kind of data** (RGB, multispectral, hyperspectral, SAR or embedding) from the bands, data type and values. Embeddings are recognised by 64 / 128 dimensions with unit-length vectors, or 8-bit quantised values.
+   - It explains what suits that kind of data. **Use recommended settings** picks the model, parameters and preprocessing.
+   - **Bands:** use all of them, or type ranges such as `1-100, 120-180`, e.g. to drop noisy water-absorption bands of a hyperspectral image.
+   - *Convert to reflectance* applies the layer's scale / offset. The same conversion is used for the map.
+2. **Ground truth:**
+   - Either polygons / points with a class attribute (shapefile, GeoJSON, KML, or drawn with **Training samples**), or a class raster such as a land-cover map.
+   - The classes and the number of polygons per class are shown. You're warned about classes with only one polygon.
+   - **Training pixels per class** (balanced): 1,000 to 30,000, or all labelled pixels.
+   - Pixel size, and an optional **Area**. *Map the whole image* is on by default; untick it to map only the area.
+3. **Model**
+
+   | Model | Notes | Good for |
+   |---|---|---|
+   | Random Forest | robust default | all kinds |
+   | **SVM** | kernel **RBF** (default) or **linear** (fast and strong with many bands / embeddings) or polynomial | all kinds |
+   | **Maximum Likelihood** | the classic Gaussian classifier | multispectral, SAR, RGB; hyperspectral after PCA |
+   | **Spectral Angle Mapper** | compares spectral *shape* (angle) and ignores brightness and shadow | hyperspectral, embeddings |
+   | **Minimum Distance** | nearest class mean; very fast baseline | multispectral, RGB |
+   | k-Nearest Neighbours | distance **Euclidean**, **cosine** (embeddings) or Manhattan | embeddings |
+   | LightGBM, XGBoost, Extra Trees, Hist. Gradient Boosting | boosted / random trees | multispectral, hyperspectral |
+   | Logistic Regression, Linear Discriminant, Naive Bayes, MLP | linear / probabilistic / small neural network | embeddings, hyperspectral |
+
+   Models marked **★ SUGGESTED** suit the detected kind of data.
+4. **Settings:**
+   - The model's parameters.
+   - **Preprocessing:** missing values, outliers, skew, scaling, and **Reduce bands (PCA)**. *Auto* reduces more than 30 bands to the components that keep 99 % of the variance (max 30). It is set automatically for Maximum Likelihood, LDA, Naive Bayes, k-NN, SVM and MLP on hyperspectral data.
+   - Optional **quick tuning** (12 combinations, 3-fold grouped CV).
+   - Advanced: validation split, class balancing, seed.
+5. **Output:**
+   - map name and map pixel size;
+   - a **confidence layer** (band 2, 0–100 %);
+   - **Also save to a folder on my computer**.
+
+**Results**
+- The classified map is added to Contents with class colours.
+- Training pixels per class, and the full accuracy assessment, as in Train a model:
+  - an honest split (by polygon for vector ground truth, spatial blocks for raster ground truth);
+  - accuracy, kappa, F1, confusion matrix, per-class scores;
+  - the HTML evaluation report.
+- The model is saved under **Classical ML ▸ Your models**, so **Classify an image** can apply it to other images or dates with the same bands.
+
+Recommended starting points:
+- **Embeddings:** k-NN (cosine) or linear SVM, without scaling.
+- **Hyperspectral:** SVM, SAM, or Maximum Likelihood with PCA.
+- **Multispectral:** Random Forest, SVM or Maximum Likelihood.
+- **RGB:** Random Forest or SVM.
+
+## 17. Export data
 
 **Tools ▸ Export data**, or right-click a layer ▸ **Export / save to computer**.
 
@@ -633,7 +748,7 @@ Files are saved to your browser's Downloads folder.
 
 ---
 
-## 17. Downloads & jobs
+## 18. Downloads & jobs
 
 **Tools ▸ Downloads & jobs** lists background jobs (downloads, composites, product downloads, Sentinel-1 processing, …). Each job shows:
 - its progress, current step and **Cancel**
@@ -646,7 +761,7 @@ Downloads that finish while the app is open are added to Contents automatically.
 
 ---
 
-## 18. Credentials
+## 19. Credentials
 
 Click **Credentials** (top right). Secrets are stored in your **operating-system keychain** (macOS Keychain, Windows Credential Locker, Linux Secret Service). They're never shown again or sent back to the browser, and are only used with the service they belong to. Each entry has a **Test** button.
 
@@ -661,7 +776,7 @@ Click **Credentials** (top right). Secrets are stored in your **operating-system
 
 ---
 
-## 19. Command-line tool
+## 20. Command-line tool
 
 `lulc-fetch` does the downloading parts without the web app. An area can be given as `--bbox minlon,minlat,maxlon,maxlat`, `--geojson file.geojson`, `--point lon,lat --buffer-km 5`, or `--match existing.tif` (reuse a raster's exact grid).
 
@@ -691,7 +806,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 20. Data sources and band conventions
+## 21. Data sources and band conventions
 
 | Source | Login | Notes |
 |---|---|---|
@@ -706,7 +821,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 21. Files and folders
+## 22. Files and folders
 
 With a project open, these folders are inside the project folder (next to `lulc_project.json`). Without a project they are in the app's folder (the temporary workspace). `data/` is always also read from the app's folder. The list of recent projects is stored in `~/.lulc-fetch/recent.json`.
 
@@ -724,7 +839,7 @@ All of these are excluded from git.
 
 ---
 
-## 22. Limits and known issues
+## 23. Limits and known issues
 
 - **Download size:** one download is capped at 60 M pixels (≈77 × 77 km at 10 m). Use a coarser pixel size or split the area.
 - **Map previews** of large rasters are drawn at reduced resolution (≈1400 px), and their statistics come from that preview unless you pick an area. **GeoTIFF exports are always full resolution.**
@@ -742,7 +857,7 @@ All of these are excluded from git.
 
 ---
 
-## 23. Troubleshooting
+## 24. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -757,7 +872,7 @@ All of these are excluded from git.
 
 ---
 
-## 24. For developers: adding a tool
+## 25. For developers: adding a tool
 
 The web app is a FastAPI backend (`webapp/server.py`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package.
 

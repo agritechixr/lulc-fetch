@@ -15,7 +15,8 @@ A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your 
 | **Training samples** | Draw labelled polygons and points for each class on the map |
 | **Stack layers** | Combine Sentinel-2, Sentinel-1, elevation and index layers into one image |
 | **Raster → table** | Turn any image into a CSV / Parquet table, with ground-truth labels as the last column |
-| **Classical ML: supervised** | Train 14 models (Random Forest, XGBoost, LightGBM, SVM, Maximum Likelihood…) for classification or regression: choose the target and each column's role and type (numeric / categorical), preprocess (missing values, outlier clipping, skew transforms, scaling, removing redundant columns), tune hyperparameters with cross-validation, compare all models on a leaderboard, get honest spatially independent accuracy and an **HTML evaluation report** (confusion matrices, ROC / PR curves, residual plots…), then **classify an image** into a land-cover map |
+| **Classical ML for raster** | Train straight from an image and its ground truth (polygons, points or a class raster) and get a classified map in one step. No table needed. SVM (RBF / linear), Maximum Likelihood, Spectral Angle Mapper, Minimum Distance, Random Forest, k-NN (cosine) and more, for **RGB, multispectral, hyperspectral (100+ bands) and pixel embeddings** (AlphaEarth, TESSERA). The kind of data is detected, with suggested settings. |
+| **Classical ML: supervised** | Train 16 models (Random Forest, XGBoost, LightGBM, SVM, Maximum Likelihood…) for classification or regression: choose the target and each column's role and type (numeric / categorical), preprocess (missing values, outlier clipping, skew transforms, scaling, removing redundant columns), tune hyperparameters with cross-validation, compare all models on a leaderboard, get honest spatially independent accuracy and an **HTML evaluation report** (confusion matrices, ROC / PR curves, residual plots…), then **classify an image** into a land-cover map |
 | **Classical ML: unsupervised** | **Clustering** with K-means, hierarchical (dendrogram), DBSCAN, HDBSCAN, spectral clustering and Gaussian mixture: automatic choice of k, quality scores, cluster profiles, comparison with known labels, and **unsupervised classification of images**. **t-SNE maps** to see how classes or clusters separate. |
 | **Export data** | Save any layer as GeoTIFF, PNG, Shapefile, GeoJSON or KML, for the whole layer or just an area |
 
@@ -24,6 +25,11 @@ Across the app:
 - **Save anywhere:** every tool can also save its result to a folder you choose, and right-click ▸ **Save to folder…** works on any layer, table or picture. A built-in folder picker helps.
 - **Contents in two sections:** *2D data* (GeoTIFF, RGB photos / georeferenced JPG & PNG, Shapefile, GeoJSON, KML) and *Tabular data* (CSV, TSV, Excel, Parquet).
 - **Data viewer under the map:** open tables and vector attribute tables with paging, sorting, search / filters, column statistics and rows linked to the map. Pictures can also be opened there.
+- **Edit tables and attribute tables** in safe edit sessions (nothing changes until you save; overwrite with a warning, or save as new):
+  - add, rename, convert and delete fields;
+  - a **field calculator** with expressions and geometry values ($area, $perimeter, $x / $y…);
+  - **Python (pandas)** scripts with test runs;
+  - inline cell editing, deleting / adding rows, undo, restoring the previous version, and new tables or layers from filtered rows.
 - **Resizable panels:** drag the edges of Contents, the tool panel and the data viewer.
 - **Area picker:** every tool can work on just an area of your choice.
 - **Progress and Cancel** for every long task.
