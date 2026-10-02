@@ -5507,7 +5507,7 @@
   function ptDest() {
     const f = $("#pt-folder").value.trim(), n = safeName($("#pt-name").value || "training_patches").replace(/\./g, "_");
     const base = f || ((proj.info?.workspace || "") + "/training_data");
-    $("#pt-dest").innerHTML = `Creates <code>${esc(base.replace(/\/$/, ""))}/${esc(n)}/</code> with <b>images/</b>, <b>labels/</b>, <b>classes.txt</b>, dataset.json, patches.csv and train / val / test lists.`;
+    $("#pt-dest").innerHTML = `Creates <code>${esc(base.replace(/\/$/, ""))}/${esc(n)}/</code> with <b>images/</b>, <b>labels/</b>, <b>classes.txt</b>, dataset.json and patches.csv.`;
   }
   $("#pt-folder").addEventListener("input", () => { prefs.set("pt-folder", $("#pt-folder").value); ptDest(); });
   $("#pt-name").addEventListener("input", ptDest);
@@ -5529,12 +5529,10 @@
       : { type: "vector", geojson: gl.geojson, field: $("#pt-gt-field").value || null };
     const { patch_m, overlap_m } = ptSizes();
     if (!(patch_m[0] > 0 && patch_m[1] > 0)) return toast("Enter the patch size X and Y in metres", true);
-    const val = (+$("#pt-val").value || 0) / 100, test = (+$("#pt-test").value || 0) / 100;
-    if (val + test >= 1) return toast("Validation + test must be below 100 %", true);
     const body = {
       path: ref.path, inputs, ground_truth, clip: getClip("pt-area"), patch_m, overlap_m, edge: $("#pt-edge").value,
       min_valid: (+$("#pt-minvalid").value || 0) / 100, require_labels: !!gl && $("#pt-req-labels").checked, min_labelled: (+$("#pt-minlab").value || 0) / 100,
-      remap: $("#pt-remap").checked, val_share: val, test_share: test, seed: +$("#pt-seed").value || 0,
+      remap: $("#pt-remap").checked,
       name: $("#pt-name").value.trim() || "training_patches", folder: $("#pt-folder").value.trim() || null,
       class_colors: gl?.classColors || null,
     };
@@ -5547,27 +5545,24 @@
       if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
     } finally { btn.disabled = false; }
   };
-  const PT_SPLIT_COLORS = { train: "#2563eb", val: "#f59e0b", test: "#dc2626" };
   function showPtResult(r) {
     const box = $("#pt-result"), cls = r.classes || [], total = cls.reduce((a, c) => a + c.pixels, 0);
     const max = Math.max(1, ...cls.map((c) => c.pixels));
     box.innerHTML = `<div class="card rm-head-card">
         <h2 style="margin:0">✓ Training data ready</h2>
         <div class="pca-sum" style="margin-top:4px"><b>${r.count.toLocaleString()}</b> patches · ${r.patch_size_px[0]} × ${r.patch_size_px[1]} px (${fmt(r.patch_size_m[0], 1)} × ${fmt(r.patch_size_m[1], 1)} m) · ${r.band_count} bands (${esc(r.dtype)}) · ${r.size_mb} MB · ${r.seconds} s</div>
-        <div class="pca-sum">Train <b>${r.splits.train}</b> · validation <b>${r.splits.val}</b>${r.splits.test ? ` · test <b>${r.splits.test}</b>` : ""}
-          ${r.skipped.too_little_data || r.skipped.too_few_labels ? ` · skipped ${r.skipped.too_little_data} with too little data${r.labels_dir ? `, ${r.skipped.too_few_labels} with too few labels` : ""}` : ""}</div>
+        ${r.skipped.too_little_data || r.skipped.too_few_labels ? `<div class="pca-sum">Skipped ${r.skipped.too_little_data} with too little data${r.labels_dir ? `, ${r.skipped.too_few_labels} with too few labels` : ""}</div>` : ""}
         <p class="hint" style="word-break:break-all">${esc(r.folder)}</p>
         ${cls.length ? `<div class="home-label" style="margin-top:10px">Classes (classes.txt) · share of labelled pixels · 0 = no label</div>
         <div class="dist">${cls.map((c) => `<div style="grid-template-columns:auto minmax(0,2.2fr) minmax(0,1.6fr) auto"><span><i class="swatch" style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(c.color || "#999")}"></i> <b>${esc(String(c.value))}</b></span><span title="${esc(c.name)} · original value ${esc(String(c.original))} · in ${c.patches} patches">${esc(c.name)}${String(c.original) !== String(c.value) ? ` <small>(${esc(String(c.original))})</small>` : ""}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * c.pixels / max)}%;background:${esc(c.color || "")}"></span></span><b>${c.pixels && c.pixels < total / 1000 ? "<0.1" : fmt(100 * c.pixels / Math.max(total, 1), 1)}%</b></div>`).join("")}</div>` : `<p class="hint">Images only (no ground truth).</p>`}
         <div class="row tight" style="margin-top:10px;flex-wrap:wrap"><button class="btn" data-pt-reveal>Show in folder</button><button class="btn" data-pt-map>Show patches on the map</button></div>
-        <p class="hint">Patch outlines are coloured by split: <b style="color:${PT_SPLIT_COLORS.train}">train</b>, <b style="color:${PT_SPLIT_COLORS.val}">validation</b>, <b style="color:${PT_SPLIT_COLORS.test}">test</b>. dataset.json describes everything a deep-learning training tool needs.</p>
+        <p class="hint">dataset.json describes everything a deep-learning training tool needs. No train / validation split is made: the training tool decides that.</p>
       </div>`;
     box.classList.remove("hidden");
     $("[data-pt-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e.message, true));
     $("[data-pt-map]", box).onclick = () => {
       if (pt.previewLayer && getLayer(pt.previewLayer.id)) removeLayer(pt.previewLayer.id);
-      const classes = Object.entries(PT_SPLIT_COLORS).filter(([k]) => r.splits[k]).map(([name, color]) => ({ name, color }));
-      const l = addVectorLayer(r.footprints, `${r.name} patches`, { color: "#2563eb", weight: 1, fillOpacity: 0.08, classes, classColors: PT_SPLIT_COLORS, ptFootprints: true, zoom: true });
+      const l = addVectorLayer(r.footprints, `${r.name} patches`, { color: "#2563eb", weight: 1, fillOpacity: 0.08, ptFootprints: true, zoom: true });
       return l;
     };
     box.scrollIntoView({ behavior: "smooth", block: "start" });

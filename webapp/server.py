@@ -1724,9 +1724,6 @@ class PatchRequest(PatchPlanRequest):
     require_labels: bool = False
     min_labelled: float = Field(0.01, ge=0, le=1)
     remap: bool = True
-    val_share: float = Field(0.2, ge=0, lt=1)
-    test_share: float = Field(0.0, ge=0, lt=1)
-    seed: int = 0
     class_colors: dict[str, str] | None = None
 
 
@@ -1767,8 +1764,7 @@ def patches_make(req: PatchRequest):
     def run(job):
         res = patches.make(inputs, parent, name=req.name, ground_truth=gt, clip=clip, patch_m=req.patch_m, overlap_m=req.overlap_m,
                            edge=req.edge, min_valid=req.min_valid, require_labels=req.require_labels, min_labelled=req.min_labelled,
-                           remap=req.remap, val_share=req.val_share, test_share=req.test_share, seed=req.seed,
-                           class_colors=req.class_colors)
+                           remap=req.remap, class_colors=req.class_colors)
         res["outputs"] = []
         return res
 

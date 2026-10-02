@@ -6,9 +6,10 @@ Output folder layout::
         images/<name>_r0000_c0000.tif     image patches (all input bands, georeferenced GeoTIFF)
         labels/<name>_r0000_c0000.tif     label patches (same grid; 0 = no label / ignore, 1…K = classes)
         classes.txt                        label value → class name / original value / colour / pixel count
-        dataset.json                       everything a training tool needs (bands, patch size, classes, splits…)
-        patches.csv                        one row per patch: file, split, position, bounds, valid / labelled share
-        train.txt  val.txt  test.txt       patch file names per split
+        dataset.json                       everything a training tool needs (bands, patch size, classes…)
+        patches.csv                        one row per patch: file, position, bounds, valid / labelled share, main class
+
+No train / validation split is made: the training tool decides that.
 
 Several input layers are stacked onto the first layer's grid (reprojected on the fly). Patch size and overlap
 are given in metres (map units) and converted to pixels of that grid.
@@ -97,14 +98,12 @@ def dataset_folder(parent: str | Path, name: str) -> Path:
 
 def make(inputs: list[dict], out_parent: str | Path, *, name: str = "training_patches", ground_truth: dict | None = None,
          clip: dict | None = None, patch_m=(2560, 2560), overlap_m=(0, 0), edge: str = "pad", min_valid: float = 0.5,
-         require_labels: bool = False, min_labelled: float = 0.01, remap: bool = True, val_share: float = 0.2,
-         test_share: float = 0.0, seed: int = 0, class_colors: dict | None = None) -> dict:
+         require_labels: bool = False, min_labelled: float = 0.01, remap: bool = True,
+         class_colors: dict | None = None) -> dict:
     """inputs: [{"path", "bands": [ints] | None, "name", "scale", "offset"}]; the first one defines the grid."""
     t0 = time.time()
     if not inputs:
         raise ValueError("Choose at least one input layer")
-    if val_share + test_share >= 1:
-        raise ValueError("Validation + test share must be below 100 %")
     out = dataset_folder(out_parent, name)
     stem = out.name
     if out.exists() and any(out.iterdir()):
@@ -195,7 +194,6 @@ def make(inputs: list[dict], out_parent: str | Path, *, name: str = "training_pa
         (out / "images").mkdir()
         if gt:
             (out / "labels").mkdir()
-        rng = np.random.default_rng(seed)
         rows_csv, kept, skipped_empty, skipped_unlabelled = [], [], 0, 0
         unlabelled_px = 0
         geom = g["geom"]
@@ -291,25 +289,13 @@ def make(inputs: list[dict], out_parent: str | Path, *, name: str = "training_pa
         if not rows_csv:
             raise ValueError("No patch passed the filters (valid pixels / labels). Lower the minimum shares or check the area.")
 
-        # ---- splits (random by patch; reproducible with the seed)
-        order = rng.permutation(len(rows_csv))
-        n_val, n_test = int(round(len(order) * val_share)), int(round(len(order) * test_share))
-        split = np.array(["train"] * len(order), dtype=object)
-        split[order[:n_val]] = "val"
-        split[order[n_val:n_val + n_test]] = "test"
-        for r, s_ in zip(rows_csv, split):
-            r["split"] = s_
         progress.update(0.97, "Writing classes.txt, dataset.json and the patch index")
         import csv
         with open(out / "patches.csv", "w", newline="", encoding="utf-8") as f:
-            cols = ["file", "split", "row", "col", "x_min", "y_min", "x_max", "y_max", "valid_fraction", "labelled_fraction", "dominant_class"]
+            cols = ["file", "row", "col", "x_min", "y_min", "x_max", "y_max", "valid_fraction", "labelled_fraction", "dominant_class"]
             wr = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
             wr.writeheader()
             wr.writerows(rows_csv)
-        for s_ in ("train", "val", "test"):
-            files = [r["file"] for r in rows_csv if r["split"] == s_]
-            if files or s_ != "test":
-                (out / f"{s_}.txt").write_text("\n".join(files) + ("\n" if files else ""), encoding="utf-8")
         total_px = unlabelled_px + sum(c["pixels"] for c in classes)
         if gt:
             lines = ["# LULC Fetch · training data classes",
@@ -331,16 +317,15 @@ def make(inputs: list[dict], out_parent: str | Path, *, name: str = "training_pa
             "inputs": [{"file": Path(it["path"]).name, "bands": p["bands"], "scale": p["scale"], "offset": p["offset"]} for it, p in zip(inputs, plan_in)],
             "classes": [{k: v for k, v in c.items()} for c in classes], "ignore_value": 0 if gt else None, "num_classes": len(classes),
             "label_dtype": label_dtype if gt else None, "remapped": bool(remap) if gt else None,
-            "count": len(rows_csv), "splits": {s_: int((split == s_).sum()) for s_ in ("train", "val", "test")},
-            "split_seed": seed, "skipped": {"too_little_data": skipped_empty, "too_few_labels": skipped_unlabelled},
+            "count": len(rows_csv), "skipped": {"too_little_data": skipped_empty, "too_few_labels": skipped_unlabelled},
             "filters": {"min_valid_fraction": min_valid, "require_labels": require_labels, "min_labelled_fraction": min_labelled},
             "index": "patches.csv",
         }
         (out / "dataset.json").write_text(json.dumps(meta, indent=1, default=str), encoding="utf-8")
-        # outlines of the written patches (map preview), coloured by split
+        # outlines of the written patches (map preview)
         step = max(1, math.ceil(len(rows_csv) / PREVIEW_CELLS))
         footprints = {"type": "FeatureCollection", "features": [
-            {"type": "Feature", "geometry": _cell_polygon(ref, r["win"]), "properties": {"class": r["split"], "file": r["file"]}}
+            {"type": "Feature", "geometry": _cell_polygon(ref, r["win"]), "properties": {"file": r["file"], "row": r["row"], "col": r["col"], "dominant_class": r["dominant_class"]}}
             for k, r in enumerate(rows_csv) if k % step == 0]}
         report = {**{k: v for k, v in meta.items() if k not in ("inputs",)}, "folder": str(out), "seconds": round(time.time() - t0, 1),
                   "footprints": footprints, "grid_cells": len(cells),

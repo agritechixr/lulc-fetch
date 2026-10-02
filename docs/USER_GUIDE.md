@@ -822,8 +822,7 @@ Recommended starting points:
    - **Minimum valid data**: skip patches that are mostly no-data.
    - **Area (ROI)**: only make patches inside a polygon, the map view, or a rectangle / polygon you draw. Pixels outside it become no-data.
    - **Preview patch grid on the map** draws the patch outlines and counts them.
-4. **Splits & output.**
-   - **Validation % / Test %** (random by patch; the **seed** makes it repeatable).
+4. **Output.** No train / validation split is made: the training tool decides that.
    - **Save in folder**: **Browse…** or type a path. If you leave it empty, the project's `training_data/` folder is used.
    - **Dataset name**: the folder that is created inside it. An existing, non-empty folder is never overwritten.
 
@@ -834,13 +833,12 @@ Recommended starting points:
   images/<name>_r0000_c0000.tif   image patches: all input bands, georeferenced GeoTIFF, band names kept
   labels/<name>_r0000_c0000.tif   label patches: same file names and grid, uint8 (uint16 if >255 classes), 0 = ignore
   classes.txt                     value · original value · name · colour · pixels · % · number of patches
-  dataset.json                    patch size (px and m), overlap, bands, data type, no-data, CRS, classes, splits
-  patches.csv                     one row per patch: file, split, row / col, bounds, valid / labelled share, main class
-  train.txt  val.txt  test.txt    file names per split
+  dataset.json                    patch size (px and m), overlap, bands, data type, no-data, CRS, classes
+  patches.csv                     one row per patch: file, row / col, bounds, valid / labelled share, main class
 ```
 
 - Float images keep no-data as NaN; integer images keep the source no-data value.
-- The result lists the classes and their share. **Show patches on the map** draws the patches coloured by split. **Show in folder** opens the folder.
+- The result lists the classes and their share. **Show patches on the map** draws the patch outlines. **Show in folder** opens the folder.
 - Cancelling a run deletes the half-written dataset folder.
 
 Reading a pair in Python:
