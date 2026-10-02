@@ -24,3 +24,5 @@ analysis/
 exports/
 data/
 imports/
+tables/
+models/
