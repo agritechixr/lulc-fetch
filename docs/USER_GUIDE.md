@@ -20,15 +20,16 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 14. [Classical ML: Clustering (unsupervised)](#14-classical-ml-clustering-unsupervised)
 15. [Classical ML: t-SNE map (unsupervised)](#15-classical-ml-t-sne-map-unsupervised)
 16. [Classical ML for raster](#16-classical-ml-for-raster)
-17. [Export data](#17-export-data)
-18. [Downloads & jobs](#18-downloads--jobs)
-19. [Credentials](#19-credentials)
-20. [Command-line tool](#20-command-line-tool)
-21. [Data sources and band conventions](#21-data-sources-and-band-conventions)
-22. [Files and folders](#22-files-and-folders)
-23. [Limits and known issues](#23-limits-and-known-issues)
-24. [Troubleshooting](#24-troubleshooting)
-25. [For developers: adding a tool](#25-for-developers-adding-a-tool)
+17. [Make training data](#17-make-training-data)
+18. [Export data](#18-export-data)
+19. [Downloads & jobs](#19-downloads--jobs)
+20. [Credentials](#20-credentials)
+21. [Command-line tool](#21-command-line-tool)
+22. [Data sources and band conventions](#22-data-sources-and-band-conventions)
+23. [Files and folders](#23-files-and-folders)
+24. [Limits and known issues](#24-limits-and-known-issues)
+25. [Troubleshooting](#25-troubleshooting)
+26. [For developers: adding a tool](#26-for-developers-adding-a-tool)
 
 ---
 
@@ -192,7 +193,7 @@ Double-click a table, or click its ▭ button, to open it in the data viewer. Ri
 | Legend + opacity | ▶ arrow on the left of the layer |
 | Pixel values | Select a raster layer, then click the map. A popup shows the value, class name or band values. |
 | Attribute table | Right-click a vector layer ▸ **Open attribute table**: opens in the data viewer |
-| More options | Right-click or **⋯**: Zoom · Properties · Compute indices · Open attribute table (vector layers) · Use as area of interest (polygon layers) · Export / save to computer · Move to top/bottom · Remove |
+| More options | Right-click or **⋯**: Zoom · Properties · **Band combination (RGB)** · **Metadata** · Compute indices · Open attribute table (vector layers) · Use as area of interest (polygon layers) · Export / save to computer · Move to top/bottom · Remove |
 
 ### Layer properties
 Right-click ▸ **Properties** lets you rename a layer, change its opacity, and choose how a raster is **displayed**:
@@ -201,6 +202,36 @@ Right-click ▸ **Properties** lets you rename a layer, change its opacity, and 
 - a **single band** with a colour scale and stretch (standard range, automatic 2–98 %, or custom min/max)
 
 Class maps (e.g. WorldCover, classified maps) are drawn with their own class colours and names.
+
+### Band combination (RGB)
+Right-click a raster with two or more bands ▸ **Band combination (RGB)…** to choose which bands are shown as red, green and blue. The map updates as you choose.
+- **Presets** are shown when the layer's bands are known, e.g. Sentinel-2, Landsat or a stack with band names:
+  - True colour (R · G · B)
+  - Colour infrared (NIR · R · G)
+  - SWIR · NIR · Red
+  - Agriculture (SWIR1 · NIR · Blue)
+  - Healthy vegetation (NIR · SWIR1 · Blue)
+  - Land / water (NIR · SWIR1 · Red)
+  - Urban (SWIR2 · SWIR1 · Red)
+  - Geology (SWIR2 · SWIR1 · Blue)
+  - Atmospheric penetration
+  - Red edge
+  - Bathymetric
+  - Radar (VV · VH · VV)
+- **Choose the bands**: any band for Red, Green and Blue. The same band may be used twice.
+- **Contrast**: stretch 2–98 % (default), 1–99 %, min–max, or none (photo colours).
+- **Default** goes back to true colour. **Cancel** (or Esc) puts the previous look back; **Done** keeps the new one.
+
+### Metadata
+Right-click any layer ▸ **Metadata…**. **Copy as JSON** copies everything.
+- **Rasters:**
+  - the file, format, size, compression, tiles and overviews;
+  - size in pixels, number of bands, data type and no-data value;
+  - the coordinate system (name, EPSG, units), pixel size, area covered, and the extent in map units and longitude / latitude;
+  - a table of every band: name, the band it is used as (e.g. B08 · NIR), type, no-data, min / max / mean / std / 2 % / 98 % and valid share from a quick overview, and its colour table;
+  - the file's tags.
+  - Sentinel products also show the satellite, level, date and time, tile, orbit and processing baseline.
+- **Vector layers:** the number of features, geometry types, extent, and every attribute field with its type, number of filled and distinct values, and range or examples.
 
 ### Data viewer (under the map)
 The data viewer opens below the map when you open a table, an attribute table or a picture. Each one gets its own **tab**, and *×* or a middle-click closes it. Drag the viewer's top edge to make it taller or shorter, use ⤢ to maximise it, or press Ctrl/⌘ 3 to show or hide it.
@@ -334,7 +365,19 @@ You can choose the bands, pixel size and indices. An estimate of the image size 
 
 ## 6. Your own Sentinel products (.SAFE)
 
-Copy Copernicus products into the **`data/`** folder, either extracted `.SAFE` folders or `.SAFE.zip` files. They appear under **File ▸ Open Sentinel product (.SAFE)** and on **Help ▸ Getting started**.
+Sentinel-1 GRD and Sentinel-2 L1C / L2A products from Copernicus can be added in three ways. Each works with an extracted `.SAFE` folder or a `.SAFE.zip`.
+
+- **Drag and drop:** drop the `.SAFE` folder or `.SAFE.zip` anywhere on the window. You can also pick the zip with **+ Add data**.
+  - It is copied into the project's `data/` folder.
+  - From a folder, only the files LULC Fetch reads are copied (Sentinel-2: metadata and the finest file of each band, about 60 % of the product; Sentinel-1: measurement and annotation files).
+  - Files that are already there are skipped.
+  - Sentinel-2 then opens right away; for Sentinel-1 the backscatter options appear.
+- **Browse… (no copying):** **File ▸ Open Sentinel product (.SAFE) ▸ Browse…**. Choose a `.SAFE` folder or `.SAFE.zip` anywhere on your computer; they are marked *Sentinel product*. Choosing a folder that holds several products opens all of them.
+  - The product is read where it is and stays in the list (**remove from list** forgets it; nothing is deleted).
+  - This is the quickest way for large products.
+- **Data folder:** copy products into `data/` yourself.
+
+All products are listed under **File ▸ Open Sentinel product (.SAFE)** and on the Start page.
 
 - **Sentinel-2 L1C / L2A:** opens instantly as one layer with all 12 bands at 10 m. It's a lightweight VRT that reads the original JPEG2000 files, so nothing is copied. The band names and the reflectance scale/offset (incl. the −0.1 offset of processing baseline ≥ 04.00) come from the product, so all indices work immediately.
 - **Sentinel-1 GRD** (IW/EW, dual polarisation): converted in the background into a GeoTIFF with **VV, VH and VV−VH** in dB:
@@ -753,7 +796,59 @@ Recommended starting points:
 - **Multispectral:** Random Forest, SVM or Maximum Likelihood.
 - **RGB:** Random Forest or SVM.
 
-## 17. Export data
+## 17. Make training data
+
+**Tools ▸ Make training data** cuts a large image, and its ground truth for the same area, into small matching patches that a deep-learning model can train on. You don't need to tile anything yourself.
+
+1. **Input layers** (required). Tick one or more rasters, e.g. a Sentinel-2 scene, or Sentinel-2 + Sentinel-1 + a DEM.
+   - Every ticked layer goes into every image patch, band by band.
+   - **Reference grid**: the layer whose projection and pixel size the patches follow. The other layers are resampled onto it (nearest neighbour for class maps, bilinear for the rest).
+2. **Ground truth** (optional). Either:
+   - a class raster (GeoTIFF, e.g. a land-cover map), or
+   - polygons / points (shapefile, GeoJSON, training samples) with a class attribute.
+
+   With no ground truth, only image patches are made (e.g. for pre-training or prediction).
+   - **Number classes 1, 2, 3…** (on by default): labels are stored as 1…K, and `classes.txt` lists the original value / name of each number. Untick it to keep the original values (e.g. WorldCover 10, 20, 30…).
+   - **0 always means no label / ignore.**
+   - **Skip patches with almost no labels**: useful with sparse polygons (on by default for vector ground truth).
+3. **Patch size & overlap.**
+   - **Patch width X / height Y** in metres (map units). Default: 256 × 256 pixels of the reference grid (2,560 m for 10 m Sentinel-2). The chips set 64 / 128 / 224 / 256 / 512 px.
+   - The size in pixels is shown below the inputs (it is rounded to whole pixels).
+   - **Overlap / padding X / Y**: 0 by default (patches touch edge to edge). **Half a patch** makes every place appear in up to 4 patches.
+   - **Edge patches**: keep and pad with no-data (label 0) so the whole area is covered, or drop them.
+   - **Minimum valid data**: skip patches that are mostly no-data.
+   - **Area (ROI)**: only make patches inside a polygon, the map view, or a rectangle / polygon you draw. Pixels outside it become no-data.
+   - **Preview patch grid on the map** draws the patch outlines and counts them.
+4. **Splits & output.**
+   - **Validation % / Test %** (random by patch; the **seed** makes it repeatable).
+   - **Save in folder**: **Browse…** or type a path. If you leave it empty, the project's `training_data/` folder is used.
+   - **Dataset name**: the folder that is created inside it. An existing, non-empty folder is never overwritten.
+
+**What you get**
+
+```
+<folder>/<dataset name>/
+  images/<name>_r0000_c0000.tif   image patches: all input bands, georeferenced GeoTIFF, band names kept
+  labels/<name>_r0000_c0000.tif   label patches: same file names and grid, uint8 (uint16 if >255 classes), 0 = ignore
+  classes.txt                     value · original value · name · colour · pixels · % · number of patches
+  dataset.json                    patch size (px and m), overlap, bands, data type, no-data, CRS, classes, splits
+  patches.csv                     one row per patch: file, split, row / col, bounds, valid / labelled share, main class
+  train.txt  val.txt  test.txt    file names per split
+```
+
+- Float images keep no-data as NaN; integer images keep the source no-data value.
+- The result lists the classes and their share. **Show patches on the map** draws the patches coloured by split. **Show in folder** opens the folder.
+- Cancelling a run deletes the half-written dataset folder.
+
+Reading a pair in Python:
+
+```python
+import rasterio
+img = rasterio.open("images/my_dataset_r0003_c0007.tif").read()     # (bands, H, W)
+lab = rasterio.open("labels/my_dataset_r0003_c0007.tif").read(1)    # (H, W), 0 = ignore
+```
+
+## 18. Export data
 
 **Tools ▸ Export data**, or right-click a layer ▸ **Export / save to computer**.
 
@@ -773,7 +868,7 @@ Files are saved to your browser's Downloads folder.
 
 ---
 
-## 18. Downloads & jobs
+## 19. Downloads & jobs
 
 **Tools ▸ Downloads & jobs** lists background jobs (downloads, composites, product downloads, Sentinel-1 processing, …). Each job shows:
 - its progress, current step and **Cancel**
@@ -786,7 +881,7 @@ Downloads that finish while the app is open are added to Contents automatically.
 
 ---
 
-## 19. Credentials
+## 20. Credentials
 
 Click **Credentials** (top right). Secrets are stored in your **operating-system keychain** (macOS Keychain, Windows Credential Locker, Linux Secret Service). They're never shown again or sent back to the browser, and are only used with the service they belong to. Each entry has a **Test** button.
 
@@ -801,7 +896,7 @@ Click **Credentials** (top right). Secrets are stored in your **operating-system
 
 ---
 
-## 20. Command-line tool
+## 21. Command-line tool
 
 `lulc-fetch` does the downloading parts without the web app. An area can be given as `--bbox minlon,minlat,maxlon,maxlat`, `--geojson file.geojson`, `--point lon,lat --buffer-km 5`, or `--match existing.tif` (reuse a raster's exact grid).
 
@@ -831,7 +926,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 21. Data sources and band conventions
+## 22. Data sources and band conventions
 
 | Source | Login | Notes |
 |---|---|---|
@@ -846,7 +941,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 22. Files and folders
+## 23. Files and folders
 
 With a project open, these folders are inside the project folder (next to `lulc_project.json`). Without a project they are in the app's folder (the temporary workspace). `data/` is always also read from the app's folder. The list of recent projects is stored in `~/.lulc-fetch/recent.json`.
 
@@ -858,13 +953,14 @@ With a project open, these folders are inside the project folder (next to `lulc_
 | `downloads/` | Job outputs (downloads, maps, stacks…), one folder per job |
 | `tables/` | Tables you added, clustering results (with a `cluster` column), t-SNE maps (`tsne_1`, `tsne_2`), (CSV, TSV and Excel are converted to CSV; Parquet is kept) and Raster → table outputs (with a `.json` description) |
 | `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports |
+| `training_data/` | Datasets made with Make training data when no folder is chosen (images/, labels/, classes.txt, dataset.json…) |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files, index exports, other exports |
 
 All of these are excluded from git.
 
 ---
 
-## 23. Limits and known issues
+## 24. Limits and known issues
 
 - **Download size:** one download is capped at 60 M pixels (≈77 × 77 km at 10 m). Use a coarser pixel size or split the area.
 - **Map previews** of large rasters are drawn at reduced resolution (≈1400 px), and their statistics come from that preview unless you pick an area. **GeoTIFF exports are always full resolution.**
@@ -882,7 +978,7 @@ All of these are excluded from git.
 
 ---
 
-## 24. Troubleshooting
+## 25. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -897,7 +993,7 @@ All of these are excluded from git.
 
 ---
 
-## 25. For developers: adding a tool
+## 26. For developers: adding a tool
 
 The web app is a FastAPI backend (`webapp/server.py`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package.
 

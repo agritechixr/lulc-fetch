@@ -539,6 +539,21 @@ def delete_raster(path: str):
     return {"ok": True}
 
 
+@app.get("/api/rasters/metadata")
+def raster_metadata(path: str):
+    from lulc_fetch.analysis import metadata
+
+    try:
+        return metadata(_raster_path(path))
+    except rasterio_errors() as e:
+        raise HTTPException(400, f"Can't read the file: {e}")
+
+
+def rasterio_errors():
+    import rasterio.errors
+    return (rasterio.errors.RasterioError, OSError, ValueError)
+
+
 @app.get("/api/rasters/info")
 def raster_info(path: str):
     from lulc_fetch.analysis import inspect
@@ -655,27 +670,217 @@ def _product_dirs() -> list[Path]:
     return out
 
 
-def _product(path: str) -> dict:
-    from lulc_fetch.safe import find_products
-
-    target = (ws.root() / path).resolve()
-    for p in find_products(*_product_dirs()):
-        if Path(p["path"]).resolve() == target or p["path"] == path:
-            return p
-    raise HTTPException(404, "No such product in the data folder")
+def _linked_file() -> Path:
+    return ws.CONFIG_DIR / "products.json"
 
 
-@app.get("/api/products")
-def list_products():
-    from lulc_fetch.safe import find_products
+def _linked() -> list[str]:
+    """Products opened from where they are (Browse…): remembered across sessions, never copied."""
+    import json as _json
+
+    try:
+        items = _json.loads(_linked_file().read_text())
+    except (OSError, ValueError):
+        return []
+    return [p for p in items if isinstance(p, str)]
+
+
+def _save_linked(items: list[str]):
+    import json as _json
+
+    try:
+        ws.CONFIG_DIR.mkdir(exist_ok=True)
+        _linked_file().write_text(_json.dumps(items[-50:], indent=1))
+    except OSError as e:
+        raise HTTPException(500, f"Can't remember the product: {e}")
+
+
+def _all_products() -> list[dict]:
+    from lulc_fetch.safe import describe, find_products
 
     out, seen = [], set()
     for p in find_products(*_product_dirs()):
         key = str(Path(p["path"]).resolve())
         if key not in seen:
             seen.add(key)
-            out.append({**p, "path": ws.rel(p["path"])})
-    return {"folder": str(ws.APP_DIR / "data"), "products": out}
+            out.append(p)
+    for lp in _linked():
+        path = Path(lp)
+        key = str(path.resolve())
+        if key in seen or not path.exists():
+            continue
+        info = describe(path)
+        if info:
+            seen.add(key)
+            out.append({**info, "linked": True})
+    return out
+
+
+def _product(path: str) -> dict:
+    from lulc_fetch.safe import describe, product_name
+
+    target = (ws.root() / path).resolve()
+    for p in _all_products():
+        if Path(p["path"]).resolve() == target or p["path"] == path:
+            return p
+    # not in the list (e.g. a .SAFE.zip next to its extracted folder, which the list shows instead), but a real
+    # product in a data folder or opened with Browse
+    allowed = {d.resolve() for d in _product_dirs()}
+    if target.exists() and product_name(target.name) and (target.parent in allowed or str(target) in {str(Path(x).resolve()) for x in _linked()}):
+        info = describe(target)
+        if info:
+            return info
+    raise HTTPException(404, "No such product in the data folder")
+
+
+def _product_out(p: dict) -> dict:
+    return {**p, "path": ws.rel(p["path"])}
+
+
+@app.get("/api/products")
+def list_products():
+    return {"folder": str(ws.root() / "data"), "products": [_product_out(p) for p in _all_products()]}
+
+
+# Adding a product: dropped .SAFE folders are copied file by file (only what the readers need) into data/,
+# dropped .SAFE.zip files as one file; "Browse…" links a product where it is, without copying.
+
+def _upload_name(filename: str) -> str:
+    from lulc_fetch.safe import product_name
+
+    name = product_name(filename)
+    if not name:
+        raise HTTPException(400, f"“{Path(filename).name}” isn't a Sentinel-1 GRD or Sentinel-2 L1C / L2A product "
+                                 "(the name should look like S2B_MSIL2A_… or S1A_IW_GRDH_…)")
+    return name
+
+
+def _upload_rel(rel: str) -> Path:
+    parts = [x for x in rel.replace("\\", "/").split("/") if x not in ("", ".")]
+    if not parts or any(x == ".." or ":" in x for x in parts):
+        raise HTTPException(400, f"Bad file path in the product: {rel}")
+    return Path(*parts)
+
+
+class ProductUploadStart(BaseModel):
+    folder: str = Field(max_length=300)                      # the dropped folder's name (…SAFE)
+    files: list[dict] = Field(default_factory=list, max_length=20000)   # [{"rel", "size"}]
+
+
+@app.post("/api/products/upload/start")
+def product_upload_start(req: ProductUploadStart):
+    """Which of the dropped product's files still have to be copied (files already there with the same size are kept)."""
+    name = _upload_name(req.folder)
+    final = ws.root() / "data" / f"{name}.SAFE"
+    incoming = ws.root() / "data" / ".incoming" / f"{name}.SAFE"
+    need = []
+    for f in req.files:
+        rel = _upload_rel(str(f.get("rel", "")))
+        size = int(f.get("size") or 0)
+        have = [d / rel for d in (final, incoming) if (d / rel).is_file()]
+        if not any(h.stat().st_size == size for h in have):
+            need.append(rel.as_posix())
+    return {"name": name, "need": need, "exists": final.is_dir()}
+
+
+@app.put("/api/products/upload/file")
+async def product_upload_file(request: Request, folder: str, rel: str):
+    name = _upload_name(folder)
+    dest = ws.root() / "data" / ".incoming" / f"{name}.SAFE" / _upload_rel(rel)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".part")
+    with open(tmp, "wb") as f:
+        async for chunk in request.stream():
+            f.write(chunk)
+    tmp.replace(dest)
+    return {"ok": True}
+
+
+class ProductUploadFinish(BaseModel):
+    folder: str = Field(max_length=300)
+
+
+@app.post("/api/products/upload/finish")
+def product_upload_finish(req: ProductUploadFinish):
+    import shutil
+
+    from lulc_fetch.safe import describe
+
+    name = _upload_name(req.folder)
+    final = ws.root() / "data" / f"{name}.SAFE"
+    incoming = ws.root() / "data" / ".incoming" / f"{name}.SAFE"
+    if incoming.is_dir():
+        for f in sorted(incoming.rglob("*")):
+            if f.is_file() and not f.name.endswith(".part"):
+                (final / f.relative_to(incoming)).parent.mkdir(parents=True, exist_ok=True)
+                f.replace(final / f.relative_to(incoming))
+        shutil.rmtree(incoming, ignore_errors=True)
+    if not final.is_dir():
+        raise HTTPException(400, "Nothing was copied")
+    info = describe(final)
+    log.info("Added Sentinel product %s to %s", name, final.parent)
+    return _product_out(info)
+
+
+@app.post("/api/products/upload/zip")
+async def product_upload_zip(request: Request, filename: str):
+    import zipfile
+
+    from lulc_fetch.safe import describe
+
+    name = _upload_name(filename)
+    dest = ws.root() / "data" / f"{name}.SAFE.zip"
+    if not (dest.is_file() and request.headers.get("content-length") == str(dest.stat().st_size)):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + ".part")
+        with open(tmp, "wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+        try:
+            with zipfile.ZipFile(tmp) as z:
+                if not any(".SAFE/" in m for m in z.namelist()[:50]):
+                    raise HTTPException(400, f"{filename} doesn't contain a .SAFE product folder")
+        except zipfile.BadZipFile:
+            tmp.unlink(missing_ok=True)
+            raise HTTPException(400, f"{filename} isn't a valid zip file (is the download complete?)")
+        except HTTPException:
+            tmp.unlink(missing_ok=True)
+            raise
+        tmp.replace(dest)
+    log.info("Added Sentinel product %s to %s", dest.name, dest.parent)
+    return _product_out(describe(dest))
+
+
+class ProductLinkRequest(BaseModel):
+    path: str = Field(max_length=2000)
+
+
+@app.post("/api/products/link")
+def product_link(req: ProductLinkRequest):
+    """Open a product where it is on this computer (a .SAFE folder or .SAFE.zip, or a folder holding one)."""
+    import os
+
+    from lulc_fetch.safe import describe, find_products, product_name
+
+    p = Path(os.path.expanduser(req.path.strip().strip('"').strip("'")))
+    if not p.is_absolute() or not p.exists():
+        raise HTTPException(400, f"{p} doesn't exist")
+    if product_name(p.name):
+        products = [describe(p)]
+    elif p.is_dir() and find_products(p):          # a folder that holds products
+        products = find_products(p)
+    else:
+        raise HTTPException(400, f"“{p.name}” isn't a Sentinel-1 GRD or Sentinel-2 L1C / L2A product folder (…SAFE) or zip")
+    items = [x for x in _linked() if x not in [q["path"] for q in products]] + [q["path"] for q in products]
+    _save_linked(items)
+    return {"products": [_product_out({**q, "linked": True}) for q in products]}
+
+
+@app.delete("/api/products/link")
+def product_unlink(path: str):
+    target = (ws.root() / path).resolve()
+    _save_linked([x for x in _linked() if Path(x).resolve() != target])
+    return {"ok": True}
 
 
 class ProductOpenRequest(BaseModel):
@@ -1489,6 +1694,88 @@ def rasterml_run(req: RasterMLRequest):
     return jobs.submit("rasterml", title, {"source": src.name}, run).to_dict()
 
 
+# ------------------------------------------------------------------ Make training data (deep-learning patches)
+
+PATCH_DIR = ws.Dir("training_data")
+
+
+class PatchInput(BaseModel):
+    path: str
+    bands: list[int] | None = None
+    name: str | None = Field(None, max_length=120)
+    scale: float = 1.0
+    offset: float = 0.0
+
+
+class PatchPlanRequest(BaseModel):
+    path: str
+    clip: dict | None = None
+    patch_m: list[float] = Field(..., min_length=2, max_length=2)
+    overlap_m: list[float] = Field(default_factory=lambda: [0, 0], min_length=2, max_length=2)
+    edge: str = Field("pad", pattern="^(pad|drop)$")
+
+
+class PatchRequest(PatchPlanRequest):
+    inputs: list[PatchInput] = Field(..., min_length=1, max_length=20)
+    ground_truth: dict | None = None
+    name: str = Field("training_patches", max_length=80)
+    folder: str | None = Field(None, max_length=1000)   # where the dataset folder is created (default: the project)
+    min_valid: float = Field(0.5, ge=0, le=1)
+    require_labels: bool = False
+    min_labelled: float = Field(0.01, ge=0, le=1)
+    remap: bool = True
+    val_share: float = Field(0.2, ge=0, lt=1)
+    test_share: float = Field(0.0, ge=0, lt=1)
+    seed: int = 0
+    class_colors: dict[str, str] | None = None
+
+
+def _check_patch_sizes(req: PatchPlanRequest):
+    if min(req.patch_m) <= 0:
+        raise HTTPException(400, "The patch size must be above 0")
+    if min(req.overlap_m) < 0:
+        raise HTTPException(400, "The overlap can't be negative")
+
+
+@app.post("/api/patches/plan")
+def patches_plan(req: PatchPlanRequest):
+    from lulc_fetch import patches
+
+    _check_patch_sizes(req)
+    try:
+        return patches.plan(_raster_path(req.path), clip=_clip(req.clip) if req.clip else None, patch_m=req.patch_m,
+                            overlap_m=req.overlap_m, edge=req.edge)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/patches/make")
+def patches_make(req: PatchRequest):
+    from lulc_fetch import patches
+
+    _check_patch_sizes(req)
+    inputs = [{**i.model_dump(), "path": str(_raster_path(i.path))} for i in req.inputs]
+    gt = dict(req.ground_truth) if req.ground_truth else None
+    if gt and gt.get("type") == "raster":
+        gt["path"] = str(_raster_path(gt["path"]))
+    clip = _clip(req.clip) if req.clip else None
+    parent = _report_folder(req.folder) if req.folder and req.folder.strip() else PATCH_DIR.path
+    out = patches.dataset_folder(parent, req.name)
+    if out.exists() and any(out.iterdir()):
+        raise HTTPException(400, f"{out} already exists and isn't empty. Choose another name or folder.")
+
+    def run(job):
+        res = patches.make(inputs, parent, name=req.name, ground_truth=gt, clip=clip, patch_m=req.patch_m, overlap_m=req.overlap_m,
+                           edge=req.edge, min_valid=req.min_valid, require_labels=req.require_labels, min_labelled=req.min_labelled,
+                           remap=req.remap, val_share=req.val_share, test_share=req.test_share, seed=req.seed,
+                           class_colors=req.class_colors)
+        res["outputs"] = []
+        return res
+
+    title = f"Make training data · {req.name}"
+    return jobs.submit("patches", title, {"source": Path(inputs[0]["path"]).name}, run).to_dict()
+
+
 # ------------------------------------------------------------------ Classical ML: unsupervised (clustering, t-SNE)
 
 @app.get("/api/unsup/schema")
@@ -1989,9 +2276,13 @@ def project_reveal(req: RevealRequest):
 
 
 @app.get("/api/fs/list")
-def fs_list(path: str = ""):
-    """Folders inside a folder, for the folder picker (folders only; file contents are never read)."""
+def fs_list(path: str = "", products: bool = False):
+    """Folders inside a folder, for the folder picker (file contents are never read).
+
+    products=true also lists Sentinel .SAFE.zip files and marks .SAFE product folders."""
     import os
+
+    from lulc_fetch.safe import product_name
 
     p = _abs_folder(path) if path.strip() else Path.home()
     if not p.is_dir():
@@ -2001,7 +2292,10 @@ def fs_list(path: str = ""):
         for c in sorted(p.iterdir(), key=lambda c: c.name.lower()):
             try:
                 if c.is_dir() and not c.name.startswith(".") and not c.name.endswith((".app", ".photoslibrary")):
-                    dirs.append({"name": c.name, "path": str(c), "project": ws.is_project(c)})
+                    dirs.append({"name": c.name, "path": str(c), "project": ws.is_project(c),
+                                 **({"product": True} if products and product_name(c.name) else {})})
+                elif products and c.is_file() and c.suffix.lower() == ".zip" and product_name(c.name):
+                    dirs.append({"name": c.name, "path": str(c), "project": False, "product": True, "file": True})
             except OSError:
                 continue
             if len(dirs) >= 800:
@@ -2014,7 +2308,7 @@ def fs_list(path: str = ""):
         shortcuts.insert(0, ("This project", ws.root()))
     shortcuts.append(("App folder", ws.APP_DIR))
     return {"path": str(p), "parent": str(p.parent) if p.parent != p else None, "dirs": dirs,
-            "project": ws.is_project(p), "writable": os.access(p, os.W_OK),
+            "project": ws.is_project(p), "writable": os.access(p, os.W_OK), "product": bool(products and product_name(p.name)),
             "shortcuts": [{"name": n, "path": str(d)} for n, d in shortcuts if d.is_dir()]}
 
 

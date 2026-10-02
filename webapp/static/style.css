@@ -401,9 +401,15 @@ body.no-contents .contents, body.no-tools .toolpanel { border: 0; }
 .ws-list { display: grid; gap: 4px; }
 .ws-list .ws-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px; }
 .ws-list .ws-row small { display: block; color: var(--muted); font-size: 11px; }
-.safe-card { border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; display: grid; gap: 6px; }
+.safe-card { border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; display: grid; gap: 6px; min-width: 0; }
+.safe-card > div { min-width: 0; }
+.safe-card small.mono { overflow-wrap: anywhere; }
 .safe-card b { font-size: 13px; }
 .safe-card small { color: var(--muted); font-size: 11.5px; display: block; }
+.safe-card.flash { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.safe-add { display: flex; gap: 12px; align-items: center; justify-content: space-between; border: 1px dashed var(--border); border-radius: 9px; padding: 10px 12px; }
+.safe-add small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.fp-item.is-product .fp-badge { background: color-mix(in srgb, #0ea5e9 15%, transparent); color: #0369a1; }
 .safe-card .row { margin-top: 2px; flex-wrap: wrap; }
 .safe-card select { width: auto; margin: 0; padding: 4px 6px; font-size: 12px; }
 .safe-kind { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--accent-2); color: var(--accent); margin-right: 6px; }
@@ -876,3 +882,27 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .py-summary { font-size: 12.5px; margin-top: 8px; min-height: 18px; }
 .py-out { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px; font-size: 12px; max-height: 220px; overflow: auto; white-space: pre-wrap; margin: 8px 0; }
 .py-out.err { background: #3b0d0d; color: #fecaca; }
+
+/* band combination + metadata dialogs */
+.bc-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.bc-preset { text-align: left; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 8px; cursor: pointer; color: inherit; font: inherit; }
+.bc-preset:hover { border-color: var(--accent); }
+.bc-preset.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.bc-preset b { display: block; font-size: 12.5px; }
+.bc-preset small { display: block; color: var(--muted); font-size: 11px; }
+.bc-preset .sw { display: inline-flex; gap: 2px; margin-right: 4px; vertical-align: -1px; }
+.bc-preset .sw i { width: 8px; height: 10px; border-radius: 2px; display: inline-block; }
+.bc-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bc-pick label { margin: 0; }
+.bc-ch { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; color: #fff; font-size: 10px; font-weight: 700; margin-right: 5px; }
+.bc-ch.r { background: #dc2626; } .bc-ch.g { background: #16a34a; } .bc-ch.b { background: #2563eb; }
+#md-body h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+#md-body h4:first-child { margin-top: 0; }
+.md-kv { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.md-kv td { padding: 3px 8px 3px 0; vertical-align: top; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.md-kv td:first-child { color: var(--muted); width: 34%; white-space: nowrap; }
+.md-tbl-wrap { overflow-x: auto; max-height: 320px; border: 1px solid var(--border); border-radius: 8px; }
+.md-tbl { border-collapse: collapse; font-size: 12px; width: 100%; }
+.md-tbl th, .md-tbl td { padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.md-tbl th { position: sticky; top: 0; background: var(--panel); font-weight: 600; }
+.md-tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }

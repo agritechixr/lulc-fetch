@@ -120,7 +120,7 @@
     <div class="mapwrap">
       <div id="map"></div>
       <div id="map-hint" class="map-hint hidden"></div>
-      <div id="drop-overlay" class="drop-overlay hidden"><div>Drop files to add them<small>GeoTIFF · JPG / PNG (+ world file) · Shapefile (.zip or .shp + .shx + .dbf + .prj) · GeoJSON · KML / KMZ<br>Tables: CSV · TSV · Excel (.xlsx) · Parquet</small></div></div>
+      <div id="drop-overlay" class="drop-overlay hidden"><div>Drop files to add them<small>GeoTIFF · JPG / PNG (+ world file) · Shapefile (.zip or .shp + .shx + .dbf + .prj) · GeoJSON · KML / KMZ<br>Tables: CSV · TSV · Excel (.xlsx) · Parquet<br>Sentinel-1 / Sentinel-2 products: .SAFE folder or .SAFE.zip</small></div></div>
     </div>
     <div class="hresize" id="rz-viewer" title="Drag to resize · double-click to reset"></div>
     <section class="viewer" id="viewer">
@@ -711,6 +711,67 @@
       <div id="rm-result" class="hidden"></div>
     </section>
 
+    <section id="tab-patches" class="tabpanel hidden">
+      <div class="card">
+        <h2><span class="step">1</span>Input layers <span class="req">required</span> <button type="button" class="tip" data-tip="The image(s) to cut into patches, e.g. a Sentinel-2 scene, or Sentinel-2 + Sentinel-1 + DEM. All ticked layers are stacked band by band onto the reference layer's grid (its projection and pixel size), so every image patch holds all their bands." aria-label="Help">i</button></h2>
+        <div id="pt-layers"></div>
+        <label>Reference grid (projection, pixel size) <button type="button" class="tip" data-tip="Patches follow this layer's pixel grid. The other layers are resampled onto it (nearest neighbour for class maps, bilinear for the rest)." aria-label="Help">i</button><select id="pt-ref"></select></label>
+        <p class="hint" id="pt-info"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Ground truth <span class="opt-tag">optional</span> <button type="button" class="tip" data-tip="Known classes for the same area: a class raster (GeoTIFF land-cover map) or polygons / points (shapefile, GeoJSON, training samples) with a class attribute. It is cut into label patches on exactly the same grid as the images. Leave empty to export image patches only (e.g. for self-supervised pre-training or prediction)." aria-label="Help">i</button></h2>
+        <select id="pt-gt"></select>
+        <div id="pt-gt-raster" class="hidden"><label>Band<select id="pt-gt-band"></select></label></div>
+        <div id="pt-gt-vector" class="hidden"><label>Class attribute<select id="pt-gt-field"></select></label></div>
+        <p class="hint" id="pt-gt-classes"></p>
+        <div id="pt-gt-opts" class="hidden">
+          <label class="inline"><input type="checkbox" id="pt-remap" checked> Number classes 1, 2, 3… <button type="button" class="tip" data-tip="On: label patches store 1…K (handy for deep-learning losses), and classes.txt lists which original value / name each number stands for. Off: keep the original class values (e.g. WorldCover 10, 20, 30…). 0 always means no label / ignore." aria-label="Help">i</button></label>
+          <label class="inline"><input type="checkbox" id="pt-req-labels"> Skip patches with almost no labels <button type="button" class="tip" data-tip="Leave out patches where less than the share below is labelled. Useful with sparse polygons / points." aria-label="Help">i</button></label>
+          <label id="pt-minlab-wrap" class="hidden">Minimum labelled share (%)<input type="number" id="pt-minlab" value="1" min="0" max="100" step="1"></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Patch size &amp; overlap</h2>
+        <div class="grid2">
+          <label>Patch width X (m) <span class="req">required</span><input type="number" id="pt-sx" min="1" step="any"></label>
+          <label>Patch height Y (m) <span class="req">required</span><input type="number" id="pt-sy" min="1" step="any"></label>
+        </div>
+        <div class="row tight" style="flex-wrap:wrap;margin-top:6px" id="pt-px-chips"></div>
+        <p class="hint" id="pt-px"></p>
+        <div class="grid2" style="margin-top:6px">
+          <label>Overlap / padding X (m) <button type="button" class="tip" data-tip="How much neighbouring patches overlap. 0 = patches touch edge to edge (default). Half a patch = every place appears in up to 4 patches: more training data and fewer edge effects." aria-label="Help">i</button><input type="number" id="pt-ox" value="0" min="0" step="any"></label>
+          <label>Overlap / padding Y (m)<input type="number" id="pt-oy" value="0" min="0" step="any"></label>
+        </div>
+        <div class="row tight" style="margin-top:6px"><button class="chip" id="pt-ov0">No overlap</button><button class="chip" id="pt-ovhalf">Half a patch</button></div>
+        <div class="grid2" style="margin-top:8px">
+          <label>Edge patches <button type="button" class="tip" data-tip="Patches that run over the image edge: pad them with no-data (labels 0) so the whole area is covered, or leave them out so every patch is full." aria-label="Help">i</button>
+            <select id="pt-edge"><option value="pad">Keep, pad with no-data</option><option value="drop">Drop</option></select></label>
+          <label>Minimum valid data (%) <button type="button" class="tip" data-tip="Skip patches with less valid image data than this (outside the area, image edge, clouds masked as no-data)." aria-label="Help">i</button><input type="number" id="pt-minvalid" value="50" min="0" max="100" step="5"></label>
+        </div>
+        <div class="area-pick">
+          <label>Area (ROI) <button type="button" class="tip" data-tip="Make patches only inside this area. Pixels outside the polygon are set to no-data." aria-label="Help">i</button><select id="pt-area"></select></label>
+          <p class="hint" id="pt-area-hint">The whole image is used.</p>
+        </div>
+        <button class="btn" id="pt-preview" style="width:100%;margin-top:8px">Preview patch grid on the map</button>
+        <p class="hint" id="pt-plan"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">4</span>Splits &amp; output</h2>
+        <div class="grid2">
+          <label>Validation (%) <button type="button" class="tip" data-tip="Share of patches listed in val.txt (randomly chosen; the seed makes it repeatable). The rest go to train.txt / test.txt." aria-label="Help">i</button><input type="number" id="pt-val" value="20" min="0" max="90" step="5"></label>
+          <label>Test (%)<input type="number" id="pt-test" value="0" min="0" max="90" step="5"></label>
+        </div>
+        <label>Random seed<input type="number" id="pt-seed" value="0" step="1"></label>
+        <label>Save in folder <button type="button" class="tip" data-tip="A dataset folder is created inside it with images/, labels/, classes.txt, dataset.json, patches.csv and train / val / test lists. Empty = the project's training_data folder." aria-label="Help">i</button></label>
+        <div class="row tight"><input id="pt-folder" placeholder="Project folder ▸ training_data" style="flex:1"><button class="btn" id="pt-browse">Browse…</button></div>
+        <label>Dataset name<input id="pt-name" maxlength="80" value="training_patches"></label>
+        <p class="hint" id="pt-dest"></p>
+        <button class="btn primary big-btn" id="pt-run">Make training data</button>
+        <div id="pt-error" class="warn err hidden"></div>
+      </div>
+      <div id="pt-result" class="hidden"></div>
+    </section>
+
     <section id="tab-raster2table" class="tabpanel hidden">
       <div class="card">
         <h2><span class="step">1</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The raster to convert: GeoTIFF, Sentinel-2, Landsat, multispectral, hyperspectral (any number of bands) or SAR. Each pixel becomes one row and each band one column." aria-label="Help">i</button></h2>
@@ -1039,6 +1100,32 @@
 <!-- (layer export lives in the Export tool panel) -->
 
 <!-- Layer properties (raster display) -->
+<!-- Band combination (RGB) -->
+<dialog id="dlg-bands" class="modal">
+  <div class="modal-head"><h3 id="bc-title">Band combination</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <div class="home-label" style="margin-top:0">Presets</div>
+    <div id="bc-presets" class="bc-presets"></div>
+    <div class="home-label">Choose the bands</div>
+    <div class="bc-pick">
+      <label><span class="bc-ch r">R</span>Red<select id="bc-r"></select></label>
+      <label><span class="bc-ch g">G</span>Green<select id="bc-g"></select></label>
+      <label><span class="bc-ch b">B</span>Blue<select id="bc-b"></select></label>
+    </div>
+    <label style="margin-top:8px">Contrast <button type="button" class="tip" data-tip="How pixel values become screen brightness, per channel. 2–98 % ignores the darkest and brightest 2 % (good for satellite images). None keeps photo colours as they are." aria-label="Help">i</button>
+      <select id="bc-stretch"><option value="auto">Stretch 2–98 % (recommended)</option><option value="p1">Stretch 1–99 %</option><option value="minmax">Min – max</option><option value="none">None (photo colours)</option></select></label>
+    <p class="hint" id="bc-hint"></p>
+  </div>
+  <div class="modal-foot"><button class="btn" id="bc-reset">Default</button><span class="grow"></span><button class="btn" id="bc-cancel">Cancel</button><button class="btn primary" id="bc-ok">Done</button></div>
+</dialog>
+
+<!-- Layer metadata -->
+<dialog id="dlg-lmeta" class="modal wide">
+  <div class="modal-head"><h3 id="md-title">Metadata</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body" id="md-body"></div>
+  <div class="modal-foot"><button class="btn" id="md-copy">Copy as JSON</button><span class="grow"></span><button class="btn primary" data-close>Close</button></div>
+</dialog>
+
 <dialog id="dlg-lprops" class="modal">
   <div class="modal-head"><h3 id="lp-title">Layer properties</h3><button class="x" data-close>×</button></div>
   <div class="modal-body">
@@ -1072,7 +1159,11 @@
 <dialog id="dlg-safe" class="modal">
   <div class="modal-head"><h3>Open Sentinel product (.SAFE)</h3><button class="x" data-close>×</button></div>
   <div class="modal-body">
-    <p class="hint" style="margin-top:0">Copernicus products (extracted <code>.SAFE</code> folders or <code>.SAFE.zip</code>) found in <code id="safe-folder"></code>. Put downloaded products there to open them here.</p>
+    <div class="safe-add">
+      <div><b>Add a product</b><small>Drag a Sentinel-1 / Sentinel-2 <code>.SAFE</code> folder or <code>.SAFE.zip</code> onto the window (it is copied into the data folder), or open one where it is on this computer without copying.</small></div>
+      <button class="btn primary" id="safe-browse">Browse…</button>
+    </div>
+    <p class="hint">Products in <code id="safe-folder"></code> and the ones you opened with Browse:</p>
     <div id="safe-list" class="ws-list"></div>
   </div>
   <div class="modal-foot"><button class="btn" data-close>Close</button></div>

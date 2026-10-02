@@ -185,6 +185,7 @@
     rasterml: '<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1" opacity=".55"/><rect x="3" y="13" width="8" height="8" rx="1" opacity=".55"/><rect x="13" y="13" width="8" height="8" rx="1"/><path d="M5.5 7h3M15.5 17h3"/>',
     cluster: '<circle cx="7" cy="8" r="1.6"/><circle cx="10" cy="6" r="1.6"/><circle cx="9" cy="10.5" r="1.6"/><circle cx="16" cy="15" r="1.6"/><circle cx="18.5" cy="12.5" r="1.6"/><circle cx="15" cy="18" r="1.6"/><circle cx="18" cy="18.5" r="1.6"/><path d="M4.5 4.5a6 6 0 0 1 8 7.5M12 19a6 6 0 0 0 9-8" opacity=".55"/>',
     tsne: '<circle cx="6" cy="7" r="1.5"/><circle cx="8" cy="9.5" r="1.5"/><circle cx="5" cy="11" r="1.5"/><circle cx="16" cy="6" r="1.5"/><circle cx="18" cy="8.5" r="1.5"/><circle cx="12" cy="17" r="1.5"/><circle cx="14.5" cy="18.5" r="1.5"/><circle cx="11" cy="20" r="1.5"/><path d="M3 3v18h18" opacity=".55"/>',
+    patches: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" opacity=".55"/><rect x="9" y="9" width="6" height="6" fill="currentColor" stroke="none" opacity=".8"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>',
   };
   const svg = (name, w = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
@@ -197,6 +198,7 @@
     { id: "raster2table", title: "Raster → table", icon: "table", subtitle: "Turn any image (multispectral, hyperspectral, SAR) into a table, with optional ground-truth labels" },
     { id: "ml", title: "Classical ML (tabular data)", icon: "ml", subtitle: "Machine-learning tools that work on tables" },
     { id: "rasterml", title: "Classical ML for raster", icon: "rasterml", subtitle: "Train SVM, Maximum Likelihood, Random Forest, SAM and more straight from an image and ground truth, and map it: RGB, multispectral, hyperspectral or embeddings" },
+    { id: "patches", title: "Make training data", icon: "patches", subtitle: "Cut large images and their ground truth into image / label patches for deep-learning training" },
     { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
   ];
@@ -232,6 +234,7 @@
     if (tool.id === "ml") { openMlSub(mlSub); }
     if (tool.id === "raster2table") refreshRtInputs();
     if (tool.id === "rasterml") refreshRm();
+    if (tool.id === "patches") refreshPt();
     if (tool.id === "samples") renderSamples();
     if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
@@ -606,6 +609,7 @@
     if (pcaState.schema) refreshPcaInputs();
     if (currentTool === "raster2table") refreshRtInputs();
     if (currentTool === "rasterml" && rm.ready) refreshRm();
+    if (currentTool === "patches") refreshPt();
     if (currentTool === "samples") renderSamples();
     if (currentTool === "stack") refreshStack();
     if (currentTool === "ml" && mlSub === "predict" && mlx.schema) refreshPredictRasters();
@@ -655,6 +659,8 @@
     const items = [
       ["Zoom to layer", () => zoomTo(l)],
       ["Properties…", () => openProps(l)],
+      l.type === "raster" && !l.derived && (l.info?.count || 0) >= 2 ? ["Band combination (RGB)…", () => openBandCombo(l)] : null,
+      l.type !== "image" ? ["Metadata…", () => openMetadata(l)] : null,
       l.type === "raster" && !l.derived ? ["Compute indices on this layer", () => analyzeLayer(l)] : null,
       l.type === "vector" ? ["Open attribute table", () => openAttr(l)] : null,
       isPoly && l.id !== "aoi" ? ["Use as area of interest", () => useAsAoi(l)] : null,
@@ -1701,6 +1707,7 @@
   // ------------------------------------------------------------------ folder picker (server-side, so it returns real paths)
   const fp = { path: null, sel: null, mode: "folder", resolve: null };
   const FOLDER_SVG = (isProj) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="${isProj ? "var(--accent)" : "#e3b341"}" fill-opacity="${isProj ? ".9" : ".85"}" stroke="none"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2h8.4A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/>${isProj ? '<path d="M8 13.5l2.5 2.5L16 11" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' : ""}</svg>`;
+  const ZIP_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M11 5h2M11 8h2M11 11h2M11 14h2v3h-2z"/></svg>`;
   function pickFolder({ title = "Choose a folder", start = "", mode = "folder", okLabel } = {}) {
     fp.mode = mode; fp.sel = null; fp.okLabel = okLabel;
     $("#fp-title").textContent = title;
@@ -1712,20 +1719,21 @@
   $("#dlg-folder").addEventListener("close", () => { if (fp.resolve) { fp.resolve(fp.result ?? null); fp.resolve = null; fp.result = null; } });
   async function fpLoad(path) {
     let r;
-    try { r = await api(`/api/fs/list?path=${encodeURIComponent(path || "")}`); }
-    catch (e) { $("#fp-hint").innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; if (fp.path) return; r = await api("/api/fs/list"); }
+    const q = fp.mode === "product" ? "&products=true" : "";
+    try { r = await api(`/api/fs/list?path=${encodeURIComponent(path || "")}${q}`); }
+    catch (e) { $("#fp-hint").innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; if (fp.path) return; r = await api(`/api/fs/list?path=${q}`); }
     fp.path = r.path; fp.sel = null; fp.info = r;
     $("#fp-path").value = r.path;
     $("#fp-up").disabled = !r.parent;
     $("#fp-up").onclick = () => r.parent && fpLoad(r.parent);
     $("#fp-shortcuts").innerHTML = r.shortcuts.map((sc) => `<button class="fp-sc ${sc.path === r.path ? "on" : ""}" data-p="${esc(sc.path)}" title="${esc(sc.path)}">${esc(sc.name)}</button>`).join("");
     $$("#fp-shortcuts [data-p]").forEach((b) => b.onclick = () => fpLoad(b.dataset.p));
-    $("#fp-list").innerHTML = r.dirs.length ? r.dirs.map((d) => `<div class="fp-item ${d.project ? "is-proj" : ""}" data-p="${esc(d.path)}" title="Double-click to open">
-        <span class="fp-ic">${FOLDER_SVG(d.project)}</span><span class="fp-n">${esc(d.name)}</span>${d.project ? '<span class="fp-badge">project</span>' : ""}</div>`).join("")
+    $("#fp-list").innerHTML = r.dirs.length ? r.dirs.map((d) => `<div class="fp-item ${d.project ? "is-proj" : ""} ${d.product ? "is-product" : ""}" data-p="${esc(d.path)}" ${d.file ? "data-file" : ""} title="${d.product ? "Double-click to open this product" : "Double-click to open"}">
+        <span class="fp-ic">${d.file ? ZIP_SVG : FOLDER_SVG(d.project)}</span><span class="fp-n">${esc(d.name)}</span>${d.project ? '<span class="fp-badge">project</span>' : ""}${d.product ? '<span class="fp-badge">Sentinel product</span>' : ""}</div>`).join("")
       : `<p class="hint" style="padding:10px">No sub-folders here.</p>`;
     $$("#fp-list .fp-item").forEach((el) => {
       el.onclick = () => { fp.sel = el.dataset.p; $$("#fp-list .fp-item").forEach((x) => x.classList.toggle("sel", x === el)); fpHint(); };
-      el.ondblclick = () => fpLoad(el.dataset.p);
+      el.ondblclick = () => { if (fp.mode === "product" && el.classList.contains("is-product")) { fp.sel = el.dataset.p; $("#fp-ok").click(); } else if (!el.hasAttribute("data-file")) fpLoad(el.dataset.p); };
     });
     fpHint();
   }
@@ -1733,7 +1741,12 @@
   function fpHint() {
     const t = fpTarget(), isProj = fp.sel ? !!$(`#fp-list .fp-item.sel.is-proj`) : fp.info?.project;
     const ok = $("#fp-ok");
-    if (fp.mode === "project") {
+    if (fp.mode === "product") {
+      const isProd = fp.sel ? !!$("#fp-list .fp-item.sel.is-product") : fp.info?.product;
+      const holds = !fp.sel && $$("#fp-list .fp-item.is-product").length;
+      ok.textContent = isProd ? "Open product" : holds ? `Open all ${holds} products here` : "Open product"; ok.disabled = !isProd && !holds;
+      $("#fp-hint").innerHTML = isProd || holds ? `<code>${esc(t)}</code>` : "Choose a <b>.SAFE</b> folder or <b>.SAFE.zip</b> (marked <span class='fp-badge'>Sentinel product</span>).";
+    } else if (fp.mode === "project") {
       ok.textContent = "Open project"; ok.disabled = !isProj;
       $("#fp-hint").innerHTML = isProj ? `Open <b>${esc(t.split(/[\\/]/).pop())}</b>` : "Choose a folder marked <span class='fp-badge'>project</span>.";
     } else {
@@ -2015,8 +2028,14 @@
         WORLD_RE = /\.(jgw|jpgw|jpegw|pgw|pngw|bpw|bmpw|gfw|gifw|wld)$/i;
   const stemOf = (n) => n.replace(/(\.aux\.xml|\.[^.]+)$/i, "").toLowerCase();
   async function addFiles(fileList) {
-    const files = [...fileList];
+    let files = [...fileList];
     if (!files.length) return;
+    const safeZips = files.filter((f) => /\.zip$/i.test(f.name) && SAFE_NAME_RE.test(f.name));
+    if (safeZips.length) {
+      files = files.filter((f) => !safeZips.includes(f));
+      for (const f of safeZips) await uploadSafeZip(f);
+      if (!files.length) return;
+    }
     const rasters = files.filter((f) => /\.tiff?$/i.test(f.name));
     const tables = files.filter((f) => TABLE_RE.test(f.name));
     const pics = files.filter((f) => PIC_RE.test(f.name));
@@ -2085,8 +2104,117 @@
     dragDepth = 0;
     $("#drop-overlay").classList.add("hidden");
     if (e.target.closest("#drop, #an-drop")) return;  // the AOI upload box handles its own drops
-    addFiles(e.dataTransfer.files);
+    // entries must be read during the event; folders (e.g. a .SAFE product) only show up this way
+    const entries = [...(e.dataTransfer.items || [])].map((i) => i.kind === "file" && i.webkitGetAsEntry ? i.webkitGetAsEntry() : null);
+    if (entries.some((x) => x?.isDirectory)) addDropped(entries.filter(Boolean)).catch((err) => toast(err.message, true));
+    else addFiles(e.dataTransfer.files);
   });
+
+  // ------------------------------------------------------------------ Sentinel products: drop a .SAFE folder / .SAFE.zip, or link one
+  const SAFE_NAME_RE = /^S(2[ABCD]_MSI(L1C|L2A)|1[ABCD]_(IW|EW|SM)_GRD)/i;
+  const entryFile = (en) => new Promise((res, rej) => en.file(res, rej));
+  async function readDir(dirEntry) {
+    const reader = dirEntry.createReader(), out = [];
+    for (;;) {
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+      if (!batch.length) return out;
+      out.push(...batch);
+    }
+  }
+  async function walkFiles(dirEntry, base = "") {   // [{rel, entry}] of every file below a folder
+    const out = [];
+    for (const en of await readDir(dirEntry)) {
+      const rel = base ? `${base}/${en.name}` : en.name;
+      if (en.isDirectory) out.push(...await walkFiles(en, rel));
+      else out.push({ rel, entry: en });
+    }
+    return out;
+  }
+  async function addDropped(entries) {
+    const products = [], plain = [];
+    const visit = async (en, depth) => {
+      if (en.isDirectory && /\.SAFE$/i.test(en.name)) products.push(en);
+      else if (en.isDirectory) { if (depth < 3) for (const c of await readDir(en)) await visit(c, depth + 1); }
+      else plain.push(await entryFile(en));
+    };
+    for (const en of entries) await visit(en, 0);
+    for (const en of products) await uploadSafeFolder(en);
+    if (plain.length) await addFiles(plain);
+  }
+  // only what LULC Fetch reads: metadata, Sentinel-1 measurement + annotation, Sentinel-2's finest file per band
+  function safeFilesNeeded(files) {
+    const keep = files.filter(({ rel }) => /(^|\/)(manifest\.safe|MTD_MSIL(1C|2A)\.xml)$/i.test(rel) && rel.split("/").length === 1
+      || /^annotation\/.*\.xml$/i.test(rel) || /^measurement\/.*\.tiff?$/i.test(rel));
+    const best = {};
+    for (const f of files) {
+      const m = f.rel.match(/\/IMG_DATA\/.*_(B\d[\dA])(?:_(10|20|60)m)?\.jp2$/i);
+      if (!m) continue;
+      const res = +(m[2] || 0);
+      if (!best[m[1]] || res < best[m[1]].res) best[m[1]] = { res, f };
+    }
+    return [...keep, ...Object.values(best).map((b) => b.f)];
+  }
+  async function uploadSafeFolder(dirEntry) {
+    const folder = dirEntry.name;
+    if (!SAFE_NAME_RE.test(folder)) return toast(`${folder}: not a Sentinel-1 GRD or Sentinel-2 L1C / L2A product`, true);
+    const run = { title: `Adding ${folder.replace(/\.SAFE$/i, "")}`, progress: 0, message: "Reading the product folder…", started: Date.now(), cancel: () => { run.cancelled = true; } };
+    runs[currentTool] = run; renderRunBar();
+    try {
+      status(`Reading ${folder}…`, true);
+      const files = safeFilesNeeded(await walkFiles(dirEntry));
+      if (!files.length) throw new Error(`${folder} has no Sentinel-1 / Sentinel-2 image files`);
+      const withFile = await Promise.all(files.map(async (x) => ({ ...x, file: await entryFile(x.entry) })));
+      const start = await api("/api/products/upload/start", { method: "POST", json: { folder, files: withFile.map((x) => ({ rel: x.rel, size: x.file.size })) } });
+      const need = new Set(start.need), todo = withFile.filter((x) => need.has(x.rel));
+      const total = todo.reduce((a, x) => a + x.file.size, 0) || 1;
+      let done = 0;
+      for (const x of todo) {
+        if (run.cancelled) throw Object.assign(new Error("Cancelled"), { cancelled: true });
+        run.message = `Copying into the data folder · ${fmt(done / 1e6, 0)} of ${fmt(total / 1e6, 0)} MB · ${x.rel.split("/").pop()}`;
+        run.progress = done / total; renderRunBar();
+        await api(`/api/products/upload/file?folder=${encodeURIComponent(folder)}&rel=${encodeURIComponent(x.rel)}`, { method: "PUT", body: x.file });
+        done += x.file.size;
+      }
+      const p = await api("/api/products/upload/finish", { method: "POST", json: { folder } });
+      delete runs[currentTool]; renderRunBar();
+      toast(`${p.title} · ${p.date} added to the data folder${todo.length < withFile.length ? " (already partly there)" : ""}`);
+      await openAddedProduct(p);
+    } catch (e) {
+      if (notCancelled(e)) toast(`${folder}: ${e.message}`, true);
+    } finally {
+      if (runs[currentTool] === run) { delete runs[currentTool]; renderRunBar(); }
+      status("");
+    }
+  }
+  async function uploadSafeZip(f) {
+    const run = { title: `Adding ${f.name}`, progress: null, message: `Copying ${fmt(f.size / 1e6, 0)} MB into the data folder…`, started: Date.now(), cancel: () => xhr.abort() };
+    const xhr = new XMLHttpRequest();
+    runs[currentTool] = run; renderRunBar();
+    try {
+      const p = await new Promise((res, rej) => {
+        xhr.open("POST", `/api/products/upload/zip?filename=${encodeURIComponent(f.name)}`);
+        xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) { run.progress = ev.loaded / ev.total; run.message = `Copying into the data folder · ${fmt(ev.loaded / 1e6, 0)} of ${fmt(ev.total / 1e6, 0)} MB`; renderRunBar(); } };
+        xhr.onload = () => { let b; try { b = JSON.parse(xhr.responseText); } catch { b = {}; } xhr.status < 300 ? res(b) : rej(new Error(b.detail || xhr.statusText)); };
+        xhr.onerror = () => rej(new Error("Upload failed"));
+        xhr.onabort = () => rej(Object.assign(new Error("Cancelled"), { cancelled: true }));
+        xhr.send(f);
+      });
+      if (runs[currentTool] === run) { delete runs[currentTool]; renderRunBar(); }
+      toast(`${p.title} · ${p.date} added to the data folder`);
+      await openAddedProduct(p);
+    } catch (e) {
+      if (notCancelled(e)) toast(`${f.name}: ${e.message}`, true);
+    } finally { if (runs[currentTool] === run) { delete runs[currentTool]; renderRunBar(); } }
+  }
+  // Sentinel-2 opens straight away; Sentinel-1 shows its options (pixel size, area) first
+  async function openAddedProduct(p) {
+    refreshHomeProducts();
+    if (p.kind === "S1_GRD") return openSafeDialog(p.path);
+    status(`Opening ${p.title}…`, true);
+    const r = await api("/api/products/open", { method: "POST", json: { path: p.path } });
+    await addRasterFromPath(r.path, { name: r.name, zoom: true });
+    status(`${r.name} added to Contents`);
+  }
 
   async function openWorkspace() {
     const [list, tables] = await Promise.all([api("/api/rasters"), api("/api/tables").catch(() => [])]);
@@ -2118,7 +2246,7 @@
     return `<div class="safe-card" data-path="${esc(p.path)}">
       <div><span class="safe-kind ${s1 ? "s1" : ""}">${s1 ? "SAR" : "OPTICAL"}</span><b>${esc(p.title)}</b>
         <small>${esc(p.date)} · ${esc(p.satellite)} · ${esc(p.detail)} · ${fmt(p.size_mb / 1000, 2)} GB${p.zipped ? " · zip" : ""}</small>
-        ${compact ? "" : `<small class="mono">${esc(p.path)}</small>`}</div>
+        ${compact ? "" : `<small class="mono">${esc(p.path)}${p.linked ? ` · opened from where it is <a href="#" data-unlink="${esc(p.path)}">remove from list</a>` : ""}</small>`}</div>
       ${s1 ? `<small>Converted to calibrated backscatter (σ⁰, dB) for ${esc(p.pols.join(" + "))}, geocoded to UTM. No terrain correction.</small>
         <div class="row">
           <label class="inline">Pixel size <select data-res><option value="20">20 m</option><option value="40" selected>40 m</option><option value="80">80 m</option></select></label>
@@ -2158,14 +2286,34 @@
       });
     });
   }
-  async function openSafeDialog() {
+  async function openSafeDialog(highlight = null) {
     const r = await api("/api/products");
     $("#safe-folder").textContent = r.folder;
     $("#safe-list").innerHTML = r.products.length ? r.products.map((p) => safeCard(p)).join("")
-      : '<p class="hint">No .SAFE products found. Copy Sentinel-1 / Sentinel-2 products (folders or .zip) into the data folder.</p>';
+      : '<p class="hint">No products yet. Drag a <b>.SAFE</b> folder or <b>.SAFE.zip</b> onto the window, or click <b>Browse…</b>.</p>';
     wireSafeCards($("#safe-list"), r.products);
-    $("#dlg-safe").showModal();
+    $$("#safe-list [data-unlink]").forEach((b) => b.onclick = async (e) => {
+      e.preventDefault();
+      await api(`/api/products/link?path=${encodeURIComponent(b.dataset.unlink)}`, { method: "DELETE" }).catch((e) => toast(e.message, true));
+      openSafeDialog(); refreshHomeProducts();
+    });
+    if (!$("#dlg-safe").open) $("#dlg-safe").showModal();
+    if (highlight) {
+      const card = $(`#safe-list .safe-card[data-path="${CSS.escape(highlight)}"]`);
+      if (card) { card.classList.add("flash"); card.scrollIntoView({ block: "nearest" }); }
+    }
   }
+  $("#safe-browse").onclick = async () => {
+    const path = await pickFolder({ title: "Open a Sentinel product (.SAFE folder or .SAFE.zip)", mode: "product", start: prefs.get("safe-last", "") });
+    if (!path) return;
+    try {
+      const r = await api("/api/products/link", { method: "POST", json: { path } });
+      prefs.set("safe-last", path.replace(/[\\/][^\\/]+$/, ""));
+      refreshHomeProducts();
+      if (r.products.length === 1 && r.products[0].kind !== "S1_GRD") { $("#dlg-safe").close(); await openAddedProduct(r.products[0]); }
+      else openSafeDialog(r.products[0]?.path);
+    } catch (e) { toast(e.message, true); }
+  };
   async function refreshHomeProducts() {
     try {
       const r = await api("/api/products");
@@ -2311,6 +2459,7 @@
     "rt-area": { what: "image is converted", onChange: () => updateRtEstimate() },
     "mp-area": { what: "image is classified", onChange: () => {} },
     "rm-area": { what: "image is used", onChange: () => {} },
+    "pt-area": { what: "image is cut into patches", onChange: () => ptChanged() },
     "st-area": { what: "reference extent is used", onChange: () => {} },
   };
   const polygonLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
@@ -2374,6 +2523,153 @@
   Object.keys(clipPickers).forEach((id) => $("#" + id).onchange = () => pickClip(id));
 
   // ------------------------------------------------------------------ layer properties
+  // ------------------------------------------------------------------ band combination (any 3 bands as RGB)
+  const BAND_NICE = { B01: "Coastal", B02: "Blue", B03: "Green", B04: "Red", B05: "Red edge 1", B06: "Red edge 2", B07: "Red edge 3",
+    B08: "NIR", B8A: "NIR narrow", B09: "Water vapour", B10: "Cirrus", B11: "SWIR 1", B12: "SWIR 2", VV: "VV", VH: "VH", HH: "HH", HV: "HV" };
+  const BAND_PRESETS = [
+    ["True colour", ["B04", "B03", "B02"], "As the eye sees it"],
+    ["Colour infrared (NIR · R · G)", ["B08", "B04", "B03"], "Vegetation in red"],
+    ["SWIR · NIR · Red", ["B12", "B08", "B04"], "Moisture, burn scars, bare soil"],
+    ["Agriculture (SWIR1 · NIR · Blue)", ["B11", "B08", "B02"], "Crops bright green"],
+    ["Healthy vegetation (NIR · SWIR1 · Blue)", ["B08", "B11", "B02"], "Vegetation vigour"],
+    ["Land / water (NIR · SWIR1 · Red)", ["B08", "B11", "B04"], "Clear water / land edges"],
+    ["Urban (SWIR2 · SWIR1 · Red)", ["B12", "B11", "B04"], "Built-up areas stand out"],
+    ["Geology (SWIR2 · SWIR1 · Blue)", ["B12", "B11", "B02"], "Rock and soil types"],
+    ["Atmospheric penetration", ["B12", "B11", "B8A"], "Sees through haze / smoke"],
+    ["Red edge (RE3 · RE2 · RE1)", ["B07", "B06", "B05"], "Vegetation stress"],
+    ["Bathymetric (R · G · Coastal)", ["B04", "B03", "B01"], "Shallow water"],
+    ["Radar (VV · VH · VV)", ["VV", "VH", "VV"], "Sentinel-1 backscatter"],
+  ];
+  const bc = { layer: null, before: null, timer: 0 };
+  function bcBandLabel(l, i) {
+    const d = l.info.bands[i - 1]?.description || `Band ${i}`;
+    const mapped = Object.entries(l.band_map || {}).find(([, v]) => v === i)?.[0];
+    const nice = BAND_NICE[mapped] || BAND_NICE[d];
+    return `${i} · ${d}${nice && nice !== d ? ` (${nice})` : mapped && mapped !== d ? ` (${mapped})` : ""}`;
+  }
+  // the three file bands the layer currently shows (composite names mapped to band numbers)
+  function currentRgb(l) {
+    const r = l.render || {}, bm = l.band_map || {}, n = l.info.count;
+    if (r.rgb) return r.rgb;
+    const names = r.composite && state.catalog?.composites[r.composite]?.bands;
+    if (names && names.every((b) => b in bm)) return names.map((b) => bm[b]);
+    for (const [, bands] of BAND_PRESETS) if (bands.every((b) => b in bm)) return bands.map((b) => bm[b]);
+    return [1, Math.min(2, n), Math.min(3, n)];
+  }
+  function openBandCombo(l) {
+    bc.layer = l; bc.before = JSON.parse(JSON.stringify(l.render || {}));
+    $("#bc-title").textContent = `Band combination · ${l.name}`;
+    const opts = l.info.bands.map((b) => `<option value="${b.index}">${esc(bcBandLabel(l, b.index))}</option>`).join("");
+    ["#bc-r", "#bc-g", "#bc-b"].forEach((id) => $(id).innerHTML = opts);
+    const [r, g, b] = currentRgb(l);
+    $("#bc-r").value = r; $("#bc-g").value = g; $("#bc-b").value = b;
+    $("#bc-stretch").value = l.render?.rgb && ["none", "p1", "minmax"].includes(l.render.stretch) ? l.render.stretch : "auto";
+    const bm = l.band_map || {};
+    const avail = BAND_PRESETS.filter(([, bands]) => bands.every((x) => x in bm));
+    $("#bc-presets").innerHTML = avail.length ? avail.map(([title, bands, note], k) => `<button class="bc-preset" data-k="${k}" title="${esc(bands.join(" · "))}">
+        <b>${esc(title)}</b><small>${esc(bands.join(" · "))} · ${esc(note)}</small></button>`).join("")
+      : `<p class="hint" style="margin:0">No named bands, so no presets: choose the bands below (e.g. NIR, Red, Green).</p>`;
+    $$("#bc-presets .bc-preset").forEach((btn) => btn.onclick = () => {
+      const bands = avail[+btn.dataset.k][1].map((x) => bm[x]);
+      $("#bc-r").value = bands[0]; $("#bc-g").value = bands[1]; $("#bc-b").value = bands[2];
+      bcApply();
+    });
+    bcMarkPreset(avail);
+    $("#dlg-bands").showModal();
+  }
+  function bcMarkPreset(avail) {
+    const bm = bc.layer.band_map || {}, cur = [+$("#bc-r").value, +$("#bc-g").value, +$("#bc-b").value].join();
+    avail = avail || BAND_PRESETS.filter(([, bands]) => bands.every((x) => x in bm));
+    $$("#bc-presets .bc-preset").forEach((btn) => btn.classList.toggle("on", avail[+btn.dataset.k][1].map((x) => bm[x]).join() === cur));
+    const nm = (id) => $(id).selectedOptions[0]?.textContent.replace(/^\d+ · /, "") || "";
+    $("#bc-hint").textContent = `Red ← ${nm("#bc-r")} · Green ← ${nm("#bc-g")} · Blue ← ${nm("#bc-b")}`;
+  }
+  function bcApply() {
+    const l = bc.layer;
+    if (!l) return;
+    l.render = { rgb: [+$("#bc-r").value, +$("#bc-g").value, +$("#bc-b").value], stretch: $("#bc-stretch").value };
+    bcMarkPreset();
+    clearTimeout(bc.timer);
+    bc.timer = setTimeout(() => renderRaster(l).catch((e) => toast(e.message, true)), 150);
+  }
+  ["#bc-r", "#bc-g", "#bc-b", "#bc-stretch"].forEach((id) => $(id).onchange = bcApply);
+  $("#bc-reset").onclick = () => {
+    const l = bc.layer;
+    l.render = defaultRender(l.info);
+    const [r, g, b] = currentRgb(l);
+    $("#bc-r").value = r; $("#bc-g").value = g; $("#bc-b").value = b;
+    $("#bc-stretch").value = l.render.stretch === "none" ? "none" : "auto";
+    bcMarkPreset();
+    renderRaster(l).catch((e) => toast(e.message, true));
+  };
+  $("#bc-ok").onclick = () => { bc.before = null; $("#dlg-bands").close(); };
+  $("#bc-cancel").onclick = () => $("#dlg-bands").close();
+  $("#dlg-bands").addEventListener("close", () => {   // Cancel / × / Esc: put the previous look back
+    if (bc.before && bc.layer) { bc.layer.render = bc.before; renderRaster(bc.layer).catch(() => {}); }
+    bc.before = null;
+  });
+
+  // ------------------------------------------------------------------ metadata
+  let mdData = null;
+  const kvTable = (rows) => `<table class="md-kv">${rows.filter((r) => r && r[1] !== undefined && r[1] !== null && r[1] !== "").map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(String(v))}</td></tr>`).join("")}</table>`;
+  const crd = (v, d = 3) => v == null ? "" : (+v).toLocaleString(undefined, { maximumFractionDigits: d, useGrouping: false });
+  const num = (v, d = 4) => v == null ? "" : Math.abs(v) >= 1e9 || (Math.abs(v) < 1e-3 && v !== 0) ? (+v).toExponential(3) : (+v.toFixed(d)).toLocaleString(undefined, { maximumFractionDigits: d });
+  async function openMetadata(l) {
+    $("#md-title").textContent = `Metadata · ${l.name}`;
+    $("#md-body").innerHTML = `<p class="hint">Reading…</p>`;
+    $("#dlg-lmeta").showModal();
+    try {
+      if (l.type === "raster") {
+        const m = mdData = await api(`/api/rasters/metadata?path=${encodeURIComponent(l.path)}`);
+        const bb = m.bounds, ll = m.bounds_lonlat, u = m.units === "metre" ? " m" : m.units === "degree" ? "°" : "";
+        $("#md-body").innerHTML =
+          (m.product ? `<h4>Sentinel product</h4>` + kvTable([["Product", m.product.product], ["Satellite", m.product.satellite], ["Processing level", m.product.level],
+            ["Acquired", m.product.date && `${m.product.date} ${m.product.time_utc} UTC`], ["Tile", m.product.tile], ["Relative orbit", m.product.relative_orbit], ["Processing baseline", m.product.processing_baseline]]) : "") +
+          `<h4>File</h4>` + kvTable([["Layer name", l.name], ["File", m.file], ["Format", m.driver + (m.driver === "VRT" ? ` (virtual, reads ${m.sources} source files)` : "")],
+            ["File size", m.driver === "VRT" ? "" : `${num(m.size_mb, 2)} MB`], ["Compression", m.compression], ["Interleave", m.interleave],
+            ["Tiles / blocks", m.block_size && `${m.block_size[1]} × ${m.block_size[0]} px${m.tiled ? " (tiled)" : " (strips)"}`], ["Overviews", m.overviews?.length ? m.overviews.map((o) => o + "×").join(", ") : "none"]]) +
+          `<h4>Image</h4>` + kvTable([["Size", `${m.width.toLocaleString()} × ${m.height.toLocaleString()} px · ${m.count} band${m.count > 1 ? "s" : ""}`], ["Data type", m.dtype], ["No-data value", m.nodata ?? "none"],
+            ["Band names", m.band_map_source], ["Scale / offset used", (l.scale ?? 1) !== 1 || (l.offset ?? 0) !== 0 ? `× ${l.scale} + ${l.offset}` : "none (values as stored)"]]) +
+          `<h4>Coordinate system &amp; extent</h4>` + kvTable([["CRS", `${m.crs_name || ""}${m.epsg ? ` (EPSG:${m.epsg})` : m.crs ? ` (${m.crs})` : ""}`], ["Units", m.units],
+            ["Pixel size", `${crd(m.pixel_size[0], 6)} × ${crd(m.pixel_size[1], 6)}${u}`], ["Area covered", m.units === "metre" ? `${num((bb.right - bb.left) / 1000, 2)} × ${num((bb.top - bb.bottom) / 1000, 2)} km` : ""],
+            ["Upper-left corner", `${crd(m.origin[0])}, ${crd(m.origin[1])}`], ["Extent (left, bottom, right, top)", [bb.left, bb.bottom, bb.right, bb.top].map((v) => crd(v)).join(", ")],
+            ["Extent (lon / lat)", ll.west != null ? `W ${crd(ll.west, 5)} · S ${crd(ll.south, 5)} · E ${crd(ll.east, 5)} · N ${crd(ll.north, 5)}` : ""]]) +
+          `<h4>Bands</h4><p class="hint" style="margin:0 0 6px">${esc(m.stats_note)}; raw stored values.</p><div class="md-tbl-wrap"><table class="md-tbl"><thead><tr><th>#</th><th>Name</th><th>Used as</th><th>Type</th><th>No-data</th><th>Min</th><th>Max</th><th>Mean</th><th>Std</th><th>2 %</th><th>98 %</th><th>Valid</th><th>Colours</th></tr></thead><tbody>` +
+          m.bands.map((b) => `<tr><td>${b.index}</td><td>${esc(b.description || "–")}</td><td>${esc(b.mapped_as ? `${b.mapped_as}${BAND_NICE[b.mapped_as] && BAND_NICE[b.mapped_as] !== b.mapped_as ? " · " + BAND_NICE[b.mapped_as] : ""}` : "–")}</td><td>${esc(b.dtype)}</td><td>${esc(String(b.nodata ?? "–"))}</td>` +
+            ["min", "max", "mean", "std", "p2", "p98"].map((k) => `<td class="num">${num(b[k])}</td>`).join("") + `<td class="num">${b.valid_pct != null ? num(b.valid_pct, 1) + " %" : ""}</td><td>${b.has_colormap ? "colour table" : esc(b.color === "undefined" ? "–" : b.color.toLowerCase())}</td></tr>`).join("") +
+          `</tbody></table></div>` +
+          (Object.keys(m.tags || {}).length ? `<h4>Tags</h4>` + kvTable(Object.entries(m.tags)) : "") +
+          (m.bands.some((b) => Object.keys(b.tags).length) ? `<h4>Band tags</h4>` + kvTable(m.bands.flatMap((b) => Object.entries(b.tags).map(([k, v]) => [`Band ${b.index} · ${k}`, v]))) : "");
+      } else {
+        const fs = l.geojson?.features || [];
+        const types = {};
+        fs.forEach((f) => { const t = f.geometry?.type || "none"; types[t] = (types[t] || 0) + 1; });
+        let w = 180, s = 90, e = -180, n = -90;
+        const walk = (c) => typeof c[0] === "number" ? (w = Math.min(w, c[0]), e = Math.max(e, c[0]), s = Math.min(s, c[1]), n = Math.max(n, c[1])) : c.forEach(walk);
+        fs.forEach((f) => f.geometry?.coordinates && walk(f.geometry.coordinates));
+        const keys = [...new Set(fs.flatMap((f) => Object.keys(f.properties || {})))].filter((k) => !k.startsWith("_"));
+        const fields = keys.map((k) => {
+          const vals = fs.map((f) => f.properties?.[k]).filter((v) => v !== null && v !== undefined && v !== "");
+          const nums = vals.filter((v) => typeof v === "number");
+          const type = !vals.length ? "empty" : nums.length === vals.length ? (nums.every(Number.isInteger) ? "integer" : "decimal") : vals.every((v) => typeof v === "boolean") ? "true / false" : "text";
+          const uniq = new Set(vals.map(String));
+          const range = nums.length === vals.length && nums.length ? `${num(Math.min(...nums))} – ${num(Math.max(...nums))}` : [...uniq].slice(0, 4).join(", ") + (uniq.size > 4 ? " …" : "");
+          return { k, type, filled: vals.length, uniq: uniq.size, range };
+        });
+        mdData = { name: l.name, features: fs.length, geometry_types: types, crs: "EPSG:4326", bounds_lonlat: { west: w, south: s, east: e, north: n }, fields };
+        $("#md-body").innerHTML = `<h4>Layer</h4>` + kvTable([["Layer name", l.name], ["Features", fs.length.toLocaleString()],
+            ["Geometry", Object.entries(types).map(([t, c]) => `${t} (${c})`).join(", ")], ["CRS", "EPSG:4326 (WGS 84, longitude / latitude)"],
+            ["Extent (lon / lat)", fs.length ? `W ${crd(w, 5)} · S ${crd(s, 5)} · E ${crd(e, 5)} · N ${crd(n, 5)}` : ""],
+            l.samples ? ["Kind", `Training samples · ${(l.classes || []).length} classes`] : null]) +
+          `<h4>Fields (${fields.length})</h4>` + (fields.length ? `<div class="md-tbl-wrap"><table class="md-tbl"><thead><tr><th>Field</th><th>Type</th><th>Filled</th><th>Distinct</th><th>Range / examples</th></tr></thead><tbody>` +
+            fields.map((f) => `<tr><td>${esc(f.k)}</td><td>${f.type}</td><td class="num">${f.filled.toLocaleString()}</td><td class="num">${f.uniq.toLocaleString()}</td><td>${esc(f.range)}</td></tr>`).join("") + `</tbody></table></div>` : `<p class="hint">No attributes.</p>`);
+      }
+    } catch (e) { $("#md-body").innerHTML = `<div class="warn err">${esc(e.message)}</div>`; }
+  }
+  $("#md-copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(JSON.stringify(mdData, null, 1)); toast("Metadata copied"); } catch { toast("Copying isn't allowed here", true); }
+  };
+
   function openProps(l) {
     if (!l) return toast("Select a layer in Contents first", true);
     state.propsLayer = l;
@@ -2997,7 +3293,7 @@
     }
     for (const j of list) {
       // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
-      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python"].includes(j.kind)) continue;
+      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
@@ -5074,6 +5370,181 @@
   async function initMlTrain() {
     mlx.schema = await api("/api/ml/schema");
     wireGotoRt();
+  }
+
+  // ------------------------------------------------------------------ Make training data: image(s) + ground truth → patches for deep learning
+  const pt = { on: {}, refId: null, sizeFor: null, previewLayer: null, planTimer: 0 };
+  const ptRasters = () => layers.filter((l) => l.type === "raster" && !l.derived && l.path);
+  const ptRef = () => getLayer($("#pt-ref").value);
+  const ptUnit = (l) => /4326/.test(l?.info?.crs || "") ? "°" : "m";
+  function refreshPt() {
+    const rasters = ptRasters();
+    if (!Object.values(pt.on).some(Boolean) && rasters.length) pt.on[rasters[rasters.length - 1].id] = true;   // start with the oldest image
+    $("#pt-layers").innerHTML = rasters.length ? rasters.slice().reverse().map((l) => `<div class="st-layer ${pt.on[l.id] ? "on" : ""}"><label><input type="checkbox" data-ptl="${esc(l.id)}" ${pt.on[l.id] ? "checked" : ""}>${esc(l.name)}
+        <small>${l.info?.count ?? "?"} bands · ${l.info ? `${fmt(l.info.res[0], l.info.res[0] < 1 ? 3 : 1)} ${ptUnit(l)}` : ""}</small></label></div>`).join("")
+      : '<p class="hint">Add a raster layer (GeoTIFF) to Contents first with + Add data.</p>';
+    $$("[data-ptl]").forEach((c) => c.onchange = () => { pt.on[c.dataset.ptl] = c.checked; refreshPt(); ptChanged(); });
+    const chosen = rasters.filter((l) => pt.on[l.id]).reverse();
+    const ref = $("#pt-ref"), cur = ref.value;
+    ref.innerHTML = chosen.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}${l.info ? ` · ${fmt(l.info.res[0], l.info.res[0] < 1 ? 3 : 1)} ${ptUnit(l)}` : ""}</option>`).join("") || `<option value="">Tick an input layer</option>`;
+    if (chosen.some((l) => l.id === cur)) ref.value = cur;
+    // ground truth: any raster (class map) not used as input, or a vector layer
+    const gt = $("#pt-gt"), gcur = gt.value;
+    const vecs = layers.filter((x) => x.type === "vector" && x.id !== pt.previewLayer?.id && !x.ptFootprints);
+    const others = rasters.filter((x) => !pt.on[x.id]);
+    gt.innerHTML = `<option value="">No ground truth (images only)</option>` +
+      (others.length ? `<optgroup label="Class raster (GeoTIFF, e.g. a land-cover map)">${others.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}</optgroup>` : "") +
+      (vecs.length ? `<optgroup label="Polygons / points (shapefile, GeoJSON, training samples)">${vecs.map((x) => `<option value="${esc(x.id)}">${esc(x.name)} (${x.geojson.features.length} features)</option>`).join("")}</optgroup>` : "");
+    if ([...gt.options].some((o) => o.value === gcur)) gt.value = gcur;
+    renderPtGt();
+    ptRefChanged();
+  }
+  function ptRefChanged() {
+    const l = ptRef();
+    if (!l?.info) { $("#pt-info").textContent = ""; $("#pt-px").textContent = ""; $("#pt-px-chips").innerHTML = ""; return; }
+    const i = l.info, r = i.res[0], u = ptUnit(l);
+    $("#pt-info").textContent = `${i.width.toLocaleString()} × ${i.height.toLocaleString()} px · pixel ${fmt(r, r < 1 ? 3 : 1)} ${u} · ${i.crs}`;
+    if (pt.sizeFor !== l.id) {   // default: 256 × 256 pixels of the reference grid
+      pt.sizeFor = l.id;
+      $("#pt-sx").value = +(256 * i.res[0]).toPrecision(6); $("#pt-sy").value = +(256 * i.res[1]).toPrecision(6);
+      $("#pt-ox").value = 0; $("#pt-oy").value = 0;
+    }
+    $("#pt-px-chips").innerHTML = `<small class="hint" style="margin-right:4px">Pixels:</small>` + [64, 128, 224, 256, 512].map((n) => `<button class="chip" data-ptpx="${n}">${n} × ${n}</button>`).join("");
+    $$("[data-ptpx]").forEach((b) => b.onclick = () => { $("#pt-sx").value = +(b.dataset.ptpx * i.res[0]).toPrecision(6); $("#pt-sy").value = +(b.dataset.ptpx * i.res[1]).toPrecision(6); ptChanged(); });
+    ptChanged();
+  }
+  $("#pt-ref").onchange = ptRefChanged;
+  function ptSizes() {
+    return { patch_m: [+$("#pt-sx").value, +$("#pt-sy").value], overlap_m: [+$("#pt-ox").value || 0, +$("#pt-oy").value || 0] };
+  }
+  function ptChanged() {
+    const l = ptRef();
+    if (!l?.info) return;
+    const { patch_m, overlap_m } = ptSizes(), [rx, ry] = l.info.res;
+    const pw = Math.round(patch_m[0] / rx), ph = Math.round(patch_m[1] / ry), ox = Math.round(overlap_m[0] / rx), oy = Math.round(overlap_m[1] / ry);
+    const bad = !(pw >= 4 && ph >= 4) ? "Patches must be at least 4 pixels wide." : (ox >= pw || oy >= ph) ? "The overlap must be smaller than the patch." : "";
+    $("#pt-px").innerHTML = bad ? `<span style="color:var(--warn)">${bad}</span>`
+      : `Each patch = <b>${pw} × ${ph} px</b>${(ox || oy) ? ` · overlap ${ox} × ${oy} px (step ${pw - ox} × ${ph - oy} px)` : " · no overlap"}` +
+        ((Math.abs(pw * rx - patch_m[0]) > rx * 0.01 || Math.abs(ph * ry - patch_m[1]) > ry * 0.01) ? ` · rounded to whole pixels (${fmt(pw * rx, 1)} × ${fmt(ph * ry, 1)} ${ptUnit(l)})` : "");
+    clearTimeout(pt.planTimer);
+    if (!bad) pt.planTimer = setTimeout(() => ptPlan(false), 400);
+  }
+  ["#pt-sx", "#pt-sy", "#pt-ox", "#pt-oy"].forEach((id) => $(id).addEventListener("input", ptChanged));
+  $("#pt-edge").onchange = ptChanged;
+  $("#pt-ov0").onclick = () => { $("#pt-ox").value = 0; $("#pt-oy").value = 0; ptChanged(); };
+  $("#pt-ovhalf").onclick = () => { const { patch_m } = ptSizes(); $("#pt-ox").value = +(patch_m[0] / 2).toPrecision(6); $("#pt-oy").value = +(patch_m[1] / 2).toPrecision(6); ptChanged(); };
+  async function ptPlan(show) {
+    const l = ptRef();
+    if (!l) return show && toast("Tick an input layer first", true);
+    try {
+      const r = await api("/api/patches/plan", { method: "POST", json: { path: l.path, clip: getClip("pt-area"), edge: $("#pt-edge").value, ...ptSizes() } });
+      $("#pt-plan").innerHTML = `<b>${r.count.toLocaleString()}</b> patch positions (${r.rows} rows × ${r.cols} columns) before skipping empty ones.`;
+      if (show) {
+        if (pt.previewLayer && getLayer(pt.previewLayer.id)) removeLayer(pt.previewLayer.id);
+        pt.previewLayer = addVectorLayer(r.preview, "Patch grid preview", { color: "#f59e0b", weight: 1, fillOpacity: 0.03, zoom: true });
+        if (r.preview_every > 1) toast(`Showing every ${r.preview_every}th patch of ${r.count.toLocaleString()}`);
+      }
+    } catch (e) { $("#pt-plan").innerHTML = `<span style="color:var(--warn)">${esc(e.message)}</span>`; }
+  }
+  $("#pt-preview").onclick = () => ptPlan(true);
+
+  function renderPtGt() {
+    const l = getLayer($("#pt-gt").value);
+    $("#pt-gt-raster").classList.toggle("hidden", l?.type !== "raster");
+    $("#pt-gt-vector").classList.toggle("hidden", l?.type !== "vector");
+    $("#pt-gt-opts").classList.toggle("hidden", !l);
+    $("#pt-gt-classes").textContent = l ? "" : "Only image patches will be made (no labels folder).";
+    if (l?.type === "raster") {
+      $("#pt-gt-band").innerHTML = l.info.bands.map((b) => `<option value="${b.index}">Band ${b.index}${b.description !== `Band ${b.index}` ? " · " + esc(b.description) : ""}</option>`).join("");
+      const lg = l.legend?.kind === "classes" ? l.legend.classes : null;
+      $("#pt-gt-classes").textContent = lg ? `${lg.length} classes: ${lg.slice(0, 8).map((c) => c.name).join(", ")}${lg.length > 8 ? " …" : ""}` : "Each distinct pixel value is a class (0 / no-data = no label).";
+    } else if (l?.type === "vector") {
+      const keys = [...new Set(l.geojson.features.flatMap((f) => Object.keys(f.properties || {})))].filter((k) => !k.startsWith("_"));
+      const pref = keys.find((k) => /^(class|label|lulc|lc|landcover|type|category|code)$/i.test(k)) || keys[0];
+      $("#pt-gt-field").innerHTML = keys.length ? keys.map((k) => `<option ${k === pref ? "selected" : ""}>${esc(k)}</option>`).join("") : `<option value="">(no attributes: every shape = class 1)</option>`;
+      ptGtClasses();
+      if (!$("#pt-req-labels").dataset.touched) { $("#pt-req-labels").checked = true; $("#pt-minlab-wrap").classList.remove("hidden"); }
+    }
+  }
+  function ptGtClasses() {
+    const l = getLayer($("#pt-gt").value), f = $("#pt-gt-field").value;
+    if (l?.type !== "vector") return;
+    const cnt = new Map();
+    l.geojson.features.forEach((ft) => { const v = f ? ft.properties?.[f] : 1; if (v != null && v !== "") cnt.set(String(v), (cnt.get(String(v)) || 0) + 1); });
+    const e = [...cnt.entries()].sort((a, b) => b[1] - a[1]);
+    $("#pt-gt-classes").innerHTML = !e.length ? `<span style="color:var(--warn)">No values in this attribute.</span>`
+      : `${e.length} classes: ${e.slice(0, 10).map(([k, n]) => `${esc(k)} <small>(${n})</small>`).join(", ")}${e.length > 10 ? " …" : ""}`;
+  }
+  $("#pt-gt").onchange = renderPtGt;
+  $("#pt-gt-field").onchange = ptGtClasses;
+  $("#pt-req-labels").onchange = () => { $("#pt-req-labels").dataset.touched = "1"; $("#pt-minlab-wrap").classList.toggle("hidden", !$("#pt-req-labels").checked); };
+  function ptDest() {
+    const f = $("#pt-folder").value.trim(), n = safeName($("#pt-name").value || "training_patches").replace(/\./g, "_");
+    const base = f || ((proj.info?.workspace || "") + "/training_data");
+    $("#pt-dest").innerHTML = `Creates <code>${esc(base.replace(/\/$/, ""))}/${esc(n)}/</code> with <b>images/</b>, <b>labels/</b>, <b>classes.txt</b>, dataset.json, patches.csv and train / val / test lists.`;
+  }
+  $("#pt-folder").addEventListener("input", () => { prefs.set("pt-folder", $("#pt-folder").value); ptDest(); });
+  $("#pt-name").addEventListener("input", ptDest);
+  $("#pt-browse").onclick = async () => {
+    const f = await pickFolder({ title: "Save the training data in…", start: $("#pt-folder").value || prefs.get("save-dir:last", ""), okLabel: "Use this folder" });
+    if (f) { $("#pt-folder").value = f; prefs.set("pt-folder", f); ptDest(); }
+  };
+  $("#pt-folder").value = prefs.get("pt-folder", "");
+  ptDest();
+
+  $("#pt-run").onclick = async () => {
+    const err = $("#pt-error"); err.classList.add("hidden");
+    const ref = ptRef();
+    if (!ref) return toast("Tick at least one input layer", true);
+    const others = ptRasters().filter((l) => pt.on[l.id] && l.id !== ref.id).reverse();
+    const inputs = [ref, ...others].map((l) => ({ path: l.path, name: l.name.replace(/\.(tiff?|vrt|jp2)$/i, "") }));
+    const gl = getLayer($("#pt-gt").value);
+    const ground_truth = !gl ? null : gl.type === "raster" ? { type: "raster", path: gl.path, band: +$("#pt-gt-band").value || 1 }
+      : { type: "vector", geojson: gl.geojson, field: $("#pt-gt-field").value || null };
+    const { patch_m, overlap_m } = ptSizes();
+    if (!(patch_m[0] > 0 && patch_m[1] > 0)) return toast("Enter the patch size X and Y in metres", true);
+    const val = (+$("#pt-val").value || 0) / 100, test = (+$("#pt-test").value || 0) / 100;
+    if (val + test >= 1) return toast("Validation + test must be below 100 %", true);
+    const body = {
+      path: ref.path, inputs, ground_truth, clip: getClip("pt-area"), patch_m, overlap_m, edge: $("#pt-edge").value,
+      min_valid: (+$("#pt-minvalid").value || 0) / 100, require_labels: !!gl && $("#pt-req-labels").checked, min_labelled: (+$("#pt-minlab").value || 0) / 100,
+      remap: $("#pt-remap").checked, val_share: val, test_share: test, seed: +$("#pt-seed").value || 0,
+      name: $("#pt-name").value.trim() || "training_patches", folder: $("#pt-folder").value.trim() || null,
+      class_colors: gl?.classColors || null,
+    };
+    const btn = $("#pt-run"); btn.disabled = true; $("#pt-result").classList.add("hidden");
+    try {
+      const job = await api("/api/patches/make", { method: "POST", json: body });
+      const done = await trackJob(job, { tool: "patches", title: `Make training data · ${body.name}` });
+      showPtResult(done.result);
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+  const PT_SPLIT_COLORS = { train: "#2563eb", val: "#f59e0b", test: "#dc2626" };
+  function showPtResult(r) {
+    const box = $("#pt-result"), cls = r.classes || [], total = cls.reduce((a, c) => a + c.pixels, 0);
+    const max = Math.max(1, ...cls.map((c) => c.pixels));
+    box.innerHTML = `<div class="card rm-head-card">
+        <h2 style="margin:0">✓ Training data ready</h2>
+        <div class="pca-sum" style="margin-top:4px"><b>${r.count.toLocaleString()}</b> patches · ${r.patch_size_px[0]} × ${r.patch_size_px[1]} px (${fmt(r.patch_size_m[0], 1)} × ${fmt(r.patch_size_m[1], 1)} m) · ${r.band_count} bands (${esc(r.dtype)}) · ${r.size_mb} MB · ${r.seconds} s</div>
+        <div class="pca-sum">Train <b>${r.splits.train}</b> · validation <b>${r.splits.val}</b>${r.splits.test ? ` · test <b>${r.splits.test}</b>` : ""}
+          ${r.skipped.too_little_data || r.skipped.too_few_labels ? ` · skipped ${r.skipped.too_little_data} with too little data${r.labels_dir ? `, ${r.skipped.too_few_labels} with too few labels` : ""}` : ""}</div>
+        <p class="hint" style="word-break:break-all">${esc(r.folder)}</p>
+        ${cls.length ? `<div class="home-label" style="margin-top:10px">Classes (classes.txt) · share of labelled pixels · 0 = no label</div>
+        <div class="dist">${cls.map((c) => `<div style="grid-template-columns:auto minmax(0,2.2fr) minmax(0,1.6fr) auto"><span><i class="swatch" style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(c.color || "#999")}"></i> <b>${esc(String(c.value))}</b></span><span title="${esc(c.name)} · original value ${esc(String(c.original))} · in ${c.patches} patches">${esc(c.name)}${String(c.original) !== String(c.value) ? ` <small>(${esc(String(c.original))})</small>` : ""}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * c.pixels / max)}%;background:${esc(c.color || "")}"></span></span><b>${c.pixels && c.pixels < total / 1000 ? "<0.1" : fmt(100 * c.pixels / Math.max(total, 1), 1)}%</b></div>`).join("")}</div>` : `<p class="hint">Images only (no ground truth).</p>`}
+        <div class="row tight" style="margin-top:10px;flex-wrap:wrap"><button class="btn" data-pt-reveal>Show in folder</button><button class="btn" data-pt-map>Show patches on the map</button></div>
+        <p class="hint">Patch outlines are coloured by split: <b style="color:${PT_SPLIT_COLORS.train}">train</b>, <b style="color:${PT_SPLIT_COLORS.val}">validation</b>, <b style="color:${PT_SPLIT_COLORS.test}">test</b>. dataset.json describes everything a deep-learning training tool needs.</p>
+      </div>`;
+    box.classList.remove("hidden");
+    $("[data-pt-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e.message, true));
+    $("[data-pt-map]", box).onclick = () => {
+      if (pt.previewLayer && getLayer(pt.previewLayer.id)) removeLayer(pt.previewLayer.id);
+      const classes = Object.entries(PT_SPLIT_COLORS).filter(([k]) => r.splits[k]).map(([name, color]) => ({ name, color }));
+      const l = addVectorLayer(r.footprints, `${r.name} patches`, { color: "#2563eb", weight: 1, fillOpacity: 0.08, classes, classColors: PT_SPLIT_COLORS, ptFootprints: true, zoom: true });
+      return l;
+    };
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   // ------------------------------------------------------------------ Training samples: draw labelled polygons / points

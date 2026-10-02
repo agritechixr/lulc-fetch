@@ -47,11 +47,24 @@ def _read_text(member: str) -> str:
     return Path(member).read_text(encoding="utf-8", errors="ignore")
 
 
+S2_NAME = re.compile(r"(S2[ABCD])_MSI(L1C|L2A)_(\d{8})T\d{6}_N(\d{4})_R(\d{3})_T(\w{5})_")
+S1_NAME = re.compile(r"(S1[ABCD])_(IW|EW|SM)_GRD(\w)_1S(DV|DH|SV|SH)_(\d{8})T\d{6}_")
+
+
+def product_name(filename: str) -> str | None:
+    """'<name>' for a Sentinel-1 GRD / Sentinel-2 L1C/L2A product file or folder name (with or without .SAFE / .zip)."""
+    name = Path(filename).name
+    for suffix in (".zip", ".SAFE"):
+        if name.upper().endswith(suffix.upper()):
+            name = name[: -len(suffix)]
+    return name if S2_NAME.match(name) or S1_NAME.match(name) else None
+
+
 def describe(path: str | Path) -> dict | None:
     path = Path(path)
     name = path.name.removesuffix(".zip").removesuffix(".SAFE")
-    m2 = re.match(r"(S2[ABCD])_MSI(L1C|L2A)_(\d{8})T\d{6}_N(\d{4})_R(\d{3})_T(\w{5})_", name)
-    m1 = re.match(r"(S1[ABCD])_(IW|EW|SM)_GRD(\w)_1S(DV|DH|SV|SH)_(\d{8})T\d{6}_", name)
+    m2 = S2_NAME.match(name)
+    m1 = S1_NAME.match(name)
     size = path.stat().st_size if path.is_file() else sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
     base = {"name": name, "path": str(path), "zipped": path.is_file(), "size_mb": size / 1e6}
     if m2:
