@@ -140,7 +140,20 @@ def inspect(path: str | Path) -> dict:
             "band_map": band_map, "band_map_source": how,
             "scale_preset": preset, "scale": scale, "offset": offset, "scale_reason": reason,
             "tags": {k: v for k, v in src.tags().items() if len(v) < 300},
+            "rgb": _is_rgb(src),
         }
+
+
+def _is_rgb(src) -> bool:
+    """A true-colour picture (e.g. a drone / aerial photo or a georeferenced JPG): show it as it is."""
+    from rasterio.enums import ColorInterp
+    if src.count < 3 or src.dtypes[0] not in ("uint8", "uint16"):
+        return False
+    ci = list(src.colorinterp[:3])
+    if ci == [ColorInterp.red, ColorInterp.green, ColorInterp.blue]:
+        return True
+    names = [(d or "").lower() for d in src.descriptions[:3]]
+    return names == ["red", "green", "blue"] or (src.dtypes[0] == "uint8" and src.count in (3, 4) and not any(names))
 
 
 def _band_stats(src, max_px: int = 256) -> list[dict]:
@@ -305,11 +318,19 @@ def _render_native(src, spec: dict, max_px: int | None):
             bands = _bands(src, spec["band_map"], set(names), spec["scale"], spec["offset"], max_px=max_px, window=win)
             arrays = [bands[n] for n in names]
         transform = _grid_transform(src, win, arrays[0].shape)
+        natural = spec.get("rgb") and spec.get("stretch") == "none"  # photo colours: no contrast stretch
+        if natural and src.count >= 4 and src.colorinterp[3].name == "alpha":
+            alpha = _read(src, [4], max_px=max_px, window=win)[0]
+            for a in arrays:
+                a[~(alpha > 0)] = np.nan
         _mask_outside(arrays, geom, transform)
         valid = np.all([np.isfinite(a) for a in arrays], axis=0)
         rgba = np.zeros((4, *arrays[0].shape), "uint8")
         for i, a in enumerate(arrays):
-            lo, hi = np.percentile(a[valid], [2, 98]) if valid.any() else (0, 1)
+            if natural:
+                lo, hi = 0, (255 if src.dtypes[0] == "uint8" else float(np.nanmax(a)) if valid.any() else 1)
+            else:
+                lo, hi = np.percentile(a[valid], [2, 98]) if valid.any() else (0, 1)
             rgba[i] = (np.clip((np.nan_to_num(a, nan=lo) - lo) / max(hi - lo, 1e-9), 0, 1) * 255).astype("uint8")
         rgba[3] = valid * 255
         meta = {"kind": "rgb", "title": title, "bands": list(names)}

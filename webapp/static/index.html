@@ -35,6 +35,8 @@
       <div class="menu-pop">
         <button data-cmd="toggle-contents" class="check" id="mi-contents">Contents panel<kbd>Ctrl+1</kbd></button>
         <button data-cmd="toggle-tools" class="check" id="mi-tools">Tool panel<kbd>Ctrl+2</kbd></button>
+        <button data-cmd="toggle-viewer" class="check" id="mi-viewer">Data viewer (tables)<kbd>Ctrl+3</kbd></button>
+        <button data-cmd="reset-layout">Reset panel sizes</button>
         <hr>
         <div class="menu-label">Basemap</div>
         <button data-cmd="basemap:streets" class="radio" data-group="basemap">Streets (OpenStreetMap)</button>
@@ -71,29 +73,64 @@
     <div class="pane-head">
       <h2>Contents</h2>
       <div class="pane-actions">
-        <button class="btn small primary" id="btn-add-data" title="Add GeoTIFF, shapefile, GeoJSON or KML from your computer">+ Add data</button>
-        <button class="btn small" id="btn-add-ws" title="Add a GeoTIFF that is already in the workspace (downloads, results)">Workspace</button>
+        <button class="btn small primary" id="btn-add-data" title="Add GeoTIFF, RGB pictures (JPG / PNG), shapefile, GeoJSON, KML or tables (CSV, Excel, Parquet) from your computer">+ Add data</button>
+        <button class="btn small" id="btn-add-ws" title="Add a GeoTIFF or table that is already in the workspace (downloads, results)">Workspace</button>
         <button class="x" data-cmd="toggle-contents" title="Hide Contents (Ctrl+1)">×</button>
       </div>
     </div>
-    <div class="layer-list" id="layer-list"></div>
-    <div class="contents-empty" id="contents-empty">
-      <b>No layers yet</b>
-      Add your own files with <b>+ Add data</b> or drop them on the map, or use a tool from the <b>Tools</b> menu. Downloads and results appear here automatically.
+    <div class="contents-scroll">
+      <div class="sect" id="sect-2d">
+        <button class="sect-head" data-sect="2d" title="Map layers: rasters, RGB images, vectors. Click to collapse / expand">
+          <span class="sect-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span><span class="sect-ic"></span><b>2D data</b><small>rasters · RGB · vectors</small><span class="sect-count" id="count-2d">0</span></button>
+        <div class="sect-body">
+          <div class="layer-list" id="layer-list"></div>
+          <div class="item-list" id="picture-list"></div>
+          <div class="contents-empty" id="contents-empty">
+            <b>No layers yet</b>
+            Add GeoTIFFs, RGB pictures (JPG / PNG), shapefiles, GeoJSON or KML with <b>+ Add data</b> or drop them on the map. Downloads and tool results appear here automatically.
+          </div>
+        </div>
+      </div>
+      <div class="sect" id="sect-tab">
+        <button class="sect-head" data-sect="tab" title="Tables: CSV, TSV, Excel, Parquet. Click to collapse / expand">
+          <span class="sect-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span><span class="sect-ic"></span><b>Tabular data</b><small>CSV · Excel · Parquet</small><span class="sect-count" id="count-tab">0</span></button>
+        <div class="sect-body">
+          <div class="item-list" id="table-list"></div>
+          <div class="contents-empty" id="tables-empty">
+            <b>No tables yet</b>
+            Add CSV, TSV, Excel or Parquet files with <b>+ Add data</b>, or make one with <b>Raster → table</b>. Double-click a table to open it under the map.
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="pane-foot">Drag to reorder · double-click to zoom · right-click for options</div>
-    <input type="file" id="add-file" multiple hidden accept=".tif,.tiff,.zip,.shp,.shx,.dbf,.prj,.cpg,.geojson,.json,.kml,.kmz">
+    <div class="pane-foot">Drag to reorder · double-click to zoom / open · right-click for options</div>
+    <input type="file" id="add-file" multiple hidden accept=".tif,.tiff,.jpg,.jpeg,.png,.bmp,.gif,.webp,.jgw,.jpgw,.pgw,.pngw,.wld,.zip,.shp,.shx,.dbf,.prj,.cpg,.geojson,.json,.kml,.kmz,.csv,.tsv,.txt,.parquet,.xlsx,.xlsm">
+    <div class="vresize right" id="rz-contents" title="Drag to resize · double-click to reset"></div>
   </aside>
 
   <!-- ================= map ================= -->
-  <div class="mapwrap">
-    <div id="map"></div>
-    <div id="map-hint" class="map-hint hidden"></div>
-    <div id="drop-overlay" class="drop-overlay hidden"><div>Drop files to add them as layers<small>GeoTIFF · Shapefile (.zip or .shp + .shx + .dbf + .prj) · GeoJSON · KML / KMZ</small></div></div>
+  <div class="center" id="center">
+    <div class="mapwrap">
+      <div id="map"></div>
+      <div id="map-hint" class="map-hint hidden"></div>
+      <div id="drop-overlay" class="drop-overlay hidden"><div>Drop files to add them<small>GeoTIFF · JPG / PNG (+ world file) · Shapefile (.zip or .shp + .shx + .dbf + .prj) · GeoJSON · KML / KMZ<br>Tables: CSV · TSV · Excel (.xlsx) · Parquet</small></div></div>
+    </div>
+    <div class="hresize" id="rz-viewer" title="Drag to resize · double-click to reset"></div>
+    <section class="viewer" id="viewer">
+      <div class="viewer-head">
+        <div class="viewer-tabs" id="viewer-tabs"></div>
+        <div class="viewer-actions">
+          <button class="icon-btn" id="viewer-max" title="Maximise / restore">⤢</button>
+          <button class="x" data-cmd="toggle-viewer" title="Hide data viewer (Ctrl+3)">×</button>
+        </div>
+      </div>
+      <div class="viewer-body" id="viewer-body"></div>
+    </section>
   </div>
 
   <!-- ================= tool panel ================= -->
   <aside class="pane toolpanel" id="toolpanel">
+    <div class="vresize left" id="rz-tools" title="Drag to resize · double-click to reset"></div>
     <div class="pane-head">
       <div><h2 id="tool-title">Tools</h2><p id="tool-sub"></p></div>
       <button class="x" data-cmd="toggle-tools" title="Hide tool panel (Ctrl+2)">×</button>
@@ -345,7 +382,7 @@
         <div class="opts" id="pca-methods"></div>
       </div>
       <div class="card">
-        <div class="row between"><h2 style="margin:0"><span class="step">4</span>Parameters</h2><button class="chip" id="pca-reset">Reset to defaults</button></div>
+        <div class="row between"><h2 style="margin:0"><span class="step">5</span>Parameters</h2><button class="chip" id="pca-reset">Reset to defaults</button></div>
         <div id="pca-params"></div>
         <details class="an-details" id="pca-adv-wrap"><summary>Advanced</summary><div id="pca-adv"></div></details>
       </div>
@@ -377,32 +414,60 @@
           <p class="hint" id="mt-table-info">No tables yet? Create one with <a href="#" class="goto-rt"><b>Raster → table</b></a>.</p>
         </div>
         <div class="card">
-          <h2><span class="step">2</span>Label &amp; features</h2>
-          <div class="grid2">
-            <label>Label column (what to predict) <button type="button" class="tip" data-tip="The column the model learns to predict, usually the ground-truth class added by Raster → table (the last column)." aria-label="Help">i</button><select id="mt-target"></select></label>
-            <label>Task <button type="button" class="tip" data-tip="Classification predicts categories (land-cover classes). Regression predicts a continuous number (e.g. biomass, NDVI). Auto decides from the label column: text or few whole numbers = classification." aria-label="Help">i</button><select id="mt-task"><option value="auto">Auto</option><option value="classification">Classification</option><option value="regression">Regression</option></select></label>
+          <h2><span class="step">2</span>Target (what to predict)</h2>
+          <label>Target column (dependent variable) <button type="button" class="tip" data-tip="The column the model learns to predict, usually the ground-truth class added by Raster → table (the last column). You can also pick it with Role → Target in the column table below." aria-label="Help">i</button><select id="mt-target"></select></label>
+          <div class="home-label" style="margin-top:10px">What kind of values does it hold? <button type="button" class="tip" data-tip="Categories (e.g. water, forest, or class codes 1, 2, 3) → classification: the model picks one class per pixel. Numbers on a scale (e.g. biomass, yield, NDVI, height) → regression: the model predicts a value. Class codes are numbers but still categories!" aria-label="Help">i</button></div>
+          <input type="hidden" id="mt-task" value="auto">
+          <div class="task-choice" id="mt-task-choice">
+            <button type="button" data-task="classification"><b>Categories</b><small>Classification · land-cover classes, crop types, codes</small></button>
+            <button type="button" data-task="regression"><b>Numbers on a scale</b><small>Regression · biomass, yield, height, an index</small></button>
           </div>
+          <p class="hint" id="mt-task-suggest"></p>
           <div id="mt-target-info" class="mt-target-info"></div>
-          <div class="row between" style="margin-top:12px"><b class="small">Features (inputs) <button type="button" class="tip" data-tip="Columns the model uses to decide. Usually the bands (and indices). Coordinates are left out by default: they make a model memorise places instead of learning spectra." aria-label="Help">i</button></b>
-            <span class="row tight"><button class="chip" id="mt-feats-bands">Bands</button><button class="chip" id="mt-feats-all">All numeric</button><button class="chip" id="mt-feats-none">None</button></span></div>
-          <div id="mt-feats" class="bands pca-bands"></div>
+        </div>
+        <div class="card">
+          <h2><span class="step">3</span>Input columns <button type="button" class="tip" data-tip="Choose what each column is. Role: Feature = used as model input, Ignore = left out, Target = what to predict. Type: Numeric = a measured value (bands, indices, elevation); Categorical = labels or codes with no order (soil type, land-use code, orbit). Categorical columns are one-hot encoded automatically. Coordinates and ids are ignored by default: they make a model memorise places instead of learning spectra." aria-label="Help">i</button></h2>
+          <div class="row between" style="gap:6px;flex-wrap:wrap">
+            <input id="mt-col-filter" placeholder="Filter columns…" style="flex:1;min-width:120px">
+            <span class="row tight"><button class="chip" id="mt-feats-bands" title="Use only the image band columns">Bands only</button><button class="chip" id="mt-feats-all" title="Use every column except target, coordinates and ids">All</button><button class="chip" id="mt-feats-none" title="Ignore every column">None</button></span>
+          </div>
+          <div class="load-wrap" style="margin-top:8px;max-height:340px"><table class="col-table" id="mt-cols"></table></div>
           <p class="hint" id="mt-feats-hint"></p>
         </div>
         <div class="card">
-          <h2><span class="step">3</span>Model <button type="button" class="tip" data-tip="All models come from scikit-learn, XGBoost and LightGBM, with defaults tuned for pixel data. Random Forest is the safest first choice. Stars show typical accuracy and speed on pixel tables." aria-label="Help">i</button></h2>
+          <h2><span class="step">4</span>Model <button type="button" class="tip" data-tip="All models come from scikit-learn, XGBoost and LightGBM, with defaults tuned for pixel data. Random Forest is the safest first choice. Stars show typical accuracy and speed on pixel tables." aria-label="Help">i</button></h2>
           <div class="seg small" id="mt-family" style="margin-bottom:8px"></div>
           <div class="model-grid" id="mt-models"></div>
         </div>
         <div class="card">
-          <div class="row between"><h2 style="margin:0"><span class="step">4</span>Parameters</h2><button class="chip" id="mt-reset">Reset to defaults</button></div>
+          <div class="row between"><h2 style="margin:0"><span class="step">5</span>Parameters</h2><button class="chip" id="mt-reset">Reset to defaults</button></div>
           <div id="mt-params"></div>
           <details class="an-details" id="mt-adv-wrap"><summary>Advanced (validation, scaling, seed…)</summary><div id="mt-adv"></div></details>
         </div>
         <div class="card">
+          <div class="row between"><h2 style="margin:0"><span class="step">6</span>Hyperparameter tuning <button type="button" class="tip" data-tip="Let the computer try many parameter combinations and keep the best. Each combination is scored by cross-validation on the training rows only (the test split stays untouched), using the same polygon / spatial-block grouping, so the chosen settings are honest. Slower: total fits = tries × folds." aria-label="Help">i</button></h2>
+            <label class="switch"><input type="checkbox" id="mt-tune"><span>Tune</span></label></div>
+          <div id="mt-tune-body" class="hidden">
+            <div class="seg small" id="mt-tune-method" style="margin:8px 0"><button data-m="random" class="active">Random search</button><button data-m="grid">Grid search</button></div>
+            <div class="grid2">
+              <label>Tries <button type="button" class="tip" data-tip="Random search: how many random combinations to test. 20–40 usually finds settings close to the best. (Grid search tests every combination.)" aria-label="Help">i</button><input type="number" id="mt-tune-iter" value="20" min="1" max="500"></label>
+              <label>CV folds <button type="button" class="tip" data-tip="The training rows are split into this many parts; each combination is trained on all but one and scored on the one left out, then averaged. 3 is fast, 5 more reliable." aria-label="Help">i</button><input type="number" id="mt-tune-folds" value="3" min="2" max="10"></label>
+            </div>
+            <label>Optimise for <button type="button" class="tip" data-tip="The score used to pick the best combination. Macro F1 or balanced accuracy is better when some classes are rare." aria-label="Help">i</button><select id="mt-tune-metric"></select></label>
+            <div class="home-label" style="margin-top:10px">Values to try <button type="button" class="tip" data-tip="Comma-separated candidate values for each parameter. Untick a parameter to keep its value from Parameters above. 'None' means unlimited (e.g. tree depth)." aria-label="Help">i</button> <button class="chip" id="mt-tune-reset" style="float:right">Reset ranges</button></div>
+            <div id="mt-space"></div>
+            <p class="hint" id="mt-tune-est"></p>
+          </div>
+        </div>
+        <div class="card">
           <label>Model name<input id="mt-name" maxlength="80"></label>
-          <button class="btn primary big-btn" id="mt-run">Train model</button>
+          <div class="row" style="gap:8px">
+            <button class="btn primary big-btn" id="mt-run" style="flex:2">Train model</button>
+            <button class="btn big-btn" id="mt-compare" style="flex:1" title="Train every suitable model with default settings on the same split (max 20,000 rows each) and rank them">Compare models</button>
+          </div>
           <div id="mt-error" class="warn err hidden"></div>
         </div>
+        <div id="mt-compare-box" class="hidden"></div>
         <div id="mt-result" class="hidden"></div>
       </div>
 
@@ -725,8 +790,8 @@
 
 <!-- Add from workspace -->
 <dialog id="dlg-ws" class="modal">
-  <div class="modal-head"><h3>Add GeoTIFF from workspace</h3><button class="x" data-close>×</button></div>
-  <div class="modal-body"><p class="hint" style="margin-top:0">Files already on this computer: your downloads, uploads, results and command-line output.</p><div id="ws-list" class="ws-list"></div></div>
+  <div class="modal-head"><h3>Add from workspace</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body"><p class="hint" style="margin-top:0">Files already on this computer: your downloads, uploads, results, tables and command-line output.</p><div id="ws-list" class="ws-list"></div></div>
   <div class="modal-foot"><button class="btn" data-close>Close</button></div>
 </dialog>
 

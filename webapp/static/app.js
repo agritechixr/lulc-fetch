@@ -246,6 +246,7 @@
   function syncMenuChecks() {
     $("#mi-contents").classList.toggle("on", !document.body.classList.contains("no-contents"));
     $("#mi-tools").classList.toggle("on", !document.body.classList.contains("no-tools"));
+    $("#mi-viewer").classList.toggle("on", document.body.classList.contains("viewer-open"));
     $("#mi-labels").classList.toggle("on", map.hasLayer(placeLabels));
     const bm = prefs.get("basemap", "streets"), th = prefs.get("theme", "auto");
     $$('[data-group="basemap"]').forEach((b) => b.classList.toggle("on", b.dataset.cmd === "basemap:" + bm));
@@ -281,6 +282,8 @@
       case "credentials": $("#btn-creds").click(); break;
       case "toggle-contents": setPane("contents", document.body.classList.contains("no-contents")); break;
       case "toggle-tools": setPane("tools", document.body.classList.contains("no-tools")); break;
+      case "toggle-viewer": setViewer(!viewerOpen()); break;
+      case "reset-layout": resetLayout(); break;
       case "basemap": setBasemap(arg); break;
       case "toggle-labels": setLabels(!map.hasLayer(placeLabels)); break;
       case "zoom-all": zoomAll(); break;
@@ -479,6 +482,7 @@
   }
 
   function defaultRender(info) {
+    if (info.rgb) return { rgb: [1, 2, 3], stretch: "none" };
     const has = (bs) => bs.every((b) => b in info.band_map);
     if (has(["B04", "B03", "B02"])) return { composite: "true" };
     if (has(["VV", "VH", "VVVH"])) return { composite: "sar" };
@@ -543,7 +547,6 @@
   }
 
   function renderContents() {
-    $("#contents-empty").classList.toggle("hidden", layers.length > 0);
     $("#layer-list").innerHTML = layers.map((l) => `
       <div class="layer ${l.id === selectedId ? "selected" : ""} ${l.open ? "open" : ""}" data-id="${esc(l.id)}" draggable="true">
         <div class="lyr-row">
@@ -586,6 +589,7 @@
         moveLayer(id, from < target ? target : target);
       };
     });
+    updateSectionCounts();
     refreshAnalyzeInputs();
     if (pcaState.schema) refreshPcaInputs();
     if (currentTool === "raster2table") refreshRtInputs();
@@ -597,6 +601,7 @@
   }
 
   function onLayerRemoved(l) {
+    if (vw.tabs.some((t) => t.key === "attr:" + l.id)) closeTab("attr:" + l.id);
     if (l.id === "aoi") { state.aoi = null; $("#aoi-summary").classList.add("hidden"); $("#aoi-warn").classList.add("hidden"); }
     if (an.layer?.id === l.id) resetAnalyze();
     if (an.resultId === l.id) { an.resultId = null; an.sel = null; $("#an-result").classList.add("hidden"); renderIndexButtons(); }
@@ -633,6 +638,7 @@
       ["Zoom to layer", () => zoomTo(l)],
       ["Properties…", () => openProps(l)],
       l.type === "raster" && !l.derived ? ["Compute indices on this layer", () => analyzeLayer(l)] : null,
+      l.type === "vector" ? ["Open attribute table", () => openAttr(l)] : null,
       isPoly && l.id !== "aoi" ? ["Use as area of interest", () => useAsAoi(l)] : null,
       "-",
       ["Export / save to computer…", () => openExport(l)],
@@ -642,8 +648,11 @@
       "-",
       ["Remove", () => removeLayer(l.id), "danger"],
     ].filter(Boolean);
+    showMenu(l.name, items, x, y);
+  }
+  function showMenu(title, items, x, y) {
     const m = $("#ctx-menu");
-    m.innerHTML = `<div class="ctx-title">${esc(l.name)}</div>` + items.map((it, i) => it === "-" ? "<hr>" : `<button data-i="${i}" class="${it[2] || ""}">${esc(it[0])}</button>`).join("");
+    m.innerHTML = `<div class="ctx-title">${esc(title)}</div>` + items.map((it, i) => it === "-" ? "<hr>" : `<button data-i="${i}" class="${it[2] || ""}">${esc(it[0])}</button>`).join("");
     $$("button", m).forEach((b) => b.onclick = (e) => { e.stopPropagation(); hideCtx(); items[+b.dataset.i][1](); });
     m.classList.remove("hidden");
     const r = m.getBoundingClientRect();
@@ -652,13 +661,454 @@
   }
   function hideCtx() { $("#ctx-menu").classList.add("hidden"); }
 
+  // ------------------------------------------------------------------ panel sizes: drag the edges of Contents, Tools and the data viewer
+  const LAYOUT = { "w-contents": 290, "w-tools": 400, "h-viewer": 300 };
+  const gisEl = $("#gis"), centerEl = $("#center");
+  function applySizes() {
+    gisEl.style.setProperty("--contents-w", prefs.get("w-contents", LAYOUT["w-contents"]) + "px");
+    gisEl.style.setProperty("--tools-w", prefs.get("w-tools", LAYOUT["w-tools"]) + "px");
+    centerEl.style.setProperty("--viewer-h", prefs.get("h-viewer", LAYOUT["h-viewer"]) + "px");
+  }
+  let sizeRaf = 0;
+  const mapResized = () => { cancelAnimationFrame(sizeRaf); sizeRaf = requestAnimationFrame(() => map.invalidateSize({ pan: false })); };
+  function makeResizer(handle, { axis, key, compute, min, max }) {
+    handle.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      document.body.classList.add(axis === "x" ? "resizing-x" : "resizing-y");
+      handle.classList.add("active");
+      if (key === "h-viewer") $("#viewer").classList.remove("maxed");
+      const move = (ev) => { prefs.set(key, Math.round(Math.min(max(), Math.max(min, compute(ev))))); applySizes(); mapResized(); };
+      const up = () => {
+        handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.removeEventListener("pointercancel", up);
+        document.body.classList.remove("resizing-x", "resizing-y"); handle.classList.remove("active"); mapResized();
+      };
+      handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up); handle.addEventListener("pointercancel", up);
+    });
+    handle.addEventListener("dblclick", () => { prefs.set(key, LAYOUT[key]); $("#viewer").classList.remove("maxed"); applySizes(); mapResized(); });
+  }
+  makeResizer($("#rz-contents"), { axis: "x", key: "w-contents", min: 200, max: () => Math.min(720, innerWidth * 0.45),
+    compute: (e) => e.clientX - gisEl.getBoundingClientRect().left });
+  makeResizer($("#rz-tools"), { axis: "x", key: "w-tools", min: 300, max: () => Math.min(1100, innerWidth * 0.6),
+    compute: (e) => gisEl.getBoundingClientRect().right - e.clientX });
+  makeResizer($("#rz-viewer"), { axis: "y", key: "h-viewer", min: 120, max: () => centerEl.getBoundingClientRect().height - 70,
+    compute: (e) => centerEl.getBoundingClientRect().bottom - e.clientY });
+  function resetLayout() {
+    Object.entries(LAYOUT).forEach(([k, v]) => prefs.set(k, v));
+    $("#viewer").classList.remove("maxed");
+    applySizes(); mapResized();
+  }
+  $("#viewer-max").onclick = () => { $("#viewer").classList.toggle("maxed"); mapResized(); };
+  applySizes();
+
+  // ------------------------------------------------------------------ Contents: tables and plain pictures (not map layers)
+  const dataItems = [];   // {id, kind: "table" | "picture", name, path, rows, cols, width, height}
+  let selectedItem = null;
+  const OPEN_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 13h18M8 17h8"/></svg>';
+  $("#sect-2d .sect-ic").innerHTML = svg("raster");
+  $("#sect-tab .sect-ic").innerHTML = svg("ml");
+  $$(".sect-head").forEach((b) => {
+    const sect = b.closest(".sect");
+    sect.classList.toggle("collapsed", prefs.get("sect-" + b.dataset.sect, false));
+    b.onclick = () => { sect.classList.toggle("collapsed"); prefs.set("sect-" + b.dataset.sect, sect.classList.contains("collapsed")); };
+  });
+  function updateSectionCounts() {
+    const pics = dataItems.filter((d) => d.kind === "picture").length, tabs = dataItems.filter((d) => d.kind === "table").length;
+    $("#count-2d").textContent = layers.length + pics;
+    $("#count-tab").textContent = tabs;
+    $("#contents-empty").classList.toggle("hidden", layers.length + pics > 0);
+    $("#tables-empty").classList.toggle("hidden", tabs > 0);
+  }
+  function saveItems() { try { localStorage.setItem("lulc-data", JSON.stringify(dataItems)); } catch {} }
+  function restoreItems() {
+    try { dataItems.push(...JSON.parse(localStorage.getItem("lulc-data") || "[]")); } catch {}
+    renderItems();
+  }
+  function addItem(def, { open = false } = {}) {
+    let it = dataItems.find((d) => d.path === def.path);
+    if (it) Object.assign(it, def);
+    else { it = { id: `${def.kind}-${Date.now().toString(36)}${(seq++).toString(36)}`, ...def }; dataItems.unshift(it); }
+    selectedItem = it.id;
+    saveItems(); renderItems();
+    if (it.kind === "table" && it.rows == null) {
+      api(`/api/tables/rows?path=${encodeURIComponent(it.path)}&limit=1`).then((r) => { it.rows = r.total; it.cols = r.columns.length; saveItems(); renderItems(); }).catch(() => {});
+    }
+    if (open) openItem(it);
+    return it;
+  }
+  function removeItem(id) {
+    const i = dataItems.findIndex((d) => d.id === id);
+    if (i < 0) return;
+    dataItems.splice(i, 1);
+    closeTab("item:" + id);
+    saveItems(); renderItems();
+  }
+  function itemRow(it) {
+    const isT = it.kind === "table";
+    const sub = isT ? (it.rows != null ? `${it.rows.toLocaleString()} rows × ${it.cols} cols` : "table") : `picture · ${it.width}×${it.height} · not on map`;
+    return `<div class="item ${it.id === selectedItem ? "selected" : ""}" data-item="${esc(it.id)}" title="${esc(it.name)}\n${esc(it.path)}">
+      <span class="lyr-ic ${isT ? "ic-tab" : "ic-pic"}">${svg(isT ? "ml" : "image")}</span>
+      <span class="lyr-name">${esc(it.name)}<small>${esc(sub)}</small></span>
+      <button class="lyr-zoom" data-open title="${isT ? "Open in the data viewer under the map" : "View the picture"}">${OPEN_IC}</button>
+      <button class="lyr-more" title="Options">⋯</button></div>`;
+  }
+  function renderItems() {
+    $("#table-list").innerHTML = dataItems.filter((d) => d.kind === "table").map(itemRow).join("");
+    $("#picture-list").innerHTML = dataItems.filter((d) => d.kind === "picture").map(itemRow).join("");
+    $$("#contents .item").forEach((el) => {
+      const it = dataItems.find((d) => d.id === el.dataset.item);
+      el.onclick = (e) => { if (!e.target.closest("button")) { selectedItem = it.id; $$("#contents .item").forEach((x) => x.classList.toggle("selected", x === el)); } };
+      el.ondblclick = (e) => { if (!e.target.closest("button")) openItem(it); };
+      el.oncontextmenu = (e) => { e.preventDefault(); itemMenu(it, e.clientX, e.clientY); };
+      $("[data-open]", el).onclick = (e) => { e.stopPropagation(); openItem(it); };
+      $(".lyr-more", el).onclick = (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); itemMenu(it, r.right, r.bottom); };
+    });
+    updateSectionCounts();
+  }
+  function itemMenu(it, x, y) {
+    const isT = it.kind === "table";
+    showMenu(it.name, isT ? [
+      ["Open in data viewer", () => openItem(it)],
+      ["Column statistics", () => openItem(it, "stats")],
+      ["Show points on map (lon / lat)", () => tablePoints(it)],
+      ["Train a model with this table", () => { switchTool("ml"); openMlSub("train"); refreshTrainTables(it.path); }],
+      "-",
+      ["Download", () => { location.href = `/api/tables/file?path=${encodeURIComponent(it.path)}`; }],
+      "-",
+      ["Remove from Contents", () => removeItem(it.id), "danger"],
+    ] : [
+      ["View picture", () => openItem(it)],
+      ["Place on map (stretch over current view)", () => placePicture(it)],
+      "-",
+      ["Download", () => { location.href = `/api/pictures/file?path=${encodeURIComponent(it.path)}`; }],
+      "-",
+      ["Remove from Contents", () => removeItem(it.id), "danger"],
+    ], x, y);
+  }
+  function openItem(it, mode) {
+    selectedItem = it.id;
+    if (it.kind === "table") openTab({ key: "item:" + it.id, kind: "table", title: it.name, path: it.path, item: it, ...(mode ? { mode } : {}) });
+    else openTab({ key: "item:" + it.id, kind: "picture", title: it.name, path: it.path, item: it });
+  }
+  async function tablePoints(it, q = "") {
+    status(`Loading points from ${it.name}…`, true);
+    try {
+      const fc = await api(`/api/tables/points?path=${encodeURIComponent(it.path)}&q=${encodeURIComponent(q)}`);
+      if (!fc.features.length) return toast("No rows with valid longitude / latitude", true);
+      addVectorLayer({ type: "FeatureCollection", features: fc.features }, `${it.name.replace(/\.[^.]+$/, "")} · points`);
+      status(`${fc.features.length.toLocaleString()} points added`);
+      if (fc.sampled) toast(`Showing a sample of ${fc.features.length.toLocaleString()} of ${fc.total.toLocaleString()} rows`);
+    } catch (e) { status(""); toast(e.message, true); }
+  }
+  async function placePicture(it) {
+    const b = map.getBounds();
+    if (!confirm(`Stretch "${it.name}" over the current map view? Zoom / pan the map first so the view matches the picture's area.`)) return;
+    try {
+      const r = await api("/api/pictures/georef", { method: "POST", json: { path: it.path, bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] } });
+      await addRasterFromPath(r.path, { name: it.name.replace(/\.[^.]+$/, "") + " (placed)", zoom: false });
+      toast("Placed on the map. It's now a GeoTIFF layer under 2D data.");
+    } catch (e) { toast(e.message, true); }
+  }
+
+  // ------------------------------------------------------------------ data viewer (bottom panel): tables, attribute tables, pictures
+  const vw = { tabs: [], active: null };
+  let vwSeq = 0, rowMarker = null;
+  const viewerOpen = () => document.body.classList.contains("viewer-open");
+  function setViewer(show) {
+    document.body.classList.toggle("viewer-open", show);
+    if (show) renderViewer();
+    syncMenuChecks();
+    mapResized();
+  }
+  function openTab(tab) {
+    let t = vw.tabs.find((x) => x.key === tab.key);
+    if (!t) { t = { offset: 0, limit: prefs.get("vw-limit", 100), q: "", sort: null, desc: false, mode: "rows", ...tab }; vw.tabs.push(t); t.data = t.stats = null; }
+    else if (tab.mode && tab.mode !== t.mode) t.mode = tab.mode;
+    vw.active = t.key;
+    if (!viewerOpen()) setViewer(true); else renderViewer();
+    return t;
+  }
+  function closeTab(key) {
+    const i = vw.tabs.findIndex((t) => t.key === key);
+    if (i < 0) return;
+    vw.tabs.splice(i, 1);
+    if (vw.active === key) vw.active = vw.tabs[Math.max(0, i - 1)]?.key || null;
+    clearRowMarker();
+    if (!vw.tabs.length) setViewer(false); else renderViewer();
+  }
+  const activeTab = () => vw.tabs.find((t) => t.key === vw.active) || null;
+  const TAB_IC = { table: "ml", attr: "vector", picture: "image" };
+
+  function renderViewer() {
+    $("#viewer-tabs").innerHTML = vw.tabs.map((t) => `<div class="vtab ${t.key === vw.active ? "on" : ""}" data-key="${esc(t.key)}" title="${esc(t.title)}">
+      <span class="vtab-ic">${svg(TAB_IC[t.kind])}</span><span class="vtab-t">${esc(t.title)}</span><button class="vtab-x" title="Close">×</button></div>`).join("");
+    $$("#viewer-tabs .vtab").forEach((el) => {
+      el.onclick = (e) => { if (e.target.closest(".vtab-x")) return closeTab(el.dataset.key); vw.active = el.dataset.key; renderViewer(); };
+      el.onauxclick = (e) => { if (e.button === 1) closeTab(el.dataset.key); };
+    });
+    const t = activeTab(), body = $("#viewer-body");
+    if (!t) {
+      body.innerHTML = `<div class="vw-empty">${svg("ml")}<b>Data viewer</b><span>Double-click a table in <b>Contents ▸ Tabular data</b> to open it here, right-click a vector layer for its <b>attribute table</b>, or open a picture. Drag the top edge to resize.</span></div>`;
+      return;
+    }
+    if (t.kind === "picture") return renderPictureTab(t, body);
+    renderTableTab(t, body);
+  }
+
+  // ---- tables (server-side paging for files, client-side for vector attribute tables)
+  function renderTableTab(t, body) {
+    const isAttr = t.kind === "attr";
+    body.innerHTML = `<div class="vt-bar">
+        <label class="vt-search" title="Type to search every column. Or filter one column: yield > 4 · crop = rice · id != 3">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+          <input type="search" placeholder="Search…  or  column > value" value="${esc(t.q)}"></label>
+        <div class="seg small vt-mode"><button data-mode="rows" class="${t.mode === "rows" ? "active" : ""}">Rows</button><button data-mode="stats" class="${t.mode === "stats" ? "active" : ""}">Column statistics</button></div>
+        <span class="vt-count"></span>
+        <span class="vt-pager"><button data-pg="first" title="First page">«</button><button data-pg="prev" title="Previous page">‹</button><button data-pg="next" title="Next page">›</button><button data-pg="last" title="Last page">»</button>
+          <select class="vt-limit" title="Rows per page">${[50, 100, 250, 1000].map((n) => `<option ${n === t.limit ? "selected" : ""}>${n}</option>`).join("")}</select></span>
+        <span class="grow"></span>
+        ${isAttr ? `<button class="btn small" data-act="zoomlayer">Zoom to layer</button>`
+          : `<button class="btn small hidden" data-act="points" title="Add the rows as points on the map (uses the current search)">Show on map</button>
+             <button class="btn small" data-act="train" title="Open Train a model with this table">Train a model</button>
+             <a class="btn small" href="/api/tables/file?path=${encodeURIComponent(t.path)}" download title="Download the file">⬇</a>`}
+      </div>
+      <div class="vt-wrap"><div class="vt-content"></div></div>`;
+    const input = $(".vt-search input", body);
+    let deb = 0;
+    input.oninput = () => { clearTimeout(deb); deb = setTimeout(() => { t.q = input.value; t.offset = 0; t.stats = null; loadTab(t); }, 300); };
+    $$(".vt-mode [data-mode]", body).forEach((b) => b.onclick = () => { t.mode = b.dataset.mode; renderViewer(); });
+    $$(".vt-pager [data-pg]", body).forEach((b) => b.onclick = () => {
+      const n = t.data?.filtered ?? 0, last = Math.max(0, Math.floor((n - 1) / t.limit) * t.limit);
+      t.offset = { first: 0, prev: Math.max(0, t.offset - t.limit), next: Math.min(last, t.offset + t.limit), last }[b.dataset.pg];
+      loadTab(t);
+    });
+    $(".vt-limit", body).onchange = (e) => { t.limit = +e.target.value; prefs.set("vw-limit", t.limit); t.offset = 0; loadTab(t); };
+    $('[data-act="train"]', body)?.addEventListener("click", () => { switchTool("ml"); openMlSub("train"); refreshTrainTables(t.path); });
+    $('[data-act="points"]', body)?.addEventListener("click", () => tablePoints(t.item || { name: t.title, path: t.path }, t.q));
+    $('[data-act="zoomlayer"]', body)?.addEventListener("click", () => zoomTo(getLayer(t.layerId)));
+    body.classList.toggle("stats-mode", t.mode === "stats");
+    if ((t.mode === "rows" && t.data) || (t.mode === "stats" && t.stats)) drawTable(t); else loadTab(t);
+  }
+
+  async function loadTab(t) {
+    const req = ++vwSeq;
+    t.req = req;
+    const content = vw.active === t.key && $("#viewer-body .vt-content");
+    if (content) content.classList.add("loading");
+    try {
+      if (t.kind === "attr") {
+        const l = getLayer(t.layerId);
+        if (!l) throw new Error("The layer was removed");
+        if (t.mode === "stats") t.stats = attrStats(l, t.q); else t.data = attrPage(l, t);
+      } else if (t.mode === "stats") {
+        t.stats = await api(`/api/tables/stats?path=${encodeURIComponent(t.path)}`);
+      } else {
+        t.data = await api(`/api/tables/rows?path=${encodeURIComponent(t.path)}&offset=${t.offset}&limit=${t.limit}&q=${encodeURIComponent(t.q)}${t.sort ? `&sort=${encodeURIComponent(t.sort)}&desc=${t.desc}` : ""}`);
+      }
+      t.error = null;
+    } catch (e) { t.error = e.message; }
+    if (t.req !== req || vw.active !== t.key) return;
+    drawTable(t);
+  }
+
+  const fmtCell = (v, type) => {
+    if (v === null || v === undefined || v === "") return '<span class="nul">–</span>';
+    if (typeof v === "number") return Number.isInteger(v) ? String(v) : String(+v.toPrecision(7));
+    if (typeof v === "object") return esc(JSON.stringify(v));
+    return esc(v);
+  };
+  const TYPE_TAG = { integer: "123", number: "1.5", text: "abc", boolean: "y/n", date: "date" };
+
+  function drawTable(t) {
+    const body = $("#viewer-body"), content = $(".vt-content", body);
+    if (!content) return;
+    content.classList.remove("loading");
+    const count = $(".vt-count", body);
+    if (t.error) { content.innerHTML = `<div class="vw-err">⚠ ${esc(t.error)}</div>`; count.textContent = ""; return; }
+    if (t.mode === "stats") return drawStats(t, content, count);
+    const d = t.data;
+    const pts = $('[data-act="points"]', body);
+    if (pts) pts.classList.toggle("hidden", !d.lonlat);
+    const from = d.filtered ? d.offset + 1 : 0, to = d.offset + d.rows.length;
+    count.innerHTML = `<b>${from.toLocaleString()}–${to.toLocaleString()}</b> of ${d.filtered.toLocaleString()} rows${d.filtered !== d.total ? ` <span class="muted">(filtered from ${d.total.toLocaleString()})</span>` : ""} · ${d.columns.length} columns`;
+    $$(".vt-pager [data-pg]", body).forEach((b) => b.disabled = ["first", "prev"].includes(b.dataset.pg) ? d.offset === 0 : to >= d.filtered);
+    const num = d.types.map((ty) => ty === "integer" || ty === "number");
+    content.innerHTML = d.rows.length ? `<table class="vt"><thead><tr><th class="rn">#</th>${d.columns.map((c, i) =>
+      `<th data-col="${esc(c)}" class="${num[i] ? "num" : ""} ${t.sort === c ? "sorted" : ""}" title="${esc(c)} (${d.types[i]}). Click to sort">
+        <span class="th-n">${esc(c)}</span><i class="ty">${TYPE_TAG[d.types[i]] || ""}</i><i class="arr">${t.sort === c ? (t.desc ? "▼" : "▲") : "↕"}</i></th>`).join("")}</tr></thead>
+      <tbody>${d.rows.map((r, k) => `<tr data-rid="${d.row_ids[k]}" class="${t.selRow === d.row_ids[k] ? "sel" : ""}"><td class="rn">${d.row_ids[k] + 1}</td>${r.map((v, i) =>
+        `<td class="${num[i] ? "num" : ""}">${fmtCell(v, d.types[i])}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+      : `<div class="vw-empty small"><b>No rows match</b><span>Clear the search or change the filter.</span></div>`;
+    $$("th[data-col]", content).forEach((th) => th.onclick = () => {
+      const c = th.dataset.col;
+      if (t.sort !== c) { t.sort = c; t.desc = false; } else if (!t.desc) t.desc = true; else { t.sort = null; t.desc = false; }
+      t.offset = 0; loadTab(t);
+    });
+    $$("tbody tr", content).forEach((tr) => tr.onclick = () => {
+      t.selRow = +tr.dataset.rid;
+      $$("tbody tr", content).forEach((x) => x.classList.toggle("sel", x === tr));
+      rowToMap(t, d, +tr.dataset.rid, [...d.rows[[...tr.parentNode.children].indexOf(tr)]]);
+    });
+  }
+
+  function drawStats(t, content, count) {
+    const s = t.stats;
+    count.innerHTML = `<b>${s.columns.length}</b> columns · ${s.rows.toLocaleString()} rows${t.kind === "attr" && t.q ? " (matching the search)" : ""}`;
+    const spark = (h) => {
+      const m = Math.max(1, ...h);
+      return `<svg viewBox="0 0 ${h.length * 6} 24" class="spark" preserveAspectRatio="none">${h.map((v, i) => `<rect x="${i * 6}" y="${24 - 24 * v / m}" width="5" height="${24 * v / m}"/>`).join("")}</svg>`;
+    };
+    content.innerHTML = `<table class="vt stats"><thead><tr><th>Column</th><th>Type</th><th class="num">Missing</th><th class="num">Distinct</th><th class="num">Min</th><th class="num">Median</th><th class="num">Mean</th><th class="num">Max</th><th class="num">Std</th><th>Distribution / most frequent</th></tr></thead><tbody>
+      ${s.columns.map((c) => `<tr><td><b>${esc(c.name)}</b></td><td><i class="ty">${TYPE_TAG[c.type] || esc(c.type)}</i> ${esc(c.type)}</td>
+        <td class="num ${c.missing ? "warn-t" : ""}">${c.missing.toLocaleString()}${c.missing && s.rows ? ` <small>(${(100 * c.missing / s.rows).toFixed(1)}%)</small>` : ""}</td>
+        <td class="num">${c.distinct.toLocaleString()}</td>
+        ${["min", "median", "mean", "max", "std"].map((k) => `<td class="num">${c[k] == null ? '<span class="nul">–</span>' : fmtCell(c[k])}</td>`).join("")}
+        <td>${c.hist ? spark(c.hist) : (c.top || []).slice(0, 5).map(([v, n]) => `<span class="topv">${v == null ? "(empty)" : esc(String(v).slice(0, 24))} <b>${n.toLocaleString()}</b></span>`).join("")}</td></tr>`).join("")}
+      </tbody></table>`;
+  }
+
+  // vector attribute tables are paged / filtered / sorted in the browser with the same controls
+  function attrColumns(l) {
+    const feats = l.geojson?.features || [];
+    const cols = [...new Set(feats.flatMap((f) => Object.keys(f.properties || {})))].filter((k) => !k.startsWith("_")).slice(0, 300);
+    const types = cols.map((c) => {
+      const vals = feats.map((f) => f.properties?.[c]).filter((v) => v !== null && v !== undefined && v !== "");
+      if (vals.length && vals.every((v) => typeof v === "number")) return vals.every(Number.isInteger) ? "integer" : "number";
+      if (vals.length && vals.every((v) => typeof v === "boolean")) return "boolean";
+      return "text";
+    });
+    return { feats, cols, types };
+  }
+  function attrFilter(feats, cols, types, q) {
+    let idx = feats.map((_, i) => i);
+    q = (q || "").trim();
+    if (!q) return idx;
+    const m = q.match(/^\s*([^=<>!]+?)\s*(==|=|!=|>=|<=|>|<)\s*(.+?)\s*$/);
+    if (m && cols.includes(m[1])) {
+      const [, col, op, raw] = m, numeric = types[cols.indexOf(col)] !== "text";
+      const val = numeric ? +raw : raw.replace(/^['"]|['"]$/g, "");
+      if (numeric && Number.isNaN(val)) throw new Error(`'${raw}' is not a number`);
+      const cmp = { "=": (a, b) => a == b, "==": (a, b) => a == b, "!=": (a, b) => a != b, ">": (a, b) => a > b, "<": (a, b) => a < b, ">=": (a, b) => a >= b, "<=": (a, b) => a <= b }[op];
+      return idx.filter((i) => { const v = feats[i].properties?.[col]; return v !== null && v !== undefined && cmp(numeric ? v : String(v), val); });
+    }
+    const ql = q.toLowerCase();
+    return idx.filter((i) => cols.some((c) => { const v = feats[i].properties?.[c]; return v !== null && v !== undefined && String(typeof v === "object" ? JSON.stringify(v) : v).toLowerCase().includes(ql); }));
+  }
+  function attrPage(l, t) {
+    const { feats, cols, types } = attrColumns(l);
+    let idx = attrFilter(feats, cols, types, t.q);
+    if (t.sort && cols.includes(t.sort)) {
+      const c = t.sort, dir = t.desc ? -1 : 1;
+      idx = [...idx].sort((a, b) => {
+        const va = feats[a].properties?.[c], vb = feats[b].properties?.[c];
+        if (va == null || va === "") return 1;
+        if (vb == null || vb === "") return -1;
+        return (typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true })) * dir;
+      });
+    }
+    const sel = idx.slice(t.offset, t.offset + t.limit);
+    return { columns: cols, types, rows: sel.map((i) => cols.map((c) => feats[i].properties?.[c] ?? null)), row_ids: sel,
+             offset: t.offset, total: feats.length, filtered: idx.length, lonlat: null };
+  }
+  function attrStats(l, q) {
+    const { feats, cols, types } = attrColumns(l);
+    const idx = attrFilter(feats, cols, types, q);
+    return { rows: idx.length, columns: cols.map((c, j) => {
+      const vals = idx.map((i) => feats[i].properties?.[c]);
+      const present = vals.filter((v) => v !== null && v !== undefined && v !== "");
+      const st = { name: c, type: types[j], missing: vals.length - present.length, distinct: new Set(present.map((v) => typeof v === "object" ? JSON.stringify(v) : v)).size };
+      if (types[j] === "integer" || types[j] === "number") {
+        const a = present.slice().sort((x, y) => x - y), n = a.length;
+        if (n) {
+          const mean = a.reduce((s, v) => s + v, 0) / n;
+          Object.assign(st, { min: a[0], max: a[n - 1], mean, median: a[Math.floor(n / 2)], std: Math.sqrt(a.reduce((s, v) => s + (v - mean) ** 2, 0) / n) });
+          const lo = a[0], w = (a[n - 1] - lo) / 20 || 1;
+          st.hist = Array(20).fill(0);
+          a.forEach((v) => st.hist[Math.min(19, Math.floor((v - lo) / w))]++);
+        }
+      } else {
+        const cnt = new Map();
+        present.forEach((v) => { const k = typeof v === "object" ? JSON.stringify(v) : v; cnt.set(k, (cnt.get(k) || 0) + 1); });
+        st.top = [...cnt.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+      }
+      return st;
+    }) };
+  }
+  function openAttr(l) {
+    if (l.type !== "vector") return;
+    openTab({ key: "attr:" + l.id, kind: "attr", title: `${l.name} · attributes`, layerId: l.id });
+  }
+
+  // clicking a row shows it on the map: the feature (attribute tables) or the lon / lat point (tables)
+  function clearRowMarker() { rowMarker?.remove(); rowMarker = null; }
+  function rowToMap(t, d, rid, row) {
+    clearRowMarker();
+    const hl = { color: "#facc15", weight: 4, opacity: 1, fillColor: "#facc15", fillOpacity: 0.18 };
+    if (t.kind === "attr") {
+      const f = getLayer(t.layerId)?.geojson?.features?.[rid];
+      if (!f?.geometry) return;
+      rowMarker = L.geoJSON(f, { style: () => hl, pointToLayer: (_, ll) => L.circleMarker(ll, { ...hl, radius: 10 }), interactive: false }).addTo(map);
+      const b = rowMarker.getBounds();
+      if (b.isValid()) map.fitBounds(b, { padding: [60, 60], maxZoom: Math.max(map.getZoom(), 15) });
+    } else if (d.lonlat) {
+      const lon = row[d.columns.indexOf(d.lonlat[0])], lat = row[d.columns.indexOf(d.lonlat[1])];
+      if (typeof lon !== "number" || typeof lat !== "number" || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+      rowMarker = L.circleMarker([lat, lon], { ...hl, radius: 10, interactive: false }).addTo(map);
+      map.setView([lat, lon], Math.max(map.getZoom(), 14));
+    }
+  }
+
+  // ---- pictures: zoom (wheel) and pan (drag)
+  function renderPictureTab(t, body) {
+    const it = t.item;
+    body.innerHTML = `<div class="vt-bar">
+        <span class="vt-pager"><button data-z="fit" title="Fit to panel">Fit</button><button data-z="1" title="Actual size">1:1</button><button data-z="out" title="Zoom out">−</button><button data-z="in" title="Zoom in">+</button></span>
+        <span class="vt-count pic-zoom"></span><span class="muted small">${it.width}×${it.height} px · scroll to zoom, drag to pan</span>
+        <span class="grow"></span>
+        <button class="btn small primary" data-act="place" title="This picture has no coordinates. Stretch it over the current map view to use it as a layer">Place on map</button>
+        <a class="btn small" href="/api/pictures/file?path=${encodeURIComponent(t.path)}" download title="Download">⬇</a></div>
+      <div class="pic-stage"><img src="/api/pictures/file?path=${encodeURIComponent(t.path)}" alt="${esc(t.title)}" draggable="false"></div>`;
+    const stage = $(".pic-stage", body), img = $("img", stage);
+    const apply = () => { img.style.transform = `translate(${t.tx}px, ${t.ty}px) scale(${t.z})`; $(".pic-zoom", body).textContent = `${Math.round(t.z * 100)}%`; };
+    const fit = () => {
+      const r = stage.getBoundingClientRect(), w = img.naturalWidth || it.width, h = img.naturalHeight || it.height;
+      t.z = Math.min(r.width / w, r.height / h, 1) || 1; t.tx = (r.width - w * t.z) / 2; t.ty = (r.height - h * t.z) / 2; apply();
+    };
+    const zoomAt = (f, cx, cy) => { const nz = Math.min(32, Math.max(0.02, t.z * f)); t.tx = cx - (cx - t.tx) * nz / t.z; t.ty = cy - (cy - t.ty) * nz / t.z; t.z = nz; apply(); };
+    if (t.z == null) { if (img.complete) fit(); else img.onload = fit; } else apply();
+    stage.onwheel = (e) => { e.preventDefault(); const r = stage.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top); };
+    stage.onpointerdown = (e) => {
+      stage.setPointerCapture(e.pointerId); stage.classList.add("panning");
+      const sx = e.clientX - t.tx, sy = e.clientY - t.ty;
+      stage.onpointermove = (ev) => { t.tx = ev.clientX - sx; t.ty = ev.clientY - sy; apply(); };
+      stage.onpointerup = stage.onpointercancel = () => { stage.onpointermove = null; stage.classList.remove("panning"); };
+    };
+    $$("[data-z]", body).forEach((b) => b.onclick = () => {
+      const r = stage.getBoundingClientRect();
+      if (b.dataset.z === "fit") fit();
+      else if (b.dataset.z === "1") zoomAt(1 / t.z, r.width / 2, r.height / 2);
+      else zoomAt(b.dataset.z === "in" ? 1.4 : 1 / 1.4, r.width / 2, r.height / 2);
+    });
+    $('[data-act="place"]', body).onclick = () => placePicture(it);
+  }
+
   // ------------------------------------------------------------------ add data
+  const TABLE_RE = /\.(csv|tsv|txt|parquet|xlsx|xlsm)$/i, PIC_RE = /\.(jpe?g|png|bmp|gif|webp)$/i,
+        WORLD_RE = /\.(jgw|jpgw|jpegw|pgw|pngw|bpw|bmpw|gfw|gifw|wld)$/i;
+  const stemOf = (n) => n.replace(/(\.aux\.xml|\.[^.]+)$/i, "").toLowerCase();
   async function addFiles(fileList) {
     const files = [...fileList];
     if (!files.length) return;
     const rasters = files.filter((f) => /\.tiff?$/i.test(f.name));
-    const shpParts = files.filter((f) => /\.(shp|shx|dbf|prj|cpg)$/i.test(f.name));
-    const others = files.filter((f) => !rasters.includes(f) && !shpParts.includes(f));
+    const tables = files.filter((f) => TABLE_RE.test(f.name));
+    const pics = files.filter((f) => PIC_RE.test(f.name));
+    // world files / .prj / .aux.xml that belong to a picture (same name, or the only picture)
+    const picSide = (pic) => files.filter((f) => (WORLD_RE.test(f.name) || /\.(prj|aux\.xml)$/i.test(f.name)) &&
+      (stemOf(f.name) === stemOf(pic.name) || stemOf(f.name) === pic.name.toLowerCase() || (pics.length === 1 && WORLD_RE.test(f.name))));
+    const used = new Set([...rasters, ...tables, ...pics, ...pics.flatMap(picSide)]);
+    const shpParts = files.filter((f) => !used.has(f) && /\.(shp|shx|dbf|prj|cpg)$/i.test(f.name));
+    const others = files.filter((f) => !used.has(f) && !shpParts.includes(f) && !WORLD_RE.test(f.name));
     status(`Adding ${files.length} file${files.length > 1 ? "s" : ""}…`, true);
     for (const f of rasters) {
       try {
@@ -666,6 +1116,28 @@
         fd.append("file", f);
         const r = await api("/api/rasters/upload", { method: "POST", body: fd });
         await addRasterFromPath(r.path, { name: f.name });
+      } catch (e) { toast(`${f.name}: ${e.message}`, true); }
+    }
+    for (const f of pics) {
+      try {
+        const fd = new FormData();
+        [f, ...picSide(f)].forEach((x) => fd.append("files", x));
+        const r = await api("/api/pictures/upload", { method: "POST", body: fd });
+        if (r.kind === "raster") {
+          await addRasterFromPath(r.path, { name: f.name });
+          if (r.crs_guessed) toast(`${f.name}: no .prj file, so longitude / latitude (WGS 84) was assumed`);
+        } else {
+          addItem({ kind: "picture", name: f.name, path: r.path, width: r.width, height: r.height, bands: r.bands }, { open: true });
+          toast(`${f.name} has no coordinates (${r.reason}). It opened in the data viewer; use "Place on map" to put it on the map.`);
+        }
+      } catch (e) { toast(`${f.name}: ${e.message}`, true); }
+    }
+    for (const f of tables) {
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        const r = await api("/api/tables/upload", { method: "POST", body: fd });
+        addItem({ kind: "table", name: r.name, path: r.path }, { open: true });
       } catch (e) { toast(`${f.name}: ${e.message}`, true); }
     }
     for (const group of [...(shpParts.length ? [shpParts] : []), ...others.map((f) => [f])]) {
@@ -700,7 +1172,7 @@
   });
 
   async function openWorkspace() {
-    const list = await api("/api/rasters");
+    const [list, tables] = await Promise.all([api("/api/rasters"), api("/api/tables").catch(() => [])]);
     const groups = {};
     list.forEach((r) => (groups[r.group] ||= []).push(r));
     $("#ws-list").innerHTML = list.length ? Object.entries(groups).map(([g, rs]) => `<div class="ws-group">${esc(g)}</div>` + rs.map((r) => {
@@ -708,6 +1180,12 @@
       return `<div class="ws-row"><span>${esc(r.name)}<small>${esc(r.path)} · ${r.size_mb < 1 ? "<1" : Math.round(r.size_mb)} MB</small></span>
         <button class="btn small ${inMap ? "" : "primary"}" data-add="${esc(r.path)}">${inMap ? "Add again" : "Add"}</button></div>`;
     }).join("")).join("") : '<p class="hint">No GeoTIFFs in the workspace yet.</p>';
+    if (tables.length) $("#ws-list").innerHTML += `<div class="ws-group">Tables</div>` + tables.map((t) => {
+      const inC = dataItems.some((d) => d.path === t.path);
+      return `<div class="ws-row"><span>${esc(t.name)}<small>${esc(t.path)}${t.rows != null ? ` · ${t.rows.toLocaleString()} rows` : ""} · ${t.size_mb < 1 ? "<1" : Math.round(t.size_mb)} MB</small></span>
+        <button class="btn small ${inC ? "" : "primary"}" data-addt="${esc(t.path)}">${inC ? "Open" : "Add"}</button></div>`;
+    }).join("");
+    $$("#ws-list [data-addt]").forEach((b) => b.onclick = () => { addItem({ kind: "table", name: b.dataset.addt.split("/").pop(), path: b.dataset.addt }, { open: true }); b.textContent = "Added ✓"; });
     $$("#ws-list [data-add]").forEach((b) => b.onclick = () => busy(b, "Adding…", async () => {
       await addRasterFromPath(b.dataset.add);
       b.textContent = "Added ✓";
@@ -1053,6 +1531,8 @@
       <tr><td><kbd>Delete</kbd></td><td>Remove selected layer</td></tr>
       <tr><td><kbd>Ctrl/⌘ 1</kbd></td><td>Show / hide Contents</td></tr>
       <tr><td><kbd>Ctrl/⌘ 2</kbd></td><td>Show / hide tool panel</td></tr>
+      <tr><td><kbd>Ctrl/⌘ 3</kbd></td><td>Show / hide the data viewer (tables under the map)</td></tr>
+      <tr><td>Drag a panel edge</td><td>Resize Contents, the tool panel or the data viewer (double-click the edge to reset)</td></tr>
       <tr><td><kbd>Esc</kbd></td><td>Close menus</td></tr></table></div>`;
     $("#dlg-help").showModal();
   }
@@ -1065,6 +1545,7 @@
     else if (mod && k === "e") { e.preventDefault(); runCmd("export-layer"); }
     else if (mod && e.key === "1") { e.preventDefault(); runCmd("toggle-contents"); }
     else if (mod && e.key === "2") { e.preventDefault(); runCmd("toggle-tools"); }
+    else if (mod && e.key === "3") { e.preventDefault(); runCmd("toggle-viewer"); }
     else if (!typing && !mod && (e.key === "Delete" || e.key === "Backspace") && selectedId && !$("dialog[open]")) { e.preventDefault(); runCmd("remove-layer"); }
   });
 
@@ -1588,7 +2069,7 @@
     }
     for (const j of list) {
       // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
-      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack"].includes(j.kind)) continue;
+      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
@@ -2371,12 +2852,10 @@
     return `<table class="data-table"><tr>${columns.map((c) => `<th class="${isLbl(c) ? "lbl" : ""}">${esc(c)}</th>`).join("")}</tr>
       ${rows.map((r) => `<tr>${r.map((v, i) => `<td class="${isLbl(columns[i]) ? "lbl" : ""}">${v == null || v === "" ? "–" : esc(v)}</td>`).join("")}</tr>`).join("")}</table>`;
   }
-  async function previewTable(path) {
-    const r = await api(`/api/tables/preview?path=${encodeURIComponent(path)}`);
-    $("#tbl-title").textContent = `${path.split("/").pop()} · first ${r.rows.length} rows${r.total ? ` of ${r.total.toLocaleString()}` : ""}`;
-    $("#tbl-body").innerHTML = tableHtml(r.columns, r.rows, r.columns.slice(-1));
-    $("#dlg-table").showModal();
+  function previewTable(path) {  // tables open in the data viewer under the map (paging, sorting, search, statistics)
+    addItem({ kind: "table", name: path.split("/").pop(), path }, { open: true });
   }
+
 
   // ---------------- Raster → table
   const rt = { layer: null };
@@ -2506,15 +2985,16 @@
       <div class="home-label" style="margin-top:12px">First rows</div>
       <div class="load-wrap">${tableHtml(r.columns, r.preview, r.label_columns || [])}</div>
       <div class="row"><a class="btn small primary" href="/api/tables/file?path=${encodeURIComponent(r.path)}" download>⬇ Download ${esc(r.format.toUpperCase())}</a>
-        <button class="btn small" data-tp>Preview more</button></div>
+        <button class="btn small" data-tp>Open in data viewer</button></div>
       <p class="hint">Saved as <code>${esc(r.path)}</code>. It's also listed under <a href="#" data-goml>Classical ML ▸ Your tables</a>.</p>`;
     box.classList.remove("hidden");
     $("[data-tp]", box).onclick = () => previewTable(r.path);
+    addItem({ kind: "table", name: r.path.split("/").pop(), path: r.path, rows: r.rows, cols: r.columns.length });
     $("[data-goml]", box).onclick = (e) => { e.preventDefault(); switchTool("ml"); openMlSub(null); };
   }
 
   // ------------------------------------------------------------------ Classical ML: train a model / classify an image
-  const mlx = { schema: null, desc: null, model: "rf", family: "All", report: null };
+  const mlx = { schema: null, desc: null, model: "rf", family: "All", report: null, cols: {}, tuneMethod: "random" };
   const stars = (n) => "★".repeat(n) + "☆".repeat(3 - n);
   const pct = (v) => v == null ? "–" : `${(v * 100).toFixed(1)}%`;
   const COORDS = ["x", "y", "lon", "lat", "row", "col"];
@@ -2552,62 +3032,107 @@
   }
   function renderTargetAndFeatures() {
     const d = mlx.desc;
-    if (!d) { $("#mt-target").innerHTML = ""; $("#mt-feats").innerHTML = ""; $("#mt-table-info").innerHTML = `No tables yet? Create one with <a href="#" class="goto-rt"><b>Raster → table</b></a>.`; wireGotoRt(); return; }
+    if (!d) { $("#mt-target").innerHTML = ""; $("#mt-cols").innerHTML = ""; $("#mt-table-info").innerHTML = `No tables yet? Create one with <a href="#" class="goto-rt"><b>Raster → table</b></a>.`; wireGotoRt(); return; }
     const meta = d.meta || {};
     $("#mt-table-info").innerHTML = `${d.rows.toLocaleString()} rows × ${d.columns.length} columns${meta.source ? ` · from ${esc(String(meta.source).split("/").pop())}` : ""}${meta.crs ? ` · ${esc(meta.crs)}` : ""}`;
     const labelGuess = meta.target && d.columns.some((c) => c.name === meta.target) ? meta.target : d.columns[d.columns.length - 1].name;
     $("#mt-target").innerHTML = d.columns.map((c) => `<option value="${esc(c.name)}" ${c.name === labelGuess ? "selected" : ""}>${esc(c.name)} (${c.type}${c.type !== "number" ? `, ${c.unique} values` : ""})</option>`).join("");
-    renderFeatureBoxes(true);
+    mlx.cols = {};
+    $("#mt-task").value = "auto";
+    renderColumns(true);
     renderTargetInfo();
     $("#mt-name").value = `${MODEL_TITLE()}_${(meta.source ? String(meta.source).split("/").pop() : "table").replace(/\.[^.]+$/, "")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 60);
   }
   const MODEL_TITLE = () => (mlx.schema?.models[mlx.model]?.title || "model").replace(/[^A-Za-z0-9]+/g, "");
-  function renderFeatureBoxes(useDefaults) {
-    const d = mlx.desc, target = $("#mt-target").value, meta = d.meta || {};
+  const ID_COLS = ["poly_id", "sample_id", "fid", "id", "objectid"];
+  // default role / type for every column (kept across target changes once the user has edited them)
+  function colDefaults(c) {
+    const meta = mlx.desc.meta || {}, target = $("#mt-target").value;
     const labelCols = new Set([...(meta.label_columns || []), target]);
-    const bandCols = new Set(meta.band_columns || []);
-    const prev = new Set($$("#mt-feats input:checked").map((i) => i.value));
-    $("#mt-feats").innerHTML = d.columns.filter((c) => c.name !== target).map((c) => {
-      const numeric = c.type !== "text";
-      const def = numeric && !COORDS.includes(c.name) && !labelCols.has(c.name) && !["poly_id", "sample_id"].includes(c.name);
-      const on = useDefaults ? def : prev.has(c.name);
-      return `<label title="${esc(c.name)} · ${c.type}" ${numeric ? "" : 'style="opacity:.45"'}><input type="checkbox" value="${esc(c.name)}" data-band="${bandCols.has(c.name) ? 1 : 0}" ${numeric ? "" : "disabled"} ${on && numeric ? "checked" : ""}>${esc(c.name)}</label>`;
+    const skip = COORDS.includes(c.name) || labelCols.has(c.name) || ID_COLS.includes(c.name.toLowerCase()) || c.type === "text";
+    return { role: skip ? "ignore" : "feature", type: c.suggest || (c.type === "text" ? "categorical" : "numeric") };
+  }
+  function renderColumns(useDefaults) {
+    const d = mlx.desc, target = $("#mt-target").value, bandCols = new Set(d.meta?.band_columns || []);
+    const q = ($("#mt-col-filter").value || "").toLowerCase();
+    d.columns.forEach((c) => { if (useDefaults || !mlx.cols[c.name]) mlx.cols[c.name] = colDefaults(c); });
+    $("#mt-cols").innerHTML = `<tr><th style="text-align:left">Column</th><th>Role</th><th>Type</th></tr>` + d.columns.map((c) => {
+      const st = mlx.cols[c.name], isT = c.name === target, text = c.type === "text";
+      const info = `${c.type}${c.type !== "number" ? ` · ${c.unique.toLocaleString()} values` : ""}${c.nulls ? ` · <span class="warn-t">${c.nulls.toLocaleString()} missing</span>` : ""}`;
+      const ex = (c.examples || []).slice(0, 4).map(String).join(", ");
+      const sugg = !isT && st.role === "feature" && c.suggest === "categorical" && st.type === "numeric" && !text
+        ? ` <span class="sugg" title="Only ${c.unique} distinct whole numbers: probably codes, not measurements">looks categorical?</span>` : "";
+      return `<tr class="${isT ? "is-target" : st.role === "ignore" ? "is-off" : ""}" data-col="${esc(c.name)}" ${q && !c.name.toLowerCase().includes(q) ? 'style="display:none"' : ""}>
+        <td class="cn"><b title="${esc(c.name)}">${esc(c.name)}</b>${bandCols.has(c.name) ? ' <span class="band-tag">band</span>' : ""}${sugg}<small title="${esc(ex)}">${info}${ex ? ` · e.g. ${esc(ex.slice(0, 40))}` : ""}</small></td>
+        <td><select data-role>${isT ? `<option value="target" selected>🎯 Target</option>` : ""}<option value="feature" ${!isT && st.role === "feature" ? "selected" : ""}>Feature</option><option value="ignore" ${!isT && st.role === "ignore" ? "selected" : ""}>Ignore</option>${isT ? "" : `<option value="target">Target</option>`}</select></td>
+        <td><select data-type ${isT ? "disabled" : ""}><option value="numeric" ${st.type === "numeric" ? "selected" : ""} ${text ? "disabled" : ""}>Numeric</option><option value="categorical" ${st.type === "categorical" || text ? "selected" : ""}>Categorical</option></select></td></tr>`;
     }).join("");
-    $$("#mt-feats input").forEach((i) => i.onchange = updateFeatHint);
+    $$("#mt-cols tr[data-col]").forEach((tr) => {
+      const name = tr.dataset.col;
+      $("[data-role]", tr).onchange = (e) => {
+        const v = e.target.value;
+        if (v === "target") { const old = $("#mt-target").value; if (mlx.cols[old]) mlx.cols[old].role = "ignore"; $("#mt-target").value = name; $("#mt-task").value = "auto"; renderColumns(false); renderTargetInfo(); return; }
+        if (name === $("#mt-target").value) { e.target.value = "target"; return toast("Choose another target column first", true); }
+        mlx.cols[name].role = v; tr.className = v === "ignore" ? "is-off" : ""; updateFeatHint();
+      };
+      $("[data-type]", tr).onchange = (e) => { mlx.cols[name].type = e.target.value; renderColumns(false); };
+    });
     updateFeatHint();
   }
+  const selFeatures = () => mlx.desc ? mlx.desc.columns.filter((c) => c.name !== $("#mt-target").value && mlx.cols[c.name]?.role === "feature").map((c) => c.name) : [];
+  const selCategorical = () => selFeatures().filter((f) => mlx.cols[f].type === "categorical" || mlx.desc.columns.find((c) => c.name === f).type === "text");
   function updateFeatHint() {
-    const n = $$("#mt-feats input:checked").length;
-    const coords = $$("#mt-feats input:checked").filter((i) => COORDS.includes(i.value) || ["poly_id", "sample_id"].includes(i.value)).length;
-    $("#mt-feats-hint").innerHTML = n ? `${n} feature${n > 1 ? "s" : ""} selected${coords ? ` · <span style="color:var(--warn)">coordinates included: the model may learn locations rather than spectra</span>` : ""}` : "Select at least one feature.";
+    const f = selFeatures(), cats = selCategorical();
+    const coords = f.filter((n) => COORDS.includes(n) || ID_COLS.includes(n.toLowerCase()));
+    const nulls = f.filter((n) => mlx.desc.columns.find((c) => c.name === n).nulls);
+    const textCats = cats.filter((n) => mlx.desc.columns.find((c) => c.name === n).type === "text");
+    $("#mt-feats-hint").innerHTML = !f.length ? "Select at least one feature." :
+      `<b>${f.length}</b> feature${f.length > 1 ? "s" : ""}${cats.length ? ` (${cats.length} categorical: ${cats.map(esc).join(", ")})` : ""} · ${mlx.desc.columns.length - f.length - 1} ignored` +
+      (coords.length ? `<br><span style="color:var(--warn)">${coords.map(esc).join(", ")} included: the model may learn locations rather than spectra.</span>` : "") +
+      (nulls.length ? `<br>${nulls.map(esc).join(", ")} ha${nulls.length > 1 ? "ve" : "s"} missing values: rows are dropped, or set <b>Advanced → Missing values → Fill in</b>.` : "") +
+      (textCats.length ? `<br><span style="color:var(--warn)">Text column${textCats.length > 1 ? "s" : ""} ${textCats.map(esc).join(", ")}: fine for evaluation, but an image can't provide ${textCats.length > 1 ? "them" : "it"}, so the model can't classify a raster.</span>` : "");
+  }
+  // target: categories or numbers?
+  function suggestTask(col) {
+    if (!col) return ["classification", ""];
+    if (col.type === "text") return ["classification", `<b>${esc(col.name)}</b> holds text (${col.unique} values) → categories.`];
+    if (col.type === "integer" && col.unique <= 30) return ["classification", `<b>${esc(col.name)}</b> has only ${col.unique} distinct whole numbers (e.g. ${esc((col.examples || []).slice(0, 4).join(", "))}) → probably class codes, so categories.`];
+    if (col.type === "integer" && col.unique <= 100) return ["classification", `<b>${esc(col.name)}</b> has ${col.unique} distinct whole numbers. Categories if these are codes; numbers if they are counts or measurements.`];
+    return ["regression", `<b>${esc(col.name)}</b> has ${col.unique.toLocaleString()} distinct ${col.type === "integer" ? "whole numbers" : "decimal values"} → a continuous quantity, so numbers.`];
   }
   function detectTask() {
-    const d = mlx.desc, col = d?.columns.find((c) => c.name === $("#mt-target").value);
     if ($("#mt-task").value !== "auto") return $("#mt-task").value;
-    if (!col) return "classification";
-    return col.type === "text" || (col.type === "integer" && col.unique <= 100) ? "classification" : "regression";
+    return suggestTask(mlx.desc?.columns.find((c) => c.name === $("#mt-target").value))[0];
   }
   function renderTargetInfo() {
     const d = mlx.desc, target = $("#mt-target").value, task = detectTask();
     const col = d?.columns.find((c) => c.name === target);
+    const [sug, why] = suggestTask(col);
+    $$("#mt-task-choice [data-task]").forEach((b) => b.classList.toggle("on", b.dataset.task === task));
+    let note = why ? `💡 Suggested: <b>${sug === "classification" ? "Categories" : "Numbers"}</b>. ${why}` : "";
+    if (col && task === "regression" && col.type === "text") note = `<span style="color:var(--err)">⚠ ${esc(col.name)} contains text, so it can't be treated as numbers. Choose Categories.</span>`;
+    else if (col && task !== sug && $("#mt-task").value !== "auto") note += ` <span style="color:var(--warn)">You chose ${task === "classification" ? "Categories" : "Numbers"}: fine if you know the data.</span>`;
+    $("#mt-task-suggest").innerHTML = note;
     const counts = d?.meta?.target === target ? d.meta.class_counts : null;
-    let html = `<span class="task-badge">${task === "classification" ? `Classification${col ? ` · ${col.unique} classes` : ""}` : "Regression (continuous values)"}</span>`;
+    let html = "";
     if (task === "classification" && counts) {
       const entries = Object.entries(counts), max = Math.max(...entries.map(([, n]) => n));
       const minN = Math.min(...entries.map(([, n]) => n));
       html += `<div class="dist" style="margin-top:6px">${entries.slice(0, 12).map(([k, n]) => `<div style="grid-template-columns:1fr 3fr auto"><span>${esc(k)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * n / max)}%"></span></span><b>${n.toLocaleString()}</b></div>`).join("")}</div>` +
-        (max / Math.max(1, minN) > 5 ? `<p class="hint">Classes are unbalanced (${max.toLocaleString()} vs ${minN.toLocaleString()}). Consider <b>Class balancing → Balanced</b> under Parameters.</p>` : "");
+        (max / Math.max(1, minN) > 5 ? `<p class="hint">Classes are unbalanced (${max.toLocaleString()} vs ${minN.toLocaleString()}). Consider <b>Class balancing → Balanced</b> under Parameters, and tune for <b>Macro F1</b>.</p>` : "");
     }
-    if (task === "classification" && col && col.unique > 50) html += `<p class="hint" style="color:var(--warn)">${col.unique} distinct values: is this really a class column? Choose Task → Regression for continuous values.</p>`;
+    if (task === "classification" && col && col.unique > 50) html += `<p class="hint" style="color:var(--warn)">${col.unique} distinct values: is this really a class column? Choose "Numbers on a scale" for continuous values.</p>`;
     $("#mt-target-info").innerHTML = html;
     renderModelCards();
   }
   $("#mt-table").onchange = () => loadTableDesc($("#mt-table").value);
-  $("#mt-target").onchange = () => { renderFeatureBoxes(true); renderTargetInfo(); };
-  $("#mt-task").onchange = renderTargetInfo;
-  $("#mt-feats-bands").onclick = () => { const any = $$("#mt-feats input[data-band='1']").length; $$("#mt-feats input:not(:disabled)").forEach((i) => i.checked = any ? i.dataset.band === "1" : !COORDS.includes(i.value)); updateFeatHint(); };
-  $("#mt-feats-all").onclick = () => { $$("#mt-feats input:not(:disabled)").forEach((i) => i.checked = true); updateFeatHint(); };
-  $("#mt-feats-none").onclick = () => { $$("#mt-feats input").forEach((i) => i.checked = false); updateFeatHint(); };
+  $("#mt-target").onchange = () => { $("#mt-task").value = "auto"; const t = $("#mt-target").value; if (mlx.cols[t]) mlx.cols[t].role = "ignore"; renderColumns(false); renderTargetInfo(); };
+  $$("#mt-task-choice [data-task]").forEach((b) => b.onclick = () => { $("#mt-task").value = b.dataset.task; renderTargetInfo(); });
+  $("#mt-col-filter").oninput = () => renderColumns(false);
+  const bulk = (fn) => { if (!mlx.desc) return; mlx.desc.columns.forEach((c) => { if (c.name !== $("#mt-target").value) mlx.cols[c.name].role = fn(c) ? "feature" : "ignore"; }); renderColumns(false); };
+  $("#mt-feats-bands").onclick = () => { const bands = new Set(mlx.desc?.meta?.band_columns || []); bulk((c) => bands.size ? bands.has(c.name) : colDefaults(c).role === "feature" && c.type !== "text"); };
+  $("#mt-feats-all").onclick = () => bulk((c) => colDefaults(c).role === "feature");
+  $("#mt-feats-none").onclick = () => bulk(() => false);
 
   // ---------------- train: model cards + parameters
   function renderModelCards() {
@@ -2649,28 +3174,115 @@
       cp.filter((p) => p.advanced).map((p) => mlField(p, val(p, prevCommon), "common")).join("");
     const mr = $('[data-p="max_train_rows"]');
     if (mr) mr.placeholder = `model default: ${m.max_rows.toLocaleString()}`;
+    renderSpace(false);
   }
   $("#mt-reset").onclick = () => renderTrainParams(false);
 
+  // ---------------- train: hyperparameter tuning
+  const fmtCand = (v) => v === null ? "None" : String(v).replace(/,/g, ";");
+  function renderSpace(reset) {
+    const sc = mlx.schema, m = sc.models[mlx.model], task = detectTask();
+    const prev = {};
+    if (!reset) $$("#mt-space [data-sp]").forEach((i) => prev[i.dataset.sp] = { on: $(`[data-spon="${i.dataset.sp}"]`).checked, v: i.value });
+    const space = sc.search[mlx.model] || {};
+    const specs = m.params.filter((p) => (!p.tasks || p.tasks.includes(task)) && p.name in space);
+    $("#mt-space").innerHTML = specs.length ? specs.map((p) => {
+      const pv = mlx.spaceModel === mlx.model ? prev[p.name] : null;
+      return `<div class="space-row"><label class="inline"><input type="checkbox" data-spon="${p.name}" ${pv ? (pv.on ? "checked" : "") : "checked"}> ${esc(p.label)}${tipBtn(p.tip)}</label>
+        <input data-sp="${p.name}" value="${esc(pv ? pv.v : space[p.name].map(fmtCand).join(", "))}"></div>`;
+    }).join("") : `<p class="hint">${esc(m.title)} has no settings worth tuning. Turn tuning off, or pick another model.</p>`;
+    mlx.spaceModel = mlx.model;
+    const metrics = sc.tune_metrics[task] || [];
+    const cur = $("#mt-tune-metric").value;
+    $("#mt-tune-metric").innerHTML = metrics.map(([v, t]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${esc(t)}</option>`).join("");
+    $$("#mt-space input").forEach((i) => i.oninput = i.onchange = tuneEstimate);
+    tuneEstimate();
+  }
+  function collectSpace() {
+    const out = {};
+    $$("#mt-space [data-sp]").forEach((i) => {
+      if (!$(`[data-spon="${i.dataset.sp}"]`).checked) return;
+      const vals = i.value.split(",").map((v) => v.trim()).filter(Boolean);
+      if (vals.length) out[i.dataset.sp] = vals;
+    });
+    return out;
+  }
+  function tuneEstimate() {
+    const sp = collectSpace(), grid = Object.values(sp).reduce((a, v) => a * v.length, 1);
+    const folds = Math.max(2, +$("#mt-tune-folds").value || 3);
+    const tries = mlx.tuneMethod === "grid" ? grid : Math.min(grid, Math.max(1, +$("#mt-tune-iter").value || 20));
+    $("#mt-tune-iter").disabled = mlx.tuneMethod === "grid";
+    const n = Object.keys(sp).length;
+    $("#mt-tune-est").innerHTML = !n ? `<span style="color:var(--warn)">Tick at least one parameter to tune.</span>` :
+      `${n} parameter${n > 1 ? "s" : ""} · ${grid.toLocaleString()} possible combinations · <b>${tries.toLocaleString()} tries × ${folds} folds = ${(tries * folds).toLocaleString()} fits</b>, then one final fit` +
+      (mlx.tuneMethod === "grid" && grid > 300 ? `<br><span style="color:var(--err)">Too many for grid search (max 300). Use random search or fewer values.</span>` : "") +
+      (tries * folds > 150 ? `<br><span style="color:var(--warn)">This may take a while. Lower "Max training rows" (Advanced) to speed it up.</span>` : "");
+  }
+  $("#mt-tune").onchange = () => { $("#mt-tune-body").classList.toggle("hidden", !$("#mt-tune").checked); $("#mt-run").textContent = $("#mt-tune").checked ? "Tune & train model" : "Train model"; };
+  $$("#mt-tune-method [data-m]").forEach((b) => b.onclick = () => { mlx.tuneMethod = b.dataset.m; $$("#mt-tune-method [data-m]").forEach((x) => x.classList.toggle("active", x === b)); tuneEstimate(); });
+  $("#mt-tune-iter").oninput = $("#mt-tune-folds").oninput = tuneEstimate;
+  $("#mt-tune-reset").onclick = () => renderSpace(true);
+  const tuningPayload = () => $("#mt-tune").checked ? { enabled: true, method: mlx.tuneMethod, iter: +$("#mt-tune-iter").value || 20,
+    folds: +$("#mt-tune-folds").value || 3, metric: $("#mt-tune-metric").value || "auto", space: collectSpace() } : {};
+
+  function trainInputs() {
+    const table = $("#mt-table").value, target = $("#mt-target").value, features = selFeatures();
+    if (!table) { toast("Choose a training table first", true); return null; }
+    if (!features.length) { toast("Select at least one feature (Role → Feature)", true); return null; }
+    return { table, target, features, categorical: selCategorical(), task: detectTask(), common: mlCollect("common") };
+  }
   $("#mt-run").onclick = async () => {
     const err = $("#mt-error"); err.classList.add("hidden");
-    const table = $("#mt-table").value, target = $("#mt-target").value;
-    const features = $$("#mt-feats input:checked").map((i) => i.value);
-    if (!table) return toast("Choose a training table first", true);
-    if (!features.length) return toast("Select at least one feature", true);
-    const btn = $("#mt-run"); btn.disabled = true;
+    const inp = trainInputs(); if (!inp) return;
+    const tuning = tuningPayload();
+    if (tuning.enabled && !Object.keys(tuning.space).length) return toast("Tick at least one parameter to tune", true);
+    const btn = $("#mt-run"); btn.disabled = true; $("#mt-compare").disabled = true;
     $("#mt-result").classList.add("hidden");
     try {
-      const job = await api("/api/ml/train", { method: "POST", json: {
-        table, target, features, model: mlx.model, task: $("#mt-task").value, params: mlCollect("model"), common: mlCollect("common"),
+      const job = await api("/api/ml/train", { method: "POST", json: { ...inp, model: mlx.model, params: mlCollect("model"), tuning,
         name: $("#mt-name").value || "model" } });
-      const done = await trackJob(job, { tool: "ml", title: `Training ${mlx.schema.models[mlx.model].title}` });
+      const done = await trackJob(job, { tool: "ml", title: `${tuning.enabled ? "Tuning" : "Training"} ${mlx.schema.models[mlx.model].title}` });
       showTrainResult(done.result, $("#mt-result"));
       refreshModels();
     } catch (e) {
       if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
-    } finally { btn.disabled = false; }
+    } finally { btn.disabled = false; $("#mt-compare").disabled = false; }
   };
+  $("#mt-compare").onclick = async () => {
+    const err = $("#mt-error"); err.classList.add("hidden");
+    const inp = trainInputs(); if (!inp) return;
+    const btn = $("#mt-compare"); btn.disabled = true; $("#mt-run").disabled = true;
+    const box = $("#mt-compare-box"); box.classList.add("hidden");
+    try {
+      const job = await api("/api/ml/compare", { method: "POST", json: inp });
+      const done = await trackJob(job, { tool: "ml", title: "Comparing models" });
+      showLeaderboard(done.result, box);
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; $("#mt-run").disabled = false; }
+  };
+  function showLeaderboard(r, box) {
+    const cls = r.task === "classification", ok = r.rows.filter((x) => !x.error), best = ok[0];
+    const cols = cls ? [["accuracy", "Acc.", pct], ["kappa", "Kappa", (v) => v.toFixed(3)]] : [["r2", "R²", (v) => v.toFixed(3)], ["rmse", "RMSE", fmtv]];
+    const top = best ? best[r.metric] : 0;
+    box.innerHTML = `<div class="card"><div class="row between"><h2 style="margin:0">🏆 Model comparison</h2><button class="chip" data-close>✕</button></div>
+      <p class="hint">Every model trained with default settings on the same train/test split (max ${r.max_rows.toLocaleString()} training rows each), ranked by ${cls ? "kappa" : "R²"}. Pick one, then adjust or tune it and train.</p>
+      <table class="data-table lb-table"><tr><th></th><th style="text-align:left">Model</th>${cols.map(([, t]) => `<th>${t}</th>`).join("")}<th></th></tr>
+      ${r.rows.map((x, i) => x.error ? `<tr class="is-off"><td></td><td style="text-align:left" colspan="${cols.length + 2}">${esc(x.title)} <small class="hint">failed: ${esc(x.error)}</small></td></tr>` :
+        `<tr class="${i === 0 ? "lb-best" : ""}" title="${cls ? `Macro F1 ${pct(x.f1_macro)} · balanced accuracy ${pct(x.balanced_accuracy)}` : `MAE ${fmtv(x.mae)}`}"><td>${i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</td>
+          <td style="text-align:left"><b>${esc(x.title)}</b> <small class="hint">${x.seconds}s</small><span class="lb-bar"><span style="width:${Math.max(2, 100 * Math.max(0, x[r.metric]) / Math.max(1e-9, top))}%"></span></span></td>
+          ${cols.map(([k, , f]) => `<td>${f(x[k])}</td>`).join("")}<td><button class="btn small ${i === 0 ? "primary" : ""}" data-use="${x.model}">Use</button></td></tr>`).join("")}</table>
+      ${ok.length ? splitBadge(ok[0].split) : ""}</div>`;
+    box.classList.remove("hidden");
+    $("[data-close]", box).onclick = () => box.classList.add("hidden");
+    $$("[data-use]", box).forEach((b) => b.onclick = () => {
+      mlx.model = b.dataset.use; mlx.family = "All"; renderModelCards();
+      $("#mt-name").value = $("#mt-name").value.replace(/^[A-Za-z]+_/, MODEL_TITLE() + "_");
+      $("#mt-models").scrollIntoView({ behavior: "smooth", block: "center" });
+      toast(`${mlx.schema.models[mlx.model].title} selected. Adjust or tune it, then Train.`);
+    });
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   // ---------------- results dashboard (also used for saved model reports)
   function showTrainResult(r, box) {
@@ -2711,16 +3323,25 @@
     }
     const imp = r.importance ? `<div class="home-label" style="margin-top:14px">Feature importance ${tipBtn("Which inputs the model relies on most. " + r.importance.kind + ".")}</div>
       ${r.importance.features.slice(0, 15).map((f, i) => `<div class="imp-row"><span title="${esc(f)}">${esc(f)}</span><span><span class="imp-bar" style="display:block;width:${Math.max(2, 100 * r.importance.values[i] / r.importance.values[0])}%"></span></span><span>${(r.importance.values[i] * 100).toFixed(1)}%</span></div>`).join("")}` : "";
+    const tn = r.tuning, lowBetter = tn?.lower_is_better, fmtS = (v) => tn && ["accuracy", "f1_macro", "balanced_accuracy"].includes(tn.metric) ? pct(v) : fmtv(v);
+    const tune = tn ? `<div class="home-label" style="margin-top:14px">Hyperparameter tuning ${tipBtn(`${tn.method === "grid" ? "Grid" : "Random"} search: ${tn.candidates} combinations × ${tn.folds} folds${tn.grouped ? ", folds grouped by polygon / block" : ""}. Scored on training rows only; the test scores above are from the untouched test split.`)}</div>
+      <div class="tune-best">Best ${esc(tn.metric.replace("neg_", "").toUpperCase())} in CV: <b>${fmtS(tn.best_score)}</b> with ${Object.entries(tn.best_params).map(([k, v]) => `<code>${esc(k)} = ${esc(fmtCand(v))}</code>`).join(" ")}</div>
+      <details class="an-details"><summary>Top ${tn.results.length} of ${tn.candidates} combinations</summary><div class="load-wrap"><table class="data-table"><tr><th>#</th>${Object.keys(tn.best_params).map((k) => `<th>${esc(k)}</th>`).join("")}<th>CV score</th><th>±</th></tr>
+      ${tn.results.map((x, i) => `<tr class="${i === 0 ? "lb-best" : ""}"><td>${i + 1}</td>${Object.keys(tn.best_params).map((k) => `<td>${esc(fmtCand(x.params[k]))}</td>`).join("")}<td><b>${fmtS(x.mean)}</b></td><td>${fmtS(x.std)}</td></tr>`).join("")}</table></div>
+      ${lowBetter ? '<p class="hint">Lower is better for this metric.</p>' : ""}</details>` : "";
     const cv = r.cv ? `<p class="hint">${r.cv.folds.length}-fold cross-validation ${r.cv.metric}: <b>${r.cv.metric === "accuracy" ? pct(r.cv.mean) : r.cv.mean.toFixed(3)}</b> ± ${r.cv.metric === "accuracy" ? pct(r.cv.std) : r.cv.std.toFixed(3)}</p>` : "";
     box.innerHTML = `<div class="card">
       <div class="row between"><h2 style="margin:0">✓ ${esc(r.model_title)} trained</h2><span class="task-badge">${esc(r.task)}</span></div>
       ${splitBadge(r.split)}
-      <div class="pca-sum" style="margin-top:4px">${r.train_rows.toLocaleString()} training rows${r.train_rows_before_sampling > r.train_rows ? ` (sampled from ${r.train_rows_before_sampling.toLocaleString()})` : ""} · ${r.test_rows.toLocaleString()} test rows · ${r.features.length} features · ${r.seconds} s${r.rows_dropped ? ` · ${r.rows_dropped.toLocaleString()} rows with missing values skipped` : ""}</div>
+      <div class="pca-sum" style="margin-top:4px">${r.train_rows.toLocaleString()} training rows${r.train_rows_before_sampling > r.train_rows ? ` (sampled from ${r.train_rows_before_sampling.toLocaleString()})` : ""} · ${r.test_rows.toLocaleString()} test rows · ${r.features.length} features · ${r.seconds} s${r.rows_dropped ? ` · ${r.rows_dropped.toLocaleString()} rows with missing values skipped` : ""}${r.rows_imputed ? ` · ${r.rows_imputed.toLocaleString()} rows had missing values filled in` : ""}</div>
       <div class="metric-tiles" style="margin-top:10px">${tiles}</div>
       ${r.warnings?.length ? `<div class="warn">${r.warnings.map(esc).join("<br>")}</div>` : ""}
-      ${cv}${cm}${perClass}${imp}
+      ${r.categorical?.length ? `<p class="hint">Categorical (one-hot encoded): ${r.categorical.map(esc).join(", ")}</p>` : ""}
+      ${tune}${cv}${cm}${perClass}${imp}
       <div class="row" style="flex-wrap:wrap">${cls || r.task === "regression" ? `<button class="btn small primary" data-classify="${esc(r.path)}">${cls ? "Classify an image with this model →" : "Apply to an image →"}</button>` : ""}
         <a class="btn small" href="/api/models/file?path=${encodeURIComponent(r.path)}" download>⬇ Model (.joblib)</a></div>
+      <div class="eval-cta"><span>📊</span><span><b>Evaluation report</b><small>Confusion matrices, per-class scores, ${cls ? "ROC and precision–recall curves, confidence and calibration charts" : "predicted-vs-true, residual and Q–Q plots, error by value range"}, feature importance${r.tuning ? ", tuning results" : ""}. One HTML file, opens offline.</small></span>
+        <span class="row tight"><a class="btn small primary" href="/api/models/evaluation?path=${encodeURIComponent(r.path)}" target="_blank" rel="noopener">Open</a><a class="btn small" href="/api/models/evaluation?path=${encodeURIComponent(r.path)}&download=true">⬇ .html</a></span></div>
       <p class="hint">Saved as <code>${esc(r.path)}</code>.</p></div>`;
     box.classList.remove("hidden");
     $("[data-classify]", box)?.addEventListener("click", () => { openMlSub("predict"); refreshPredict(r.path); });
@@ -2739,7 +3360,7 @@
     const list = await api("/api/models").catch(() => []);
     $("#ml-models").innerHTML = list.length ? list.map((m) => `<div class="ws-row"><span>${esc(m.name)}
         <small>${esc(m.model_title || m.model)} · ${esc(m.task || "")} · <span class="model-row-metric">${m.task === "classification" ? `accuracy ${pct(m.accuracy)}, kappa ${m.kappa?.toFixed(2)}` : `R² ${m.r2?.toFixed(3)}`}</span> · ${(m.features || []).length} features</small></span>
-        <span class="row tight"><button class="btn small primary" data-mcls="${esc(m.path)}" title="Classify an image">Use</button><button class="btn small" data-mrep="${esc(m.path)}">Report</button><a class="btn small" href="/api/models/file?path=${encodeURIComponent(m.path)}" download>⬇</a><button class="btn small danger" data-mdel="${esc(m.path)}" title="Delete">×</button></span></div>`).join("")
+        <span class="row tight"><button class="btn small primary" data-mcls="${esc(m.path)}" title="Classify an image">Use</button><button class="btn small" data-mrep="${esc(m.path)}">Report</button><a class="btn small" href="/api/models/evaluation?path=${encodeURIComponent(m.path)}" target="_blank" rel="noopener" title="Full evaluation report with matrices and charts (opens in a new tab)">📊</a><a class="btn small" href="/api/models/file?path=${encodeURIComponent(m.path)}" download>⬇</a><button class="btn small danger" data-mdel="${esc(m.path)}" title="Delete">×</button></span></div>`).join("")
       : '<p class="hint">No models yet. Use <b>Train a model</b>.</p>';
     $$("[data-mcls]").forEach((b) => b.onclick = () => { openMlSub("predict"); refreshPredict(b.dataset.mcls); });
     $$("[data-mrep]").forEach((b) => b.onclick = async () => {
@@ -3072,6 +3693,7 @@
     renderMlHub();
     initMlTrain().catch((e) => toast("Classical ML: " + e.message, true));
     restoreLayers();
+    restoreItems();
     loadCreds().catch(() => {});
     setPane("tools", false);  // the tool panel opens only when a tool is chosen from the Tools menu
     refreshJobs();

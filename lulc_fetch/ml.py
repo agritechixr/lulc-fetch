@@ -156,6 +156,8 @@ COMMON = [
     P("class_weight", "Class balancing", "select", "none", "'Balanced' gives rare classes more weight, which improves their accuracy (and macro F1) when classes have very different sizes. Not needed if you used stratified sampling.",
       options=[["none", "None"], ["balanced", "Balanced"]], tasks=["classification"]),
     P("cv_folds", "Cross-validation folds", "int", 0, "Extra check: train k times on different parts of the training data and report the spread. 0 = off (faster). 5 is common.", min=0, max=10, advanced=True),
+    P("missing", "Missing values", "select", "drop", "What to do with rows where a feature has no value: drop them (safest), or fill them in (median for numbers, a '(missing)' category for categories) so no rows are lost.",
+      options=[["drop", "Drop those rows"], ["impute", "Fill in (median / most frequent)"]], advanced=True),
     P("max_train_rows", "Max training rows", "int", None, "Large tables are randomly sampled down (keeping class proportions) to this many training rows. Empty = the model's sensible default.", min=100, max=10000000, advanced=True, placeholder="model default"),
     P("scaling", "Feature scaling", "select", "auto", "Standardize bands (mean 0, std 1). Auto applies it only to models that need it (SVM, SGD, logistic, k-NN, MLP).",
       options=[["auto", "Auto (recommended)"], ["standard", "Always"], ["none", "Never"]], advanced=True),
@@ -163,6 +165,30 @@ COMMON = [
       min=0.000001, max=1e7, advanced=True, placeholder="auto"),
     P("random_state", "Random seed", "int", 0, "Makes the split and training reproducible.", min=0, max=2**31 - 1, advanced=True),
 ]
+
+
+# Default hyperparameter search ranges (candidate values) per model, shown and editable in the UI.
+SEARCH = {
+    "rf": {"n_estimators": [100, 300, 600], "max_depth": [None, 10, 20, 40], "min_samples_leaf": [1, 2, 5], "max_features": ["sqrt", "0.5", "1.0"]},
+    "et": {"n_estimators": [100, 300, 600], "max_depth": [None, 10, 20], "min_samples_leaf": [1, 2, 5]},
+    "xgb": {"n_estimators": [200, 400, 800], "learning_rate": [0.03, 0.1, 0.3], "max_depth": [4, 6, 8], "subsample": [0.7, 0.9, 1.0], "colsample_bytree": [0.7, 0.9, 1.0]},
+    "lgbm": {"n_estimators": [200, 400, 800], "learning_rate": [0.02, 0.05, 0.1], "num_leaves": [15, 31, 63], "subsample": [0.7, 0.9, 1.0]},
+    "hgb": {"max_iter": [200, 400], "learning_rate": [0.05, 0.1, 0.2], "max_leaf_nodes": [15, 31, 63], "l2_regularization": [0.0, 0.1, 1.0]},
+    "dt": {"max_depth": [5, 10, 15, 25, None], "min_samples_leaf": [1, 5, 10, 20]},
+    "svm": {"C": [1, 10, 100, 1000], "gamma": ["scale", "auto"]},
+    "sgd": {"alpha": [1e-5, 1e-4, 1e-3, 1e-2]},
+    "lr": {"C": [0.01, 0.1, 1, 10, 100]},
+    "nb": {"var_smoothing": [1e-11, 1e-9, 1e-7, 1e-5]},
+    "mlc": {"reg_param": [0.0, 0.001, 0.01, 0.1]},
+    "lda": {},
+    "knn": {"n_neighbors": [3, 5, 7, 11, 15, 25], "weights": ["distance", "uniform"]},
+    "mlp": {"hidden_layer_sizes": ["64", "128;64", "256;128"], "alpha": [1e-5, 1e-4, 1e-3]},
+}
+TUNE_METRICS = {
+    "classification": [["auto", "Overall accuracy (default)"], ["f1_macro", "Macro F1 (rare classes matter as much)"],
+                       ["balanced_accuracy", "Balanced accuracy"], ["kappa", "Kappa"]],
+    "regression": [["auto", "R² (default)"], ["neg_rmse", "RMSE (lower is better)"], ["neg_mae", "MAE (lower is better)"]],
+}
 
 
 def available() -> dict:
@@ -178,7 +204,8 @@ def available() -> dict:
 
 def schema() -> dict:
     av = available()
-    return {"models": MODELS, "common": COMMON, "unavailable": [k for k, v in av.items() if not v]}
+    return {"models": MODELS, "common": COMMON, "search": SEARCH, "tune_metrics": TUNE_METRICS,
+            "unavailable": [k for k, v in av.items() if not v]}
 
 
 # ------------------------------------------------------------------ data
@@ -214,7 +241,10 @@ def describe_table(path: str | Path) -> dict:
         sample = arr[: min(n, 200000)]
         uniq = len(set(sample.tolist())) if text else len(np.unique(sample[np.isfinite(sample)]))
         integer = not text and np.all(np.mod(sample[np.isfinite(sample)], 1) == 0)
-        cols.append({"name": name, "type": "text" if text else ("integer" if integer else "number"), "unique": int(uniq),
+        vals = list(dict.fromkeys(sample.tolist()))[:6] if text else np.unique(sample[np.isfinite(sample)])[:6].tolist()
+        typ = "text" if text else ("integer" if integer else "number")
+        cols.append({"name": name, "type": typ, "unique": int(uniq), "examples": [str(v) if text else (int(v) if float(v).is_integer() else round(float(v), 6)) for v in vals],
+                     "suggest": "categorical" if text or (integer and uniq <= 20) else "numeric",
                      "nulls": int(np.sum([v is None or v == "" for v in sample])) if text else int(np.sum(~np.isfinite(sample)))})
     meta = {}
     side = Path(str(path) + ".json")
@@ -227,8 +257,9 @@ def describe_table(path: str | Path) -> dict:
 
 
 def _header(path) -> list[str]:
-    with open(path, encoding="utf-8") as fh:
-        return fh.readline().strip().split(",")
+    import csv
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        return next(csv.reader(fh), [])
 
 
 def _detect_task(y: np.ndarray) -> str:
@@ -391,14 +422,75 @@ def _fit_with_progress(model_id: str, est, X, y, sample_weight, task: str):
 
 # ------------------------------------------------------------------ training
 
-def train(table_path: str | Path, out_dir: str | Path, *, target: str, features: list[str], model: str = "rf",
-          task: str = "auto", params: dict | None = None, common: dict | None = None, name: str = "model") -> dict:
-    """Train a model on a table, evaluate it on a held-out test split, and save it (joblib + JSON report)."""
+def _cat_strings(X):
+    """Categorical columns → strings (whole numbers lose their '.0', so codes from a raster match the table)."""
+    def one(v):
+        if v is None:
+            return "(missing)"
+        if isinstance(v, (float, np.floating)):
+            if not np.isfinite(v):
+                return "(missing)"
+            return str(int(v)) if float(v).is_integer() else str(v)
+        s = str(v)
+        return s if s != "" else "(missing)"
+    X = np.asarray(X, dtype=object)
+    return np.vectorize(one, otypes=[object])(X) if X.size else X
+
+
+def _scorer(metric: str, task: str):
+    from sklearn.metrics import cohen_kappa_score, get_scorer, make_scorer
+    if metric == "auto":
+        metric = "accuracy" if task == "classification" else "r2"
+    names = {"neg_rmse": "neg_root_mean_squared_error", "neg_mae": "neg_mean_absolute_error"}
+    if metric == "kappa":
+        return metric, make_scorer(cohen_kappa_score)
+    clf_metrics = {"accuracy", "f1_macro", "balanced_accuracy", "kappa"}
+    if (task == "classification") != (metric in clf_metrics):
+        raise ValueError(f"'{metric}' is not a {task} metric")
+    return metric, get_scorer(names.get(metric, metric))
+
+
+def _parse_space(model: str, task: str, space: dict) -> dict:
+    """Candidate values typed into the UI (strings) → typed parameter lists, validated against the schema."""
+    specs = {s["name"]: s for s in MODELS[model]["params"] if task in s.get("tasks", [task])}
+    out = {}
+    for name, values in (space or {}).items():
+        if name not in specs:
+            raise ValueError(f"'{name}' can't be tuned for {MODELS[model]['title']}")
+        spec, typed = specs[name], []
+        vals = values if isinstance(values, list) else str(values).split(",")
+        for v in vals:
+            v = str(v).strip()
+            if v == "":
+                continue
+            if v.lower() in ("none", "unlimited", "null") and (spec["default"] is None or name == "max_depth"):
+                typed.append(None)
+                continue
+            if spec["type"] == "text":
+                typed.append(v.replace(";", ","))  # e.g. hidden layers "128;64"
+                continue
+            typed.append(_param({name: v}, spec))
+        if typed:
+            out[name] = list(dict.fromkeys(typed))
+    return out
+
+
+def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, features: list[str], model: str = "rf",
+          task: str = "auto", params: dict | None = None, common: dict | None = None, name: str = "model",
+          categorical: list[str] | None = None, tuning: dict | None = None, save: bool = True) -> dict:
+    """Train a model on a table, evaluate it on a held-out test split, and save it (joblib + JSON report).
+
+    categorical: feature columns to one-hot encode (text columns always are). tuning: {"enabled", "method",
+    "iter", "folds", "metric", "space": {param: [values]}}: hyperparameter search with cross-validation that
+    respects the same polygon / block grouping as the test split.
+    """
     import joblib
     from sklearn.base import clone
-    from sklearn.model_selection import cross_val_score, train_test_split
+    from sklearn.compose import ColumnTransformer
+    from sklearn.impute import SimpleImputer
+    from sklearn.model_selection import train_test_split
     from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import LabelEncoder, StandardScaler
+    from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder, StandardScaler
 
     t0 = time.time()
     if model not in MODELS:
@@ -409,8 +501,8 @@ def train(table_path: str | Path, out_dir: str | Path, *, target: str, features:
     if not features:
         raise ValueError("Select at least one feature column")
     if target in features:
-        raise ValueError("The label column can't also be a feature")
-    params, common = params or {}, common or {}
+        raise ValueError("The target column can't also be a feature")
+    params, common, tuning = params or {}, common or {}, tuning or {}
 
     progress.update(0.0, "Loading the table")
     meta = {}
@@ -424,6 +516,9 @@ def train(table_path: str | Path, out_dir: str | Path, *, target: str, features:
     import pyarrow.parquet as _pq
     available_cols = (_pq.ParquetFile(table_path).schema_arrow.names if str(table_path).endswith(".parquet")
                       else _header(table_path))
+    missing_cols = [f for f in features + [target] if f not in available_cols]
+    if missing_cols:
+        raise ValueError(f"Column(s) not in the table: {', '.join(missing_cols)}")
     group_col = meta.get("group_column") or next((g for g in ("poly_id", "sample_id") if g in available_cols), None)
     split = c["split"]
     if split == "auto":
@@ -434,20 +529,41 @@ def train(table_path: str | Path, out_dir: str | Path, *, target: str, features:
         raise ValueError("'Spatial blocks' needs x and y columns (tick 'Map x / y' in Raster → table)")
     extra = [group_col] if split == "group" else (["x", "y"] if split == "blocks" else [])
     data = read_table(table_path, columns=list(dict.fromkeys(features + [target] + extra)))
-    for f in features:
-        if data[f].dtype == object:
-            raise ValueError(f"Feature '{f}' contains text. Only numeric columns can be features.")
-    X = np.column_stack([data[f] for f in features]).astype("float64")
+
+    # ---- columns: numeric vs categorical
+    cat_set = set(categorical or []) | {f for f in features if data[f].dtype == object}
+    cat_cols = [f for f in features if f in cat_set]
+    num_cols = [f for f in features if f not in cat_set]
+    impute = c["missing"] == "impute"
+    if cat_cols:
+        X = np.empty((len(data[target]), len(features)), dtype=object)
+        for i, f in enumerate(features):
+            X[:, i] = data[f]
+    else:
+        X = np.column_stack([data[f] for f in features]).astype("float64")
+    num_idx = [features.index(f) for f in num_cols]
+    cat_idx = [features.index(f) for f in cat_cols]
+
     y_raw = data[target]
     task = _detect_task(y_raw) if task == "auto" else task
     if task not in m["tasks"]:
         raise ValueError(f"{m['title']} can't do {task}")
+    if task == "regression" and y_raw.dtype == object:
+        raise ValueError(f"The target '{target}' contains text, so it can't be numeric. Choose 'Categories (classification)'.")
     p = {s["name"]: _param(params, s) for s in m["params"] if task in s.get("tasks", [task])}
     seed = c["random_state"]
 
-    # drop rows with missing values
-    ok = np.all(np.isfinite(X), axis=1)
-    ok &= np.array([v not in (None, "") for v in y_raw]) if y_raw.dtype == object else np.isfinite(y_raw)
+    # ---- missing values: the target must be known; features are dropped or filled in
+    ok = np.array([v not in (None, "") for v in y_raw]) if y_raw.dtype == object else np.isfinite(y_raw)
+    num_nan = 0
+    if num_cols:
+        Xn = X[:, num_idx].astype("float64")
+        finite = np.isfinite(Xn)
+        num_nan = int((~finite.all(axis=1) & ok).sum())
+        if not impute:
+            ok &= finite.all(axis=1)
+    if cat_cols and not impute:
+        ok &= np.array([all(v not in (None, "") and not (isinstance(v, float) and not np.isfinite(v)) for v in row) for row in X[:, cat_idx]])
     dropped = int((~ok).sum())
     X, y_raw = X[ok], y_raw[ok]
     groups, block = None, None
@@ -461,7 +577,6 @@ def train(table_path: str | Path, out_dir: str | Path, *, target: str, features:
     if len(X) < 20:
         raise ValueError("Too few usable rows to train (need at least 20)")
 
-    encoder = None
     if task == "classification":
         y_labels = np.array([str(v) if y_raw.dtype == object else (int(v) if float(v).is_integer() else v) for v in y_raw], dtype=object)
         encoder = LabelEncoder().fit(y_labels.astype(str))
@@ -469,13 +584,15 @@ def train(table_path: str | Path, out_dir: str | Path, *, target: str, features:
         classes = list(encoder.classes_)
         counts = np.bincount(y, minlength=len(classes))
         if len(classes) < 2:
-            raise ValueError("The label column has only one class")
+            raise ValueError("The target has only one class")
     else:
         y = y_raw.astype("float64")
         classes, counts = None, None
 
+    # ---- honest train / test split
     split_info = {"method": split, "group_column": group_col if split == "group" else None, "block_size": block}
     split_warnings = []
+    g_tr = None
     if groups is not None:
         from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
         n_groups = len(np.unique(groups.astype(str)))
@@ -503,7 +620,6 @@ def train(table_path: str | Path, out_dir: str | Path, *, target: str, features:
     if groups is None:
         stratify = y if task == "classification" and counts.min() >= 2 else None
         X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=c["test_size"], random_state=seed, stratify=stratify)
-        g_tr = None
     cap = c["max_train_rows"] or m["max_rows"]
     sampled_from = len(X_tr)
     if len(X_tr) > cap:
@@ -513,53 +629,130 @@ def train(table_path: str | Path, out_dir: str | Path, *, target: str, features:
         g_tr = g_tr[keep] if g_tr is not None else None
         log.info("Training set sampled from %s to %s rows", f"{sampled_from:,}", f"{cap:,}")
 
+    # ---- preprocessing: impute, scale numeric; one-hot encode categorical (part of the saved model)
     scale = c["scaling"] == "standard" or (c["scaling"] == "auto" and m["scale"])
-    scaler = StandardScaler().fit(X_tr) if scale else None
-    Xs_tr = scaler.transform(X_tr) if scaler else X_tr
-    Xs_te = scaler.transform(X_te) if scaler else X_te
+    transformers = []
+    num_steps = ([("impute", SimpleImputer(strategy="median"))] if impute and num_nan else []) + ([("scale", StandardScaler())] if scale else [])
+    if num_cols and (num_steps or cat_cols):
+        transformers.append(("num", Pipeline(num_steps) if num_steps else "passthrough", num_idx))
+    if cat_cols:
+        transformers.append(("cat", Pipeline([("str", FunctionTransformer(_cat_strings)),
+                                              ("onehot", OneHotEncoder(handle_unknown="ignore", max_categories=50, sparse_output=False))]), cat_idx))
+    pre = ColumnTransformer(transformers) if transformers else (Pipeline(num_steps) if num_steps else None)
 
     cw = c["class_weight"] if task == "classification" else "none"
-    sample_weight = None
-    if cw == "balanced" and model in ("xgb", "hgb", "nb"):
-        from sklearn.utils.class_weight import compute_sample_weight
-        sample_weight = compute_sample_weight("balanced", y_tr)
-    est = _build(model, task, p, seed, "balanced" if cw == "balanced" else None)
-    if model == "mlc":
-        est._equal_priors = p["priors"] == "equal"
 
+    def fit_one(params_i, Xa, ya, progress_fit=False):
+        sw = None
+        if cw == "balanced" and model in ("xgb", "hgb", "nb"):
+            from sklearn.utils.class_weight import compute_sample_weight
+            sw = compute_sample_weight("balanced", ya)
+        est_i = _build(model, task, params_i, seed, "balanced" if cw == "balanced" else None)
+        if model == "mlc":
+            est_i._equal_priors = params_i["priors"] == "equal"
+        if progress_fit:
+            return _fit_with_progress(model, est_i, Xa, ya, sw, task)
+        if model in ("rf", "et"):
+            est_i.set_params(warm_start=False)
+        if model == "mlc" and est_i._equal_priors:
+            k = len(np.unique(ya))
+            est_i.set_params(priors=np.full(k, 1.0 / k))
+        return est_i.fit(Xa, ya, sample_weight=sw) if sw is not None else est_i.fit(Xa, ya)
+
+    def cv_splits(folds, Xa, ya, ga):
+        from sklearn.model_selection import GroupKFold, KFold, StratifiedGroupKFold, StratifiedKFold
+        if ga is not None and len(np.unique(ga)) >= folds:
+            sp = StratifiedGroupKFold(folds, shuffle=True, random_state=seed) if task == "classification" else GroupKFold(folds)
+            return list(sp.split(Xa, ya, ga)), True
+        sp = StratifiedKFold(folds, shuffle=True, random_state=seed) if task == "classification" and np.bincount(ya).min() >= folds \
+            else KFold(folds, shuffle=True, random_state=seed)
+        return list(sp.split(Xa, ya)), False
+
+    # ---- hyperparameter tuning (optional)
+    tune_report = None
+    fit_span = (0.05, 0.8)
+    if tuning.get("enabled"):
+        from sklearn.model_selection import ParameterGrid, ParameterSampler
+        space = _parse_space(model, task, tuning.get("space") or {})
+        if not space:
+            raise ValueError("Add at least one parameter with candidate values to tune")
+        folds = int(tuning.get("folds") or 3)
+        if not 2 <= folds <= 10:
+            raise ValueError("Cross-validation folds must be between 2 and 10")
+        metric, scorer = _scorer(tuning.get("metric") or "auto", task)
+        grid_size = int(np.prod([len(v) for v in space.values()]))
+        if tuning.get("method") == "grid":
+            if grid_size > 300:
+                raise ValueError(f"The grid has {grid_size} combinations. Use random search or fewer values (max 300).")
+            cands = list(ParameterGrid(space))
+        else:
+            n_iter = max(1, min(int(tuning.get("iter") or 20), grid_size, 500))
+            cands = list(ParameterSampler(space, n_iter=n_iter, random_state=seed))
+        splits, grouped = cv_splits(folds, X_tr, y_tr, g_tr)
+        results, total, done = [], len(cands) * folds, 0
+        log.info("Tuning %s: %d candidates × %d folds (%s)", m["title"], len(cands), folds, "grouped" if grouped else "random folds")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for i, cand in enumerate(cands):
+                scores = []
+                for k, (a, b) in enumerate(splits):
+                    progress.update(0.02 + 0.6 * done / total, f"Tuning: try {i + 1}/{len(cands)}, fold {k + 1}/{folds}")
+                    pk = clone(pre) if pre is not None else None
+                    Xa = pk.fit_transform(X_tr[a]) if pk is not None else X_tr[a]
+                    Xb = pk.transform(X_tr[b]) if pk is not None else X_tr[b]
+                    est_k = fit_one({**p, **cand}, Xa, y_tr[a])
+                    scores.append(float(scorer(est_k, Xb, y_tr[b])))
+                    done += 1
+                results.append({"params": {k2: (None if v is None else v) for k2, v in cand.items()},
+                                "mean": float(np.mean(scores)), "std": float(np.std(scores))})
+        results.sort(key=lambda r: -r["mean"])
+        best = results[0]
+        p = {**p, **best["params"]}
+        neg = metric.startswith("neg_")
+        tune_report = {"method": tuning.get("method") or "random", "metric": metric, "folds": folds, "grouped": grouped,
+                       "candidates": len(cands), "grid_size": grid_size, "best_params": best["params"],
+                       "best_score": -best["mean"] if neg else best["mean"], "lower_is_better": neg,
+                       "results": [{**r, "mean": -r["mean"] if neg else r["mean"]} for r in results[:15]]}
+        log.info("Best %s = %.4f with %s", metric, tune_report["best_score"], best["params"])
+        fit_span = (0.62, 0.85)
+
+    Xs_tr = pre.fit_transform(X_tr) if pre is not None else X_tr
+    Xs_te = pre.transform(X_te) if pre is not None else X_te
     log.info("Training %s (%s) on %s rows × %d features", m["title"], task, f"{len(X_tr):,}", len(features))
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        with progress.span(0.05, 0.8):
-            _fit_with_progress(model, est, Xs_tr, y_tr, sample_weight, task)
+        with progress.span(*fit_span):
+            est = fit_one(p, Xs_tr, y_tr, progress_fit=True)
         warn_msgs = list(dict.fromkeys(str(w.message).split("\n")[0][:160] for w in caught
                                        if w.category.__name__ in ("ConvergenceWarning", "UserWarning")))[:3]
+    pipe = Pipeline([("pre", pre), ("model", est)]) if pre is not None else est
 
     cv = None
     if c["cv_folds"] >= 2:
-        progress.update(0.82, f"{c['cv_folds']}-fold cross-validation")
-        est_cv = clone(est)
-        if model in ("rf", "et"):
-            est_cv.set_params(warm_start=False)
-        cv_split = c["cv_folds"]
-        if g_tr is not None and len(np.unique(g_tr)) >= c["cv_folds"]:
-            from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
-            cv_split = (StratifiedGroupKFold(n_splits=c["cv_folds"], shuffle=True, random_state=seed) if task == "classification"
-                        else GroupKFold(n_splits=c["cv_folds"]))
-        scores = cross_val_score(est_cv, Xs_tr, y_tr, cv=cv_split, groups=g_tr if g_tr is not None else None, n_jobs=1,
-                                 scoring="accuracy" if task == "classification" else "r2")
-        cv = {"metric": "accuracy" if task == "classification" else "r2", "mean": float(scores.mean()),
-              "std": float(scores.std()), "folds": [float(s) for s in scores]}
+        progress.update(0.86, f"{c['cv_folds']}-fold cross-validation")
+        splits, _ = cv_splits(c["cv_folds"], X_tr, y_tr, g_tr)
+        scores = []
+        for a, b in splits:
+            pk = clone(pre) if pre is not None else None
+            Xa = pk.fit_transform(X_tr[a]) if pk is not None else X_tr[a]
+            Xb = pk.transform(X_tr[b]) if pk is not None else X_tr[b]
+            e_k = fit_one(p, Xa, y_tr[a])
+            pr_k = e_k.predict(Xb)
+            from sklearn.metrics import accuracy_score, r2_score
+            scores.append(accuracy_score(y_tr[b], pr_k) if task == "classification" else r2_score(y_tr[b], pr_k))
+        cv = {"metric": "accuracy" if task == "classification" else "r2", "mean": float(np.mean(scores)),
+              "std": float(np.std(scores)), "folds": [float(s) for s in scores]}
 
     progress.update(0.9, "Evaluating on the test split")
     pred = est.predict(Xs_te)
     warnings.filterwarnings("ignore", message="y_pred contains classes not in y_true")
     report = {"name": name, "model": model, "model_title": m["title"], "task": task, "target": target, "features": features,
-              "table": str(table_path), "rows_total": int(ok.sum()), "rows_dropped": dropped, "train_rows": len(X_tr),
-              "train_rows_before_sampling": sampled_from, "test_rows": len(X_te), "scaled": bool(scaler),
-              "params": p, "common": c, "warnings": split_warnings + warn_msgs, "cv": cv, "split": split_info}
+              "categorical": cat_cols, "text_columns": [f for f in cat_cols if data[f].dtype == object], "table": str(table_path), "rows_total": int(ok.sum()), "rows_dropped": dropped,
+              "missing": c["missing"], "rows_imputed": num_nan if impute else 0, "train_rows": len(X_tr),
+              "train_rows_before_sampling": sampled_from, "test_rows": len(X_te), "scaled": bool(scale),
+              "params": p, "common": c, "warnings": split_warnings + warn_msgs, "cv": cv, "split": split_info, "tuning": tune_report}
+    from sklearn import metrics as mt
     if task == "classification":
-        from sklearn import metrics as mt
         labels = list(range(len(classes)))
         pr, rc, f1, sup = mt.precision_recall_fscore_support(y_te, pred, labels=labels, zero_division=0)
         report.update(
@@ -574,47 +767,104 @@ def train(table_path: str | Path, out_dir: str | Path, *, target: str, features:
             has_proba=hasattr(est, "predict_proba") and (model != "svm" or p.get("probability")) and not (model == "sgd" and p.get("loss") == "hinge"),
         )
     else:
-        from sklearn import metrics as mt
         idx = np.random.default_rng(seed).choice(len(y_te), size=min(600, len(y_te)), replace=False)
         report.update(r2=float(mt.r2_score(y_te, pred)), rmse=float(math.sqrt(mt.mean_squared_error(y_te, pred))),
                       mae=float(mt.mean_absolute_error(y_te, pred)),
                       scatter={"true": y_te[idx].round(5).tolist(), "pred": np.asarray(pred)[idx].round(5).tolist()})
 
-    # feature importance: built-in for tree models, otherwise permutation importance on a test sample
+    # ---- feature importance per original column (one-hot columns are summed back to their source column)
     imp, kind = None, None
-    inner = est
-    if hasattr(inner, "feature_importances_"):
-        imp, kind = np.asarray(inner.feature_importances_, dtype="float64"), "built-in (impurity / gain)"
+    if hasattr(est, "feature_importances_"):
+        raw = np.asarray(est.feature_importances_, dtype="float64")
+        owners = list(num_cols) if cat_cols else list(features)
+        if cat_cols:
+            oh = pre.named_transformers_["cat"].named_steps["onehot"]
+            for name_out in oh.get_feature_names_out(cat_cols):
+                owners.append(max((cc for cc in cat_cols if name_out.startswith(cc + "_")), key=len, default=cat_cols[0]))
+            if not num_cols or len(owners) != len(raw):  # safety: fall back to transformed order
+                owners = owners[:len(raw)]
+        imp = np.array([raw[[i for i, o in enumerate(owners) if o == f]].sum() for f in features])
+        kind = "built-in (impurity / gain)"
     elif len(features) > 1:
         progress.update(0.93, "Measuring feature importance")
         from sklearn.inspection import permutation_importance
-        n = min(3000, len(Xs_te))
-        sel = np.random.default_rng(seed).choice(len(Xs_te), n, replace=False)
-        r = permutation_importance(est, Xs_te[sel], np.asarray(y_te)[sel], n_repeats=3, random_state=seed, n_jobs=1)
+        n = min(3000, len(X_te))
+        sel = np.random.default_rng(seed).choice(len(X_te), n, replace=False)
+        r = permutation_importance(pipe, X_te[sel], np.asarray(y_te)[sel], n_repeats=3, random_state=seed, n_jobs=1)
         imp, kind = np.clip(r.importances_mean, 0, None), "permutation (drop in score when a feature is shuffled)"
     if imp is not None and imp.sum() > 0:
         imp = imp / imp.sum()
         order = np.argsort(-imp)
         report["importance"] = {"kind": kind, "features": [features[i] for i in order], "values": [float(imp[i]) for i in order]}
 
-    # metadata needed to apply the model to a raster later
     report["source"] = {k: meta.get(k) for k in ("source", "band_columns", "band_indices", "scale", "offset", "crs",
                                                  "pixel_size", "classes", "class_colors")}
     report["seconds"] = round(time.time() - t0, 1)
-
+    # test predictions for the HTML evaluation report (probabilities aligned to the class order)
+    proba_te = None
+    if task == "classification" and report["has_proba"]:
+        try:
+            pr_raw = est.predict_proba(Xs_te)
+            proba_te = np.zeros((len(Xs_te), len(classes)), dtype="float32")
+            proba_te[:, np.asarray(getattr(est, "classes_", np.arange(pr_raw.shape[1]))).astype(int)] = pr_raw
+        except Exception as e:  # probabilities are optional for the report
+            log.info("No probabilities for the report: %s", e)
+    from . import evaluation
+    ev = evaluation.compact_eval(y_te, pred, proba_te, np.bincount(y_tr, minlength=len(classes)) if classes else None, seed=seed)
+    if not save:
+        return report
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")[:60] or "model"
-    pipe = Pipeline([("scale", scaler), ("model", est)]) if scaler else est
     bundle = {"pipeline": pipe, "classes": classes, "task": task, "features": features, "target": target,
-              "model": model, "report": report}
+              "categorical": cat_cols, "model": model, "report": report, "evaluation": ev}
     path = out_dir / f"{stem}.joblib"
     joblib.dump(bundle, path, compress=3)
     report["path"] = str(path)
+    progress.update(0.97, "Writing the evaluation report")
+    eval_path = out_dir / f"{stem}.evaluation.html"
+    try:
+        evaluation.write_report(report, {**ev, "y_true": y_te, "y_pred": pred, "proba": proba_te}, eval_path)
+        report["evaluation_html"] = str(eval_path)
+    except Exception as e:  # never lose a trained model because of a report problem
+        log.warning("Couldn't write the evaluation report: %s", e)
     Path(str(path) + ".json").write_text(json.dumps(report, indent=1, default=str))
     log.info("%s trained in %.1f s · %s", m["title"], report["seconds"],
              f"accuracy {report['accuracy']:.3f}, kappa {report['kappa']:.3f}" if task == "classification" else f"R² {report['r2']:.3f}")
     return report
+
+
+def compare(table_path: str | Path, *, target: str, features: list[str], task: str = "auto", common: dict | None = None,
+            categorical: list[str] | None = None, models: list[str] | None = None, max_rows: int = 20000) -> dict:
+    """Train several models with default settings on the same split and rank them (quick leaderboard)."""
+    common = dict(common or {})
+    common["cv_folds"] = 0
+    av = available()
+    if task == "auto":
+        data = read_table(table_path, columns=[target])
+        task = _detect_task(data[target])
+    todo = [k for k, mm in MODELS.items() if task in mm["tasks"] and av.get(k, True) and (models is None or k in models)]
+    if not todo:
+        raise ValueError("No suitable models to compare")
+    rows = []
+    for i, k in enumerate(todo):
+        progress.update(i / len(todo), f"Comparing models: {MODELS[k]['title']} ({i + 1}/{len(todo)})")
+        cmn = {**common, "max_train_rows": min(int(common.get("max_train_rows") or MODELS[k]["max_rows"]), max_rows)}
+        try:
+            with progress.span(i / len(todo), (i + 1) / len(todo)):
+                r = train(table_path, None, target=target, features=features, model=k, task=task, common=cmn,
+                          categorical=categorical, save=False)
+            rows.append({"model": k, "title": MODELS[k]["title"], "seconds": r["seconds"], "train_rows": r["train_rows"],
+                         **({"accuracy": r["accuracy"], "kappa": r["kappa"], "f1_macro": r["f1_macro"],
+                             "balanced_accuracy": r["balanced_accuracy"]} if task == "classification"
+                            else {"r2": r["r2"], "rmse": r["rmse"], "mae": r["mae"]}), "split": r["split"]})
+        except progress.Cancelled:
+            raise
+        except Exception as e:  # one model failing shouldn't stop the comparison
+            rows.append({"model": k, "title": MODELS[k]["title"], "error": str(e)[:200]})
+    key = "kappa" if task == "classification" else "r2"
+    rows.sort(key=lambda r: -(r.get(key) if r.get(key) is not None else -1e9))
+    return {"task": task, "metric": key, "rows": rows, "max_rows": max_rows}
 
 
 # ------------------------------------------------------------------ applying a model to a raster
@@ -669,6 +919,10 @@ def predict_raster(model_path: str | Path, raster_path: str | Path, out_path: st
     progress.update(0.0, "Loading the model")
     bundle = joblib.load(model_path)
     pipe, features, task = bundle["pipeline"], bundle["features"], bundle["task"]
+    text_cats = [f for f in bundle.get("categorical") or [] if f in ((bundle["report"].get("text_columns")) or [])]
+    if text_cats:
+        raise ValueError(f"This model uses text column(s) {', '.join(text_cats)}, which an image can't provide. "
+                         "Retrain without them to classify an image.")
     missing = [f for f in features if f not in band_map]
     if missing:
         raise ValueError(f"Choose a raster band for: {', '.join(missing)}")

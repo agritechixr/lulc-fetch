@@ -53,21 +53,26 @@ The window is laid out like a desktop GIS (QGIS / ArcGIS):
 
 ```
 ┌ File  Tools ▾  View  Help ─────────────────────────── Credentials ┐
-│ Contents        │                                │ Tool panel     │
-│ ☑ NDVI · scene  │              map               │ (opens when    │
-│ ☑ AOI           │                                │  you choose a  │
-│ ☑ S2 scene      │                                │  tool)         │
+│ Contents        ┆                                ┆ Tool panel     │
+│ ▾ 2D DATA     3 ┆              map               ┆ (opens when    │
+│ ☑ NDVI · scene  ┆                                ┆  you choose a  │
+│ ☑ AOI           ┆                                ┆  tool)         │
+│ ▣ photo.jpg     ┆┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┆                │
+│ ▾ TABULAR DATA 1┆ Data viewer: table · attributes┆                │
+│ ▦ samples.csv   ┆ # │ B02 │ B03 │ … │ label        ┆                │
 ├─────────────────┴────────────────────────────────┴────────────────┤
 │ Ready          Lat 12.96501  Lon 77.58500   Scale 1 : 25,000  z 14 │
 └────────────────────────────────────────────────────────────────────┘
 ```
+
+**Resize any panel** by dragging its edge (the dotted lines above): Contents, the tool panel, and the data viewer. Double-click an edge to reset it, or use View ▸ Reset panel sizes.
 
 ### Menu bar
 | Menu | What's in it |
 |---|---|
 | **File** | Add data from computer · Add GeoTIFF from workspace · Open Sentinel product (.SAFE) · Export / Properties / Remove the selected layer · Remove all layers · Credentials |
 | **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (↳ Train a model, ↳ Classify an image) · Export data · Downloads & jobs |
-| **View** | Show/hide Contents and Tool panel · Basemap (Streets, Satellite, Topographic, None) · Place labels on top · Zoom to all layers · Theme (system / light / dark) |
+| **View** | Show/hide Contents, Tool panel and Data viewer · Reset panel sizes · Basemap (Streets, Satellite, Topographic, None) · Place labels on top · Zoom to all layers · Theme (system / light / dark) |
 | **Help** | Getting started (start page, incl. your Sentinel products) · Quick guide · Keyboard shortcuts |
 
 The **tool panel** on the right only opens when you choose a tool; its **×** closes it again.
@@ -84,24 +89,35 @@ The **tool panel** on the right only opens when you choose a tool; its **×** cl
 | Ctrl/⌘ O | Add data from computer |
 | Ctrl/⌘ E | Export the selected layer |
 | Delete | Remove the selected layer |
-| Ctrl/⌘ 1 / 2 | Show / hide Contents / Tool panel |
+| Ctrl/⌘ 1 / 2 / 3 | Show / hide Contents / Tool panel / Data viewer |
 | Esc | Close menus, stop drawing, close hints |
 
 The app remembers your layers, map position, basemap, theme and panel layout between sessions (stored in your browser).
 
 ---
 
-## 3. Layers (Contents panel)
+## 3. Contents panel: 2D data and tabular data
 
-Everything you work with is a layer in **Contents**, on the left.
+Everything you work with is listed in **Contents**, on the left, in two sections. Click a section header to collapse or expand it; the number shows how many items it holds.
 
-### Adding layers
-- **+ Add data**, File ▸ Add data, or **drag files onto the map**. Supported formats:
-  - GeoTIFF
-  - Shapefile (`.zip`, or `.shp` + `.shx` + `.dbf` + `.prj` selected together; other projections are converted)
-  - GeoJSON, KML / KMZ
-- **Workspace:** GeoTIFFs already on your computer from earlier downloads, results, imports and command-line output.
-- Tools add their results automatically: downloads, index results, PCA, stacks, classified maps, your area of interest, scene footprints and previews.
+| Section | What's in it |
+|---|---|
+| **2D data** | Map layers: rasters (GeoTIFF), **RGB images** (aerial / drone photos, georeferenced JPG / PNG), vectors (shapefile, GeoJSON, KML), and plain **pictures** without coordinates |
+| **Tabular data** | Tables: CSV, TSV / TXT, **Excel (.xlsx)** and Parquet, including the tables made by Raster → table |
+
+### Adding data
+- **+ Add data**, File ▸ Add data, or **drag files onto the map**. Each file goes to the right section automatically:
+  - **GeoTIFF**: true-colour (RGB) GeoTIFFs are shown in their natural colours.
+  - **JPG / PNG / BMP / GIF / WebP pictures:**
+    - With a **world file** (`.jgw`, `.pgw`, `.wld` …), optionally a `.prj`: select the files together. The picture is converted to a GeoTIFF and placed on the map. Without a `.prj`, longitude / latitude (WGS 84) is assumed, and you're told so.
+    - Without georeferencing (an ordinary photo): it's listed under 2D data as a *picture*, marked *not on map*, and opens in the data viewer. **Place on map** stretches it over the current map view. Zoom the map to the right area first. It then becomes a GeoTIFF layer.
+  - **Shapefile** (`.zip`, or `.shp` + `.shx` + `.dbf` + `.prj` selected together; other projections are converted), **GeoJSON**, **KML / KMZ**.
+  - **Tables:** CSV, TSV / TXT (the comma, tab, semicolon or `|` separator is detected), Excel `.xlsx` (first sheet; the first row holds the column names) and Parquet. Tables are stored in `tables/`, so **every tool can use them**, e.g. Train a model.
+- **Workspace:** GeoTIFFs and tables already on your computer from earlier downloads, results, imports and command-line output.
+- Tools add their results automatically: downloads, index results, PCA, stacks, classified maps, Raster → table tables, your area of interest, scene footprints and previews.
+
+### Tables in Contents
+Double-click a table, or click its ▭ button, to open it in the data viewer. Right-click or **⋯** for: Open · Column statistics · **Show points on map** (for tables with `lon` / `lat` columns) · Train a model with this table · Download · Remove from Contents. Removing it from Contents keeps the file.
 
 ### Working with layers
 | Action | How |
@@ -111,7 +127,8 @@ Everything you work with is a layer in **Contents**, on the left.
 | Zoom to layer | 🔍 button, double-click, or right-click ▸ Zoom to layer |
 | Legend + opacity | ▶ arrow on the left of the layer |
 | Pixel values | Select a raster layer, then click the map. A popup shows the value, class name or band values. |
-| More options | Right-click or **⋯**: Zoom · Properties · Compute indices · Use as area of interest (polygon layers) · Export / save to computer · Move to top/bottom · Remove |
+| Attribute table | Right-click a vector layer ▸ **Open attribute table**: opens in the data viewer |
+| More options | Right-click or **⋯**: Zoom · Properties · Compute indices · Open attribute table (vector layers) · Use as area of interest (polygon layers) · Export / save to computer · Move to top/bottom · Remove |
 
 ### Layer properties
 Right-click ▸ **Properties** lets you rename a layer, change its opacity, and choose how a raster is **displayed**:
@@ -120,6 +137,19 @@ Right-click ▸ **Properties** lets you rename a layer, change its opacity, and 
 - a **single band** with a colour scale and stretch (standard range, automatic 2–98 %, or custom min/max)
 
 Class maps (e.g. WorldCover, classified maps) are drawn with their own class colours and names.
+
+### Data viewer (under the map)
+The data viewer opens below the map when you open a table, an attribute table or a picture. Each one gets its own **tab**, and *×* or a middle-click closes it. Drag the viewer's top edge to make it taller or shorter, use ⤢ to maximise it, or press Ctrl/⌘ 3 to show or hide it.
+
+**Tables and attribute tables**
+- **Paging:** 50 / 100 / 250 / 1000 rows per page, with « ‹ › ». Large tables stay fast because only one page is loaded at a time.
+- **Sort:** click a column header (ascending → descending → off). The small tag shows the column type: `123` whole number, `1.5` decimal, `abc` text.
+- **Search:** type to search every column, or filter one column with a comparison: `yield > 4`, `crop = rice`, `class != water`, `area_m2 <= 500`.
+- **Rows on the map:** click a row. For a vector layer, the feature is highlighted in yellow and the map zooms to it. For a table with `lon` / `lat` columns, the point is marked. **Show on map** adds all matching rows as a point layer (up to 20,000, sampled).
+- **Column statistics:** for every column, the type, missing values, distinct values, min / median / mean / max / standard deviation, and a mini histogram (numbers) or the most frequent values (text).
+- **Train a model** opens Classical ML ▸ Train a model with the table selected. ⬇ downloads the file.
+
+**Pictures:** scroll to zoom and drag to pan. *Fit* and *1:1* reset the view. **Place on map** works as described above.
 
 ---
 
@@ -347,11 +377,18 @@ Band names are kept (B04, VV, NDVI…), so the stack still opens in true colour 
 
 **Tools ▸ Classical ML ▸ Train a model.** The Classical ML hub also lists **your models** and **your tables**.
 
-1. **Training table:** any table from Raster → table.
-2. **Label and features:**
-   - **Label column:** preselected (the ground truth). The **task** is detected automatically: *classification* for classes, *regression* for continuous values such as biomass. You can override it.
+1. **Training table:** any table from Raster → table (or any CSV / Parquet file in `tables/`).
+2. **Target (what to predict):**
+   - **Target column** (the dependent variable): preselected as the ground-truth column.
+   - **What kind of values does it hold?** Choose **Categories** (classification: land-cover classes, crop types, class codes 1, 2, 3…) or **Numbers on a scale** (regression: biomass, yield, height, an index). A 💡 suggestion explains the guess. For example, text, or only a few distinct whole numbers, means categories. You're warned if your choice doesn't fit the data, such as text treated as numbers.
    - **Class distribution:** shown, with a suggestion to use class balancing if the classes are very unequal.
-   - **Features:** the bands and indices are preselected. Coordinates and `poly_id` are left out, so the model learns spectra, not locations.
+3. **Input columns:** a table with every column of the file. Beside each column name:
+   - **Role:** *Feature* (model input), *Ignore* (left out) or *Target*. Choosing *Target* on a row makes that column the target.
+   - **Type:** *Numeric* (a measured value: bands, indices, elevation) or *Categorical* (labels or codes with no order: soil type, zone code, orbit). Categorical columns are **one-hot encoded** automatically. Text columns are always categorical.
+   - Each row shows the detected type, the number of distinct values, missing values and example values. Whole-number columns with only a few values are flagged *looks categorical?*.
+   - Coordinates, ids (`poly_id`, `sample_id`) and text columns are ignored by default. Use the filter box and the **Bands only / All / None** buttons for quick selection.
+   - Text features work for training and evaluation, but an image can't provide them, so such a model can't classify a raster. You're told so. Numeric codes (e.g. a zone band) work fine.
+4. **Model:** cards with typical accuracy / speed ratings, filterable by family.
 3. **Model:** cards with typical accuracy / speed ratings, filterable by family.
 
 | Family | Models |
@@ -363,10 +400,18 @@ Band names are kept (B04, VV, NDVI…), so the stack still opens in true colour 
 | Probabilistic | Naive Bayes, **Maximum Likelihood** (classic remote-sensing Gaussian classifier), Linear Discriminant |
 | Neighbours / Neural | k-Nearest Neighbours, neural network (MLP) |
 
-4. **Parameters:** 2–4 key settings per model, with defaults tuned for pixel data. The rest is under *Advanced*:
+5. **Parameters:** 2–4 key settings per model, with defaults tuned for pixel data. The rest is under *Advanced*:
    - validation split, test share, class balancing
    - cross-validation folds, feature scaling (automatic for models that need it)
+   - **missing values:** *Drop those rows* (default) or *Fill in* (median for numbers, most frequent value for categories), so no rows are lost
    - training-row cap (large tables are sampled down per model), random seed
+6. **Hyperparameter tuning** (switch on with *Tune*): the app tries many parameter combinations and keeps the best.
+   - **Random search** (tries a set number of random combinations, 20 by default) or **Grid search** (every combination, max 300).
+   - **CV folds:** each combination is trained on all folds but one and scored on the one left out. Folds use the **same polygon / spatial-block grouping** as the validation split, and only the training rows, so the test split stays untouched and the result stays honest.
+   - **Optimise for:** accuracy, macro F1, balanced accuracy or kappa (classification); R², RMSE or MAE (regression).
+   - **Values to try:** comma-separated candidates for each parameter, prefilled with sensible ranges per model, e.g. trees `100, 300, 600` and depth `None, 10, 20, 40`. Untick a parameter to keep its value from *Parameters*. `None` means unlimited.
+   - The panel shows the total number of fits (tries × folds). Progress and **Cancel** work during the search.
+7. **Train model** (or **Tune & train model**), or **Compare models**: trains every suitable model with default settings on the same split (max 20,000 training rows each) and shows a ranked **leaderboard** (accuracy and kappa, or R² and RMSE, plus time). Click **Use** to select a model, then adjust or tune it and train it fully.
 
 ### Validation split (honest accuracy)
 Neighbouring pixels look almost identical. If test pixels are picked at random, they're near-copies of training pixels and the accuracy is **overstated**. The *Validation split* setting fixes this:
@@ -389,8 +434,34 @@ Example from testing: the same Random Forest scored 79.5 % with a random split b
   - **feature importance**
   - optional cross-validation (grouped the same way as the split)
 - **Regression:** R², RMSE, MAE and a predicted-vs-true plot.
+- **Tuning** (if used): the best cross-validation score with the chosen parameters, plus a table of the top combinations.
+- Categorical columns used, and how many rows were dropped or filled in.
 
-Random Forest, Extra Trees, XGBoost and LightGBM report real progress while training, so **Cancel** works mid-training. Models are saved in `models/` as `.joblib` files (a scikit-learn pipeline), with a JSON report. In the hub you can **Use**, view the **Report**, download or delete each model.
+Random Forest, Extra Trees, XGBoost and LightGBM report real progress while training, so **Cancel** works mid-training. Models are saved in `models/` as `.joblib` files (a scikit-learn pipeline), with a JSON report. In the hub you can **Use**, view the **Report**, open the **📊 evaluation report**, download or delete each model.
+
+### Evaluation report (HTML)
+Training also writes `models/<name>.evaluation.html`. It is one self-contained page that opens offline in any browser, prints to PDF, and can be emailed. Open it with **📊 Evaluation report ▸ Open** in the results, or download it with **⬇ .html**. Hover over any chart or cell for exact values. Every chart has a one-line *how to read it* note. It works for every model.
+
+| Classification | Regression |
+|---|---|
+| Score tiles: accuracy, kappa, macro / weighted F1, balanced accuracy, MCC, ROC AUC, log loss, top-2 accuracy, calibration error | Score tiles: R², adjusted R², RMSE, MAE, median error, bias, Pearson r, NRMSE, MAPE |
+| Confusion matrix in counts and in row %, with producer's / user's accuracy | Predicted vs true, with the 1:1 line and the best-fit line |
+| Per-class precision / recall / F1 chart, plus a table with omission and commission errors | Residuals vs predicted |
+| Most-confused class pairs | Residual histogram and Q–Q plot |
+| Class distribution: training vs test true vs test predicted | Error and bias by true-value range |
+| ROC and precision–recall curves per class* | |
+| Confidence histogram (correct vs wrong) and reliability (calibration) diagram* | |
+
+\*Needs class probabilities. These charts are skipped for SVM with *probability* off and for SGD with hinge loss.
+
+Both kinds of report also include feature importance, cross-validation folds, tuning results (if used), the validation split, and all model and data settings.
+
+A compact sample of the test predictions (up to 20,000 rows) is stored inside the model file, so the report can be rebuilt at any time. A saved model can also be **tested on another labelled table**, for example a different area or date, as an independent check:
+
+```bash
+python -m lulc_fetch.evaluation models/rf.joblib                                   # rebuild the report
+python -m lulc_fetch.evaluation models/rf.joblib --table tables/other_area.csv -o other.html
+```
 
 ---
 
@@ -516,8 +587,8 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 | `data/` | Your Copernicus `.SAFE` products (input) |
 | `imports/` | Lightweight VRTs for opened Sentinel-2 products |
 | `downloads/` | Job outputs (downloads, maps, stacks…), one folder per job |
-| `tables/` | Tables from Raster → table, each with a `.json` description |
-| `models/` | Trained models (`.joblib`) with `.json` reports |
+| `tables/` | Tables you added (CSV, TSV and Excel are converted to CSV; Parquet is kept) and Raster → table outputs (with a `.json` description) |
+| `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files, index exports, other exports |
 
 All of these are excluded from git.

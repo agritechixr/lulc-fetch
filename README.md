@@ -15,11 +15,13 @@ A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your 
 | **Training samples** | Draw labelled polygons and points for each class on the map |
 | **Stack layers** | Combine Sentinel-2, Sentinel-1, elevation and index layers into one image |
 | **Raster → table** | Turn any image into a CSV / Parquet table, with ground-truth labels as the last column |
-| **Classical ML** | Train 14 models (Random Forest, XGBoost, LightGBM, SVM, Maximum Likelihood…) with honest, spatially independent accuracy assessment, then **classify an image** into a land-cover map |
+| **Classical ML** | Train 14 models (Random Forest, XGBoost, LightGBM, SVM, Maximum Likelihood…) for classification or regression: choose the target and each column's role and type (numeric / categorical), tune hyperparameters with cross-validation, compare all models on a leaderboard, get honest spatially independent accuracy and an **HTML evaluation report** (confusion matrices, ROC / PR curves, residual plots…), then **classify an image** into a land-cover map |
 | **Export data** | Save any layer as GeoTIFF, PNG, Shapefile, GeoJSON or KML, for the whole layer or just an area |
 
 Across the app:
-- **Layers:** add GeoTIFF, Shapefile, GeoJSON and KML files, then show, reorder, style, read pixel values and export them.
+- **Contents in two sections:** *2D data* (GeoTIFF, RGB photos / georeferenced JPG & PNG, Shapefile, GeoJSON, KML) and *Tabular data* (CSV, TSV, Excel, Parquet).
+- **Data viewer under the map:** open tables and vector attribute tables with paging, sorting, search / filters, column statistics and rows linked to the map. Pictures can also be opened there.
+- **Resizable panels:** drag the edges of Contents, the tool panel and the data viewer.
 - **Area picker:** every tool can work on just an area of your choice.
 - **Progress and Cancel** for every long task.
 - **ⓘ hints** on every option.
