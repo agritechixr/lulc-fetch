@@ -906,3 +906,23 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .md-tbl th, .md-tbl td { padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
 .md-tbl th { position: sticky; top: 0; background: var(--panel); font-weight: 600; }
 .md-tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* tool lists: A–Z, explanation behind an eye button */
+.menu-pop .tool-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px 7px 10px; border-radius: 6px; cursor: pointer; position: relative; color: var(--text); font-size: 13px; }
+.menu-pop .tool-item:hover, .menu-pop .tool-item:focus-visible { background: var(--accent-2); outline: none; }
+.menu-pop .tool-item .ic { width: 28px; height: 28px; }
+.te-text { flex: 1; min-width: 0; }
+.te-desc { display: none !important; }
+.show-desc .te-desc { display: block !important; margin-top: 2px; }
+.eye { flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0 !important; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; opacity: .75; }
+.eye svg { width: 16px; height: 16px; }
+.eye:hover, .eye:focus-visible { opacity: 1; color: var(--accent); background: var(--accent-2); outline: none; }
+.show-desc > .eye, .eye.on { opacity: 1; color: var(--accent); }
+.eye.hidden { display: none; }
+.tool-card { grid-template-columns: 38px 1fr 26px; }
+.tool-card[data-mlsub], #tool-cards .tool-card { cursor: pointer; }
+.tool-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tool-head-row { display: flex; align-items: center; gap: 4px; }
+.tool-head-row h2 { margin: 0; }
+.menu-pop .eye { width: 26px; display: inline-grid; position: static; }
+.menu-pop .eye::before { display: none; }

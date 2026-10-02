@@ -303,6 +303,9 @@ Renamed or deleted band / label columns are updated in a table's description, so
 
 ## 4. Things every tool shares
 
+### Finding a tool
+The **Tools** menu and the Start page list the tools in alphabetical order. The Classical ML sub-tools are listed A–Z under *Classical ML (tabular data)*. To read what a tool does, click the 👁 **eye** next to it (click again to hide it), or hover over the eye. The open tool has the same eye next to its title in the tool panel.
+
 ### ⓘ hints
 Every option has a small **ⓘ** icon. Hover over it for half a second to see a plain-language explanation, or click it to keep the hint open.
 

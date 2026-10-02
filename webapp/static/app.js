@@ -204,16 +204,40 @@
   ];
   let currentTool = "home";
 
-  function buildToolsMenu() {
-    $("#tools-menu").innerHTML = TOOLS.map((t) => `<button class="tool-item" data-tool="${t.id}">
-        <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>` +
-        (t.id === "ml" ? ML_SUBTOOLS.map((st) => `<button class="tool-item sub" data-tool="ml" data-sub="${st.id}"><span><b>${esc(st.title)}</b></span></button>`).join("") : "")).join("") +
-      "";
-    $$("#tools-menu [data-tool]").forEach((b) => b.onclick = () => { switchTool(b.dataset.tool); if (b.dataset.tool === "ml") openMlSub(b.dataset.sub || null); toggleMenu(null); });
-    $("#tool-cards").innerHTML = TOOLS.map((t) => `<button class="tool-card" data-tool="${t.id}">
-        <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>`).join("");
-    $$("#tool-cards [data-tool]").forEach((b) => b.onclick = () => switchTool(b.dataset.tool));
+  // Tools are listed A–Z; each explanation is behind an eye button (click it to show / hide, or hover for a tooltip)
+  const byTitle = (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+  const EYE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  function toolEntry(cls, attrs, t, withIcon = true) {
+    return `<div role="button" tabindex="0" class="${cls}" ${attrs}>${withIcon ? `<span class="ic">${svg(t.icon)}</span>` : ""}
+      <span class="te-text"><b>${esc(t.title)}</b><small class="te-desc">${esc(t.subtitle || "")}</small></span>
+      ${t.subtitle ? `<button type="button" class="eye" title="${esc(t.subtitle)}" aria-label="What does ${esc(t.title)} do?" aria-expanded="false">${EYE_SVG}</button>` : ""}</div>`;
   }
+  function wireEntries(root, selector, onOpen) {
+    $$(selector, root).forEach((el) => {
+      el.onclick = (e) => { if (!e.target.closest(".eye")) onOpen(el); };
+      el.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === el) { e.preventDefault(); onOpen(el); } };
+      const eye = $(".eye", el);
+      if (eye) eye.onclick = (e) => { e.stopPropagation(); const on = el.classList.toggle("show-desc"); eye.setAttribute("aria-expanded", on); };
+    });
+  }
+  function buildToolsMenu() {
+    const tools = [...TOOLS].sort(byTitle), subs = [...ML_SUBTOOLS].sort(byTitle);
+    $("#tools-menu").innerHTML = tools.map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t) +
+        (t.id === "ml" ? subs.map((st) => toolEntry("tool-item sub", `data-tool="ml" data-sub="${st.id}"`, st, false)).join("") : "")).join("");
+    wireEntries($("#tools-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); if (b.dataset.tool === "ml") openMlSub(b.dataset.sub || null); toggleMenu(null); });
+    $("#tool-cards").innerHTML = tools.map((t) => toolEntry("tool-card", `data-tool="${t.id}"`, t)).join("");
+    wireEntries($("#tool-cards"), "[data-tool]", (b) => switchTool(b.dataset.tool));
+  }
+  // the open tool's explanation, under its title, also behind an eye button
+  $("#tool-eye").innerHTML = EYE_SVG;
+  const syncToolSub = () => {
+    const on = prefs.get("tool-sub", false);
+    $("#tool-sub").classList.toggle("hidden", !on);
+    $("#tool-eye").setAttribute("aria-expanded", on);
+    $("#tool-eye").classList.toggle("on", on);
+  };
+  $("#tool-eye").onclick = () => { prefs.set("tool-sub", !prefs.get("tool-sub", false)); syncToolSub(); };
+  syncToolSub();
 
   function switchTool(id) {
     const tool = TOOLS.find((t) => t.id === id) || { id: "home", title: "Start", subtitle: "Choose a tool" };
@@ -221,6 +245,8 @@
     $$(".tabpanel").forEach((p) => p.classList.toggle("hidden", p.id !== "tab-" + tool.id));
     $("#tool-title").textContent = tool.title;
     $("#tool-sub").textContent = tool.subtitle;
+    $("#tool-eye").title = tool.subtitle;
+    $("#tool-eye").classList.toggle("hidden", tool.id === "home");
     $("#active-tool").innerHTML = tool.id === "home" ? "" : `Tool: <b>${esc(tool.title)}</b>`;
     $$("#tools-menu [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === tool.id));
     document.title = tool.id === "home" ? "LULC Fetch" : `${tool.title} · LULC Fetch`;
@@ -4048,6 +4074,7 @@
     $$(".ml-sub").forEach((d) => d.classList.toggle("hidden", d.id !== `ml-sub-${id}`));
     const st = ML_SUBTOOLS.find((t) => t.id === id);
     $("#tool-sub").textContent = st ? st.title + " · " + st.subtitle : TOOLS.find((t) => t.id === "ml").subtitle;
+    $("#tool-eye").title = $("#tool-sub").textContent;
     if (!id) { refreshTables(); refreshModels(); }
     if (id === "train" && mlx.schema) refreshTrainTables();
     if (id === "predict") refreshPredict();
@@ -4055,13 +4082,12 @@
     document.querySelector(".tool-body").scrollTop = 0;
   }
   function renderMlHub() {
-    const card = (t) => `<button class="tool-card" data-mlsub="${t.id}">
-      <span class="ic">${svg(t.icon)}</span><span><b>${esc(t.title)}</b><small>${esc(t.subtitle)}</small></span></button>`;
-    $("#ml-sup").innerHTML = ML_SUBTOOLS.filter((t) => t.group === "sup").map(card).join("");
-    $("#ml-unsup").innerHTML = ML_SUBTOOLS.filter((t) => t.group === "unsup").map(card).join("");
+    const card = (t) => toolEntry("tool-card", `data-mlsub="${t.id}"`, t);
+    $("#ml-sup").innerHTML = ML_SUBTOOLS.filter((t) => t.group === "sup").sort(byTitle).map(card).join("");
+    $("#ml-unsup").innerHTML = ML_SUBTOOLS.filter((t) => t.group === "unsup").sort(byTitle).map(card).join("");
     $(".ml-group-ic.sup").innerHTML = svg("ml");
     $(".ml-group-ic.unsup").innerHTML = svg("cluster");
-    $$("#ml-home [data-mlsub]").forEach((b) => b.onclick = () => openMlSub(b.dataset.mlsub));
+    wireEntries($("#ml-home"), "[data-mlsub]", (b) => openMlSub(b.dataset.mlsub));
     $$(".ml-back").forEach((b) => b.onclick = () => openMlSub(null));
     $("#ml-goto-rt").onclick = (e) => { e.preventDefault(); switchTool("raster2table"); };
   }
