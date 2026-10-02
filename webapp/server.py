@@ -799,6 +799,125 @@ def delete_table(path: str):
     return {"ok": True}
 
 
+@app.post("/api/tables/upload")
+async def upload_table(file: UploadFile = File(...)):
+    """Add a CSV / TSV / Parquet / Excel table: it is stored in tables/ so every tool can use it."""
+    import shutil
+    import tempfile
+
+    from lulc_fetch.tableview import TABLE_IMPORT_EXTS, import_table
+
+    name = Path(file.filename or "table.csv").name
+    if Path(name).suffix.lower() not in TABLE_IMPORT_EXTS:
+        raise HTTPException(400, "Tables can be CSV, TSV, TXT, Parquet or Excel (.xlsx)")
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / name
+        with open(src, "wb") as f:
+            shutil.copyfileobj(file.file, f, length=8 << 20)
+        try:
+            out = import_table(src, TABLE_DIR)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(400, f"Couldn't read {name}: {e}")
+    return {"path": str(out.relative_to(Path.cwd())), "name": out.name}
+
+
+@app.get("/api/tables/rows")
+def table_rows(path: str, offset: int = 0, limit: int = 100, q: str = "", sort: str | None = None, desc: bool = False):
+    from lulc_fetch import tableview
+
+    try:
+        return tableview.page(_table_path(path), offset=max(0, offset), limit=max(1, min(limit, 1000)), query=q[:200],
+                              sort=sort, desc=desc)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/tables/stats")
+def table_stats(path: str):
+    from lulc_fetch import tableview
+
+    return tableview.stats(_table_path(path))
+
+
+@app.get("/api/tables/points")
+def table_points(path: str, q: str = "", lon: str | None = None, lat: str | None = None):
+    from lulc_fetch import tableview
+
+    try:
+        return tableview.points(_table_path(path), query=q[:200], lon=lon, lat=lat)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+# ------------------------------------------------------------------ pictures (JPG / PNG …)
+
+def _picture_path(rel: str) -> Path:
+    from lulc_fetch.images import PICTURE_EXTS
+
+    p = (Path.cwd() / rel).resolve()
+    if not p.is_relative_to((Path.cwd() / "uploads").resolve()) or p.suffix.lower() not in PICTURE_EXTS or not p.is_file():
+        raise HTTPException(404, "No such picture")
+    return p
+
+
+@app.post("/api/pictures/upload")
+async def upload_picture(files: list[UploadFile] = File(...)):
+    """A picture plus optional world file (.jgw / .pgw / .wld) and .prj. Georeferenced → GeoTIFF layer."""
+    import shutil
+    import uuid
+
+    from lulc_fetch.images import PICTURE_EXTS, SIDECAR_EXTS, import_picture
+
+    pics = [f for f in files if Path(f.filename or "").suffix.lower() in PICTURE_EXTS]
+    if len(pics) != 1:
+        raise HTTPException(400, "Upload one picture (JPG, PNG, BMP, GIF or WebP) with its optional world file")
+    pic_name = Path(pics[0].filename).name
+    dest_dir = Path.cwd() / "uploads" / uuid.uuid4().hex[:8]
+    dest_dir.mkdir(parents=True)
+    stem = Path(pic_name).stem
+    for f in files:
+        ext = Path(f.filename or "").suffix.lower()
+        if f is not pics[0] and ext not in SIDECAR_EXTS:
+            continue
+        # sidecars get the picture's name so GDAL finds them (photo.jgw, photo.prj, photo.png.aux.xml)
+        name = pic_name if f is pics[0] else (f"{pic_name}.aux.xml" if (f.filename or "").lower().endswith(".aux.xml") else stem + ext)
+        with open(dest_dir / name, "wb") as out:
+            shutil.copyfileobj(f.file, out, length=8 << 20)
+    try:
+        res = import_picture(dest_dir / pic_name)
+    except Exception as e:
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        raise HTTPException(400, f"Couldn't read {pic_name}: {e}")
+    res["path"] = str(Path(res["path"]).relative_to(Path.cwd()))
+    res["name"] = pic_name
+    return res
+
+
+@app.get("/api/pictures/file")
+def picture_file(path: str):
+    p = _picture_path(path)
+    return FileResponse(p, filename=p.name, content_disposition_type="inline")
+
+
+class GeorefRequest(BaseModel):
+    path: str
+    bounds: list[float] = Field(min_length=4, max_length=4)  # west, south, east, north
+
+
+@app.post("/api/pictures/georef")
+def picture_georef(req: GeorefRequest):
+    from lulc_fetch.images import georeference
+
+    p = _picture_path(req.path)
+    try:
+        out = georeference(p, req.bounds)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"path": str(out.relative_to(Path.cwd()))}
+
+
 class RasterTableRequest(BaseModel):
     path: str
     bands: list[int] | None = None
@@ -902,6 +1021,33 @@ class TrainRequest(BaseModel):
     params: dict = Field(default_factory=dict)
     common: dict = Field(default_factory=dict)
     name: str = Field("model", max_length=80)
+    categorical: list[str] = Field(default_factory=list)
+    tuning: dict = Field(default_factory=dict)
+
+
+class CompareRequest(BaseModel):
+    table: str
+    target: str
+    features: list[str]
+    task: str = "auto"
+    common: dict = Field(default_factory=dict)
+    categorical: list[str] = Field(default_factory=list)
+    max_rows: int = Field(20000, ge=500, le=200000)
+
+
+@app.post("/api/ml/compare")
+def ml_compare(req: CompareRequest):
+    from lulc_fetch import ml
+
+    table = _table_path(req.table)
+    if req.task not in ("auto", "classification", "regression"):
+        raise HTTPException(400, "Unknown task")
+
+    def run(job):
+        return ml.compare(table, target=req.target, features=req.features, task=req.task, common=req.common,
+                          categorical=req.categorical, max_rows=req.max_rows)
+
+    return jobs.submit("compare", f"Compare models · {table.name}", {"source": "Classical ML"}, run).to_dict()
 
 
 @app.post("/api/ml/train")
@@ -918,7 +1064,8 @@ def ml_train(req: TrainRequest):
 
     def run(job):
         rep = ml.train(table, job.dir, target=req.target, features=req.features, model=req.model, task=req.task,
-                       params=req.params, common=req.common, name=req.name)
+                       params=req.params, common=req.common, name=req.name, categorical=req.categorical,
+                       tuning=req.tuning)
         MODEL_DIR.mkdir(exist_ok=True)
         tmp = Path(rep["path"])
         dest, i = MODEL_DIR / tmp.name, 2
@@ -926,6 +1073,10 @@ def ml_train(req: TrainRequest):
             dest = MODEL_DIR / f"{tmp.stem}_{i}.joblib"
             i += 1
         shutil.move(tmp, dest)
+        ev_tmp = tmp.with_suffix(".evaluation.html")
+        if ev_tmp.exists():
+            shutil.move(ev_tmp, dest.with_suffix(".evaluation.html"))
+            rep["evaluation_html"] = str(dest.with_suffix(".evaluation.html").relative_to(Path.cwd()))
         rep["path"] = str(dest.relative_to(Path.cwd()))
         rep["table"] = str(table.relative_to(Path.cwd()))
         import json as _json
@@ -972,11 +1123,28 @@ def model_file(path: str):
     return FileResponse(p, filename=p.name)
 
 
+@app.get("/api/models/evaluation")
+def model_evaluation(path: str, download: bool = False, rebuild: bool = False):
+    """The model's HTML evaluation report (rebuilt from the predictions stored in the model if missing)."""
+    from lulc_fetch import evaluation
+
+    p = _model_path(path)
+    html_path = p.with_suffix(".evaluation.html")
+    if rebuild or not html_path.exists():
+        try:
+            evaluation.report_for_model(p, html_path)
+        except ValueError as e:
+            raise HTTPException(404, str(e))
+    return FileResponse(html_path, media_type="text/html", filename=html_path.name if download else None,
+                        content_disposition_type="attachment" if download else "inline")
+
+
 @app.delete("/api/models")
 def delete_model(path: str):
     p = _model_path(path)
     p.unlink(missing_ok=True)
     Path(str(p) + ".json").unlink(missing_ok=True)
+    p.with_suffix(".evaluation.html").unlink(missing_ok=True)
     return {"ok": True}
 
 
