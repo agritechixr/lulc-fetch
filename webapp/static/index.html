@@ -656,6 +656,61 @@
       </div>
     </section>
 
+    <section id="tab-rasterml" class="tabpanel hidden">
+      <div class="card">
+        <h2><span class="step">1</span>Image <button type="button" class="tip" data-tip="Any raster layer: RGB photo, multispectral (Sentinel-2, Landsat), hyperspectral (100+ bands), SAR, or pixel embeddings such as Google AlphaEarth (64-D) or TESSERA (128-D). The tool works on the raster directly." aria-label="Help">i</button></h2>
+        <select id="rm-input"><option value="">Choose a raster layer…</option></select>
+        <div id="rm-info" class="hint"></div>
+        <div id="rm-kind" class="rm-kind hidden"></div>
+        <details class="an-details" id="rm-bands-wrap"><summary id="rm-bands-sum">Bands</summary>
+          <div class="row between" style="margin-top:6px;gap:6px;flex-wrap:wrap"><input id="rm-range" placeholder="e.g. 1-100, 120-180" style="flex:1;min-width:120px" title="Type band numbers / ranges and press Enter">
+            <span class="row tight"><button class="chip" id="rm-bands-all">All</button><button class="chip" id="rm-bands-none">None</button></span></div>
+          <div id="rm-bands" class="bands pca-bands"></div>
+        </details>
+        <label class="inline" style="margin-top:6px"><input type="checkbox" id="rm-refl"> Convert to reflectance <button type="button" class="tip" data-tip="Apply the layer's scale and offset (e.g. Sentinel-2 DN × 0.0001 − 0.1). The same conversion is applied when the map is made." aria-label="Help">i</button></label>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Ground truth <button type="button" class="tip" data-tip="Where the classes are known: a class raster (e.g. a land-cover map) or polygons / points (shapefile, GeoJSON, or drawn with Training samples) with a class attribute. Only the labelled pixels are used for training." aria-label="Help">i</button></h2>
+        <select id="rm-gt"></select>
+        <div id="rm-gt-raster" class="hidden"><label>Band<select id="rm-gt-band"></select></label></div>
+        <div id="rm-gt-vector" class="hidden"><label>Class attribute<select id="rm-gt-field"></select></label></div>
+        <p class="hint" id="rm-gt-classes"></p>
+        <div class="grid2">
+          <label>Training pixels per class <button type="button" class="tip" data-tip="Up to this many labelled pixels per class are used (balanced). More = slower but often a little better. 'All' uses every labelled pixel." aria-label="Help">i</button>
+            <select id="rm-pc"><option value="1000">1,000</option><option value="3000" selected>3,000</option><option value="10000">10,000</option><option value="30000">30,000</option><option value="0">All labelled pixels</option></select></label>
+          <label>Pixel size <button type="button" class="tip" data-tip="Native = the image's own resolution. Coarser averages blocks of pixels (faster on very large images)." aria-label="Help">i</button><select id="rm-factor"></select></label>
+        </div>
+        <div class="area-pick">
+          <label>Area <button type="button" class="tip" data-tip="Use only part of the image for training (and, if you untick the option below, for the map)." aria-label="Help">i</button><select id="rm-area"></select></label>
+          <p class="hint" id="rm-area-hint">The whole image is used.</p>
+          <label class="inline" style="margin-top:4px"><input type="checkbox" id="rm-map-whole" checked> Map the whole image (not only the area)</label>
+        </div>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Model <button type="button" class="tip" data-tip="Classical (non-deep-learning) classifiers. Models marked ★ suit the kind of image detected above. Every model handles any number of bands." aria-label="Help">i</button></h2>
+        <div class="model-grid" id="rm-models"></div>
+      </div>
+      <div class="card">
+        <div class="row between"><h2 style="margin:0"><span class="step">4</span>Settings</h2><button class="chip" id="rm-reset">Recommended settings</button></div>
+        <div id="rm-params"></div>
+        <div class="home-label" style="margin-top:12px">Preprocessing</div>
+        <div id="rm-prep"></div>
+        <label class="inline" style="margin-top:8px"><input type="checkbox" id="rm-tune"> Quick hyperparameter tuning <button type="button" class="tip" data-tip="Tries 12 parameter combinations with 3-fold cross-validation (grouped by polygon / spatial block, so it stays honest) and keeps the best. Slower." aria-label="Help">i</button></label>
+        <details class="an-details"><summary>Advanced (validation, class balancing, seed…)</summary><div id="rm-adv"></div></details>
+      </div>
+      <div class="card">
+        <h2><span class="step">5</span>Output</h2>
+        <div class="grid2">
+          <label>Map name<input id="rm-name" maxlength="80" value="classified"></label>
+          <label>Map pixel size<select id="rm-res"><option value="auto">Auto</option><option value="1">Native</option><option value="2">2× coarser</option><option value="4">4× coarser</option></select></label>
+        </div>
+        <label class="inline" style="margin-top:6px"><input type="checkbox" id="rm-conf" checked> Also make a confidence layer <button type="button" class="tip" data-tip="A second band with how sure the model is (0–100 %) for every pixel. Low confidence shows where more training samples would help." aria-label="Help">i</button></label>
+        <button class="btn primary big-btn" id="rm-run">Train &amp; classify</button>
+        <div id="rm-error" class="warn err hidden"></div>
+      </div>
+      <div id="rm-result" class="hidden"></div>
+    </section>
+
     <section id="tab-raster2table" class="tabpanel hidden">
       <div class="card">
         <h2><span class="step">1</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The raster to convert: GeoTIFF, Sentinel-2, Landsat, multispectral, hyperspectral (any number of bands) or SAR. Each pixel becomes one row and each band one column." aria-label="Help">i</button></h2>
@@ -831,6 +886,71 @@
     <p class="hint">Whole download / result folders are removed, never half of one. Running jobs are skipped. Layers that use deleted files must be added again.</p>
   </div>
   <div class="modal-foot"><button class="btn" data-close>Close</button><button class="btn primary" id="cc-go">Delete</button></div>
+</dialog>
+
+
+<!-- Field calculator -->
+<dialog id="dlg-calc" class="modal wide">
+  <div class="modal-head"><h3 id="fc-title">Field calculator</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <div class="fc-target">
+      <label class="inline"><input type="radio" name="fct" value="new" checked> Create a new field</label>
+      <span class="row tight"><input id="fc-name" placeholder="New field name" maxlength="80"><select id="fc-type" title="Type of the new field"><option value="auto">Type: automatic</option><option value="number">Decimal number</option><option value="integer">Whole number</option><option value="text">Text</option><option value="boolean">True / false</option></select></span>
+      <label class="inline"><input type="radio" name="fct" value="update"> Update an existing field</label>
+      <select id="fc-col"></select>
+    </div>
+    <label class="inline" style="margin-top:8px"><input type="checkbox" id="fc-only"> Only the rows matching the current search <span class="muted" id="fc-only-n"></span></label>
+    <div class="fc-grid">
+      <div>
+        <label>Expression <button type="button" class="tip" data-tip="Field names go in square brackets, text in quotes. Examples: [Production] / [Area] · iif([yield] > 3, 'high', 'low') · round($area_ha, 2) · concat([State], ' - ', [District]) · [crop] = 'rice' and [yield] > 2. A single = works for comparison." aria-label="Help">i</button>
+          <textarea id="fc-expr" rows="5" spellcheck="false" placeholder="e.g. [Production] / [Area]"></textarea></label>
+        <div class="fc-preview" id="fc-preview"></div>
+        <div class="home-label" style="margin:10px 0 4px">Examples</div><div id="fc-examples" class="fc-list"></div>
+      </div>
+      <div class="fc-help">
+        <div class="home-label" style="margin-top:0">Fields <span class="muted" style="text-transform:none;font-weight:400">(click to insert)</span></div><div id="fc-fields" class="fc-list"></div>
+        <div id="fc-geom-wrap"><div class="home-label">Geometry</div><div id="fc-geom" class="fc-list"></div></div>
+        <div class="home-label">Functions</div><div id="fc-funcs" class="fc-list"></div>
+        <div class="home-label">Operators</div><div class="fc-list"><button class="fc-chip" data-ins=" + " title="add / join text">+</button><button class="fc-chip" data-ins=" - " title="subtract">-</button><button class="fc-chip" data-ins=" * " title="multiply">*</button><button class="fc-chip" data-ins=" / " title="divide">/</button><button class="fc-chip" data-ins=" ** " title="power">**</button><button class="fc-chip" data-ins=" % " title="remainder">%</button><button class="fc-chip" data-ins=" = " title="equals">=</button><button class="fc-chip" data-ins=" != " title="not equal">!=</button><button class="fc-chip" data-ins=" &gt; " title="greater">&gt;</button><button class="fc-chip" data-ins=" &lt; " title="less">&lt;</button><button class="fc-chip" data-ins=" &gt;= " title="greater or equal">&gt;=</button><button class="fc-chip" data-ins=" &lt;= " title="less or equal">&lt;=</button><button class="fc-chip" data-ins=" and " title="both">and</button><button class="fc-chip" data-ins=" or " title="either">or</button><button class="fc-chip" data-ins="not " title="negate">not</button><button class="fc-chip" data-ins="( " title="bracket">(</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-foot"><span class="hint grow" id="fc-hint" style="margin:0"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="fc-apply">Apply</button></div>
+</dialog>
+
+
+<!-- Save edits -->
+<dialog id="dlg-save-edits" class="modal">
+  <div class="modal-head"><h3 id="se-title">Save changes</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <p id="se-summary" style="margin-top:0"></p>
+    <ul id="se-log" class="se-log"></ul>
+    <div class="warn" id="se-warn"></div>
+    <label style="margin-top:12px"><span id="se-new-label">Name of the new table</span><input id="se-name" maxlength="80"></label>
+    <p class="hint">Save as new keeps the original exactly as it was.</p>
+  </div>
+  <div class="modal-foot">
+    <button class="btn danger" id="se-discard" title="Throw away the changes; the original stays as it was">Discard changes</button>
+    <span class="grow"></span>
+    <button class="btn" data-close>Keep editing</button>
+    <button class="btn" id="se-new">Save as new</button>
+    <button class="btn primary warn-btn" id="se-overwrite">Overwrite</button>
+  </div>
+</dialog>
+
+<!-- Python editor -->
+<dialog id="dlg-py" class="modal wide">
+  <div class="modal-head"><h3>🐍 Python</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <p class="hint" id="py-vars" style="margin-top:0"></p>
+    <div class="row between" style="gap:8px"><select id="py-ex" style="flex:1"></select></div>
+    <textarea id="py-code" class="py-code" rows="12" spellcheck="false" autocomplete="off"></textarea>
+    <div id="py-summary" class="py-summary"></div>
+    <pre id="py-out" class="py-out hidden"></pre>
+    <div id="py-preview"></div>
+    <p class="hint">Runs on this computer in a separate process (stop it with Cancel). <b>Test</b> shows the result without changing anything; <b>Run &amp; apply</b> changes the working copy. Nothing reaches the original until you <b>Save</b>.</p>
+  </div>
+  <div class="modal-foot"><button class="btn" data-close>Close</button><button class="btn" id="py-test">▶ Test (no changes)</button><button class="btn primary" id="py-apply">Run &amp; apply</button></div>
 </dialog>
 
 <!-- Metadata modal -->

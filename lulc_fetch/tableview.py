@@ -236,3 +236,392 @@ def import_table(src: Path, dest_dir: Path, sheet: str | None = None) -> Path:
     out = free(f"{stem}.csv")
     pcsv.write_csv(t, out)
     return out
+
+
+# ------------------------------------------------------------------ editing (add / calculate / rename / delete fields, edit cells, rows)
+HISTORY_KEEP = 15
+
+
+def _forget(path: Path):
+    with _lock:
+        for cache in (_cache, _views):
+            for k in [k for k in cache if k[0] == str(path)]:
+                cache.pop(k, None)
+
+
+def _col_np(t: pa.Table, name: str) -> np.ndarray:
+    col = t[name]
+    kind = _kind(col.type)
+    if kind in ("integer", "number"):
+        return col.to_numpy(zero_copy_only=False).astype("float64")
+    if kind == "boolean":
+        return np.array(col.to_pylist(), dtype=object)
+    return np.array([None if v is None else str(v) if not isinstance(v, str) else v for v in col.to_pylist()], dtype=object)
+
+
+def _to_arrow(arr: np.ndarray, typ: str) -> pa.Array:
+    if typ in ("number", "integer"):
+        a = np.asarray(arr, dtype="float64")
+        mask = ~np.isfinite(a)
+        if typ == "integer":
+            return pa.array(np.where(mask, 0, a).astype("int64"), mask=mask, type=pa.int64())
+        return pa.array(a, mask=mask, type=pa.float64())
+    if typ == "boolean":
+        return pa.array([None if v is None else bool(v) for v in arr], type=pa.bool_())
+    return pa.array([None if v is None or (isinstance(v, float) and np.isnan(v)) else str(v) for v in arr], type=pa.string())
+
+
+def _data(t: pa.Table, names) -> dict:
+    return {n: _col_np(t, n) for n in names if n in t.column_names}
+
+
+def _coerce(value, kind: str):
+    if value is None or (isinstance(value, str) and value.strip() == ""):
+        return None
+    if kind in ("integer", "number"):
+        try:
+            v = float(str(value).replace(",", "")) if isinstance(value, str) else float(value)
+        except ValueError:
+            raise ValueError(f"'{value}' is not a number")
+        return round(v) if kind == "integer" else v
+    if kind == "boolean":
+        return str(value).strip().lower() in ("1", "true", "yes", "y")
+    return str(value)
+
+
+def _history_dir(path: Path) -> Path:
+    return path.parent / ".history" / path.name
+
+
+def _write(t: pa.Table, path: Path):
+    import shutil
+    hist = _history_dir(path)
+    hist.mkdir(parents=True, exist_ok=True)
+    n = max([int(p.stem) for p in hist.glob("*") if p.stem.isdigit()] + [0]) + 1
+    shutil.copy2(path, hist / f"{n:05d}{path.suffix}")
+    for old in sorted(hist.glob("*"))[:-HISTORY_KEEP]:
+        old.unlink(missing_ok=True)
+    tmp = path.with_name(path.name + ".writing")
+    if path.suffix.lower() == ".parquet":
+        import pyarrow.parquet as pq
+        pq.write_table(t, tmp)
+    else:
+        import pyarrow.csv as pcsv
+        pcsv.write_csv(t, tmp)
+    tmp.replace(path)
+    _forget(path)
+
+
+def _sync_sidecar(path: Path, t: pa.Table, renamed: dict | None = None, deleted: set | None = None):
+    import json
+    side = Path(str(path) + ".json")
+    if not side.exists():
+        return
+    try:
+        meta = json.loads(side.read_text())
+    except ValueError:
+        return
+    renamed, deleted = renamed or {}, deleted or set()
+    for key in ("band_columns", "label_columns", "columns"):
+        if isinstance(meta.get(key), list):
+            meta[key] = [renamed.get(c, c) for c in meta[key] if c not in deleted]
+    for key in ("target", "group_column", "cluster_column"):
+        if meta.get(key) in deleted:
+            meta[key] = None
+        elif meta.get(key) in renamed:
+            meta[key] = renamed[meta[key]]
+    meta.update(rows=t.num_rows, columns=t.column_names)
+    side.write_text(json.dumps(meta, indent=1, default=str))
+
+
+def edit(path: str | Path, ops: list[dict]) -> dict:
+    """Apply edit operations to a table file (one undo step for the whole batch)."""
+    from . import fieldcalc
+    path = Path(path)
+    t = load(path)
+    renamed, deleted, notes = {}, set(), []
+    for op in ops:
+        kind = op.get("op")
+        n = t.num_rows
+        if kind == "set_cells":
+            by_col: dict[str, list] = {}
+            for c in op.get("cells", []):
+                by_col.setdefault(c["col"], []).append(c)
+            for col, cells in by_col.items():
+                if col not in t.column_names:
+                    raise ValueError(f"No field called {col}")
+                ck = _kind(t.schema.field(col).type)
+                ck = "text" if ck == "date" else ck
+                arr = _col_np(t, col)
+                for c in cells:
+                    r = int(c["row"])
+                    if not 0 <= r < n:
+                        raise ValueError(f"Row {r + 1} doesn't exist")
+                    v = _coerce(c.get("value"), ck)
+                    arr[r] = (np.nan if v is None else v) if ck in ("integer", "number") else v
+                t = t.set_column(t.column_names.index(col), col, _to_arrow(arr, ck))
+        elif kind in ("add_field", "calc"):
+            col = (op.get("name") or op.get("column") or "").strip()
+            if not col:
+                raise ValueError("Give the field a name")
+            exists = col in t.column_names
+            if kind == "add_field" and exists:
+                raise ValueError(f"There is already a field called {col}")
+            expr = (op.get("expression") or "").strip()
+            if expr:
+                used, geoms = fieldcalc.referenced(expr, t.column_names)
+                if geoms:
+                    raise ValueError("Geometry values ($area …) only work on vector layers")
+                vals, typ = fieldcalc.evaluate(expr, _data(t, used), n)
+            else:
+                vals, typ = np.full(n, None, dtype=object), "text"
+            want = op.get("type") or "auto"
+            if want != "auto":
+                vals, typ = fieldcalc.cast(vals, want, n)
+            elif exists:   # keep the existing field's type when updating it
+                ek = _kind(t.schema.field(col).type)
+                if ek in ("integer", "number", "text", "boolean") and ek != typ:
+                    vals, typ = fieldcalc.cast(vals, ek, n)
+            if op.get("q"):
+                idx = _view(path, t, op["q"], None, False)
+                base = _col_np(t, col) if exists else np.full(n, np.nan if typ in ("number", "integer") else None, dtype="float64" if typ in ("number", "integer") else object)
+                if typ in ("number", "integer"):
+                    base = base.astype("float64") if base.dtype != object else fieldcalc.cast(base, "number", n)[0]
+                else:
+                    base = base.astype(object)
+                base[idx] = vals[idx]
+                vals = base
+            arr = _to_arrow(vals, typ)
+            t = t.set_column(t.column_names.index(col), col, arr) if exists else t.append_column(col, arr)
+        elif kind == "rename_field":
+            old, new = op["old"], (op.get("new") or "").strip()
+            if old not in t.column_names:
+                raise ValueError(f"No field called {old}")
+            if not new or new in t.column_names:
+                raise ValueError("Choose a new, unused name")
+            t = t.rename_columns([new if c == old else c for c in t.column_names])
+            renamed[old] = new
+        elif kind == "delete_field":
+            if op["name"] not in t.column_names:
+                raise ValueError(f"No field called {op['name']}")
+            if t.num_columns == 1:
+                raise ValueError("A table needs at least one field")
+            t = t.drop_columns([op["name"]])
+            deleted.add(op["name"])
+        elif kind == "cast":
+            col = op["column"]
+            before = _col_np(t, col)
+            vals, typ = fieldcalc.cast(before, op["type"], n)
+            had = ~fieldcalc._isnull(before, n)
+            now = np.isfinite(vals) if typ in ("number", "integer") else ~fieldcalc._isnull(vals, n)
+            bad = int(np.sum(had & ~now))
+            t = t.set_column(t.column_names.index(col), col, _to_arrow(vals, typ))
+            if bad > 0:
+                notes.append(f"{bad} value(s) of {col} couldn't be converted and are now empty")
+            if typ == "text" and path.suffix.lower() != ".parquet":
+                notes.append("CSV files don't store column types: numbers kept as text are read back as numbers. Use Parquet to keep the type.")
+        elif kind == "delete_rows":
+            if op.get("q"):
+                drop = set(_view(path, t, op["q"], None, False).tolist())
+            else:
+                drop = {int(r) for r in op.get("rows", [])}
+            keep = np.array([i for i in range(n) if i not in drop], dtype=np.int64)
+            t = t.take(pa.array(keep))
+            notes.append(f"Deleted {n - len(keep):,} row(s)")
+        elif kind == "add_row":
+            vals = op.get("values") or {}
+            row = {}
+            for f in t.schema:
+                k = _kind(f.type)
+                v = _coerce(vals.get(f.name), "text" if k == "date" else k)
+                row[f.name] = pa.array([v], type=f.type) if k != "date" else pa.array([None], type=f.type)
+            t = pa.concat_tables([t, pa.table(row, schema=t.schema)])
+        else:
+            raise ValueError(f"Unknown edit {kind}")
+        _forget(path)
+    _write(t, path)
+    _sync_sidecar(path, t, renamed, deleted)
+    return {"rows": t.num_rows, "columns": t.column_names, "undo": len(list(_history_dir(path).glob("*"))), "notes": notes}
+
+
+def undo(path: str | Path) -> dict:
+    path = Path(path)
+    hist = sorted(_history_dir(path).glob("*"))
+    if not hist:
+        raise ValueError("Nothing to undo")
+    hist[-1].replace(path)
+    _forget(path)
+    t = load(path)
+    _sync_sidecar(path, t)
+    return {"rows": t.num_rows, "columns": t.column_names, "undo": len(hist) - 1}
+
+
+def undo_count(path: str | Path) -> int:
+    return len(list(_history_dir(Path(path)).glob("*")))
+
+
+def calc_preview(path: str | Path, expression: str, limit: int = 8) -> dict:
+    from . import fieldcalc
+    t = load(Path(path))
+    used, geoms = fieldcalc.referenced(expression, t.column_names)
+    if geoms:
+        raise fieldcalc.CalcError("Geometry values ($area …) only work on vector layers")
+    sub = t.slice(0, min(limit, t.num_rows))
+    vals, typ = fieldcalc.evaluate(expression, _data(sub, used), sub.num_rows)
+    return {"values": [_safe(v.item() if hasattr(v, "item") else v) for v in vals], "type": typ}
+
+
+def derive(path: str | Path, query: str, out_dir: Path, name: str) -> Path:
+    """Save the rows matching a search / filter as a new table."""
+    import shutil
+    path = Path(path)
+    t = load(path)
+    idx = _view(path, t, query or "", None, False)
+    sub = t.take(pa.array(idx, type=pa.int64()))
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("_") or "selection"
+    out, i = out_dir / f"{stem}{path.suffix}", 2
+    while out.exists():
+        out = out_dir / f"{stem}_{i}{path.suffix}"
+        i += 1
+    if path.suffix.lower() == ".parquet":
+        import pyarrow.parquet as pq
+        pq.write_table(sub, out)
+    else:
+        import pyarrow.csv as pcsv
+        pcsv.write_csv(sub, out)
+    side = Path(str(path) + ".json")
+    if side.exists():
+        shutil.copy2(side, Path(str(out) + ".json"))
+        _sync_sidecar(out, sub)
+    return out
+
+
+# ------------------------------------------------------------------ edit sessions: changes go to a working copy until Save
+EDIT_DIR = ".edit"
+
+
+def _session_paths(path: Path):
+    work = path.parent / EDIT_DIR / f"{path.stem}__{path.suffix.lstrip('.')}.parquet"
+    return work, Path(str(work) + ".session.json")
+
+
+def _original_of(work: Path) -> Path:
+    import json
+    sess = json.loads(Path(str(work) + ".session.json").read_text())
+    return work.parent.parent / sess["original"]
+
+
+def is_work(path: str | Path) -> bool:
+    return Path(path).parent.name == EDIT_DIR
+
+
+def edit_start(path: str | Path) -> dict:
+    """Open (or resume) an edit session: a Parquet working copy next to the table, in tables/.edit/."""
+    import json
+    import shutil
+    import time as _t
+
+    import pyarrow.parquet as pq
+    path = Path(path)
+    work, sess = _session_paths(path)
+    resumed = work.exists() and sess.exists()
+    if not resumed:
+        work.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(load(path), work)
+        side = Path(str(path) + ".json")
+        if side.exists():
+            shutil.copy2(side, Path(str(work) + ".json"))
+        shutil.rmtree(_history_dir(work), ignore_errors=True)
+        sess.write_text(json.dumps({"original": path.name, "started": _t.strftime("%Y-%m-%d %H:%M"), "log": []}))
+    _forget(work)
+    info = json.loads(sess.read_text())
+    return {"work": work, "original": path, "resumed": resumed, "changes": undo_count(work), "log": info.get("log", []),
+            "started": info.get("started")}
+
+
+def edit_log(work: str | Path, entries: list[str] | None = None, pop: int = 0) -> list[str]:
+    """The human-readable list of changes in the session (shown in the Save dialog)."""
+    import json
+    sess = Path(str(work) + ".session.json")
+    info = json.loads(sess.read_text())
+    log = info.get("log", [])
+    if pop:
+        log = log[:-pop] if pop < len(log) else []
+    log += entries or []
+    info["log"] = log[-200:]
+    sess.write_text(json.dumps(info))
+    return info["log"]
+
+
+def edit_save(work: str | Path, mode: str = "overwrite", name: str | None = None) -> Path:
+    """Write the working copy back: over the original (its previous version is kept for Restore) or as a new table."""
+    import json
+
+    import pyarrow.parquet as pq
+    work = Path(work)
+    orig = _original_of(work)
+    t = pq.read_table(work)
+    if mode == "overwrite":
+        if not orig.exists():
+            raise ValueError("The original table no longer exists. Save it as a new table instead.")
+        _write(t, orig)           # archives the previous version in .history (Restore previous version)
+        dest = orig
+    else:
+        stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", (name or f"{orig.stem}_edited")).strip("_") or f"{orig.stem}_edited"
+        dest, i = orig.parent / f"{stem}{orig.suffix}", 2
+        while dest.exists():
+            dest = orig.parent / f"{stem}_{i}{orig.suffix}"
+            i += 1
+        if dest.suffix.lower() == ".parquet":
+            pq.write_table(t, dest)
+        else:
+            import pyarrow.csv as pcsv
+            pcsv.write_csv(t, dest)
+    wside = Path(str(work) + ".json")
+    if wside.exists():
+        meta = json.loads(wside.read_text())
+        meta.update(rows=t.num_rows, columns=t.column_names)
+        Path(str(dest) + ".json").write_text(json.dumps(meta, indent=1, default=str))
+    _forget(dest)
+    edit_discard(work)
+    return dest
+
+
+def edit_discard(work: str | Path):
+    import shutil
+    work = Path(work)
+    if not is_work(work):
+        raise ValueError("Not an edit session")
+    for p in (work, Path(str(work) + ".json"), Path(str(work) + ".session.json")):
+        p.unlink(missing_ok=True)
+    shutil.rmtree(_history_dir(work), ignore_errors=True)
+    _forget(work)
+
+
+def restore_previous(path: str | Path) -> dict:
+    """Bring back the version saved before the last overwrite (or edit) of a table."""
+    return undo(path)
+
+
+def to_parquet_for_python(path: str | Path, out: Path) -> Path:
+    import pyarrow.parquet as pq
+    t = load(Path(path))
+    t = t.append_column("__row__", pa.array(np.arange(t.num_rows, dtype="float64")))
+    pq.write_table(t, out)
+    return out
+
+
+def replace_from_python(path: str | Path, out_parquet: str | Path) -> dict:
+    """Use the Python script's result as the new version of the (working) table: one undo step."""
+    import pyarrow.parquet as pq
+    path = Path(path)
+    old = load(path)
+    t = pq.read_table(out_parquet)
+    if "__row__" in t.column_names:
+        t = t.drop_columns(["__row__"])
+    if t.num_columns == 0:
+        raise ValueError("The script removed every column")
+    _write(t, path)
+    deleted = set(old.column_names) - set(t.column_names)
+    _sync_sidecar(path, t, None, deleted)
+    return {"rows": t.num_rows, "columns": t.column_names, "undo": undo_count(path)}

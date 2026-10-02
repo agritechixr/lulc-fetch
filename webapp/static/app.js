@@ -182,6 +182,7 @@
     home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     raster: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
     vector: '<path d="M4 18l5-12 7 4 4 8z"/>',
+    rasterml: '<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1" opacity=".55"/><rect x="3" y="13" width="8" height="8" rx="1" opacity=".55"/><rect x="13" y="13" width="8" height="8" rx="1"/><path d="M5.5 7h3M15.5 17h3"/>',
     cluster: '<circle cx="7" cy="8" r="1.6"/><circle cx="10" cy="6" r="1.6"/><circle cx="9" cy="10.5" r="1.6"/><circle cx="16" cy="15" r="1.6"/><circle cx="18.5" cy="12.5" r="1.6"/><circle cx="15" cy="18" r="1.6"/><circle cx="18" cy="18.5" r="1.6"/><path d="M4.5 4.5a6 6 0 0 1 8 7.5M12 19a6 6 0 0 0 9-8" opacity=".55"/>',
     tsne: '<circle cx="6" cy="7" r="1.5"/><circle cx="8" cy="9.5" r="1.5"/><circle cx="5" cy="11" r="1.5"/><circle cx="16" cy="6" r="1.5"/><circle cx="18" cy="8.5" r="1.5"/><circle cx="12" cy="17" r="1.5"/><circle cx="14.5" cy="18.5" r="1.5"/><circle cx="11" cy="20" r="1.5"/><path d="M3 3v18h18" opacity=".55"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>',
@@ -195,6 +196,7 @@
     { id: "stack", title: "Stack layers", icon: "stack", subtitle: "Combine bands from several layers (S2, S1, DEM, indices…) onto one grid" },
     { id: "raster2table", title: "Raster → table", icon: "table", subtitle: "Turn any image (multispectral, hyperspectral, SAR) into a table, with optional ground-truth labels" },
     { id: "ml", title: "Classical ML (tabular data)", icon: "ml", subtitle: "Machine-learning tools that work on tables" },
+    { id: "rasterml", title: "Classical ML for raster", icon: "rasterml", subtitle: "Train SVM, Maximum Likelihood, Random Forest, SAM and more straight from an image and ground truth, and map it: RGB, multispectral, hyperspectral or embeddings" },
     { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
   ];
@@ -229,6 +231,7 @@
     if (tool.id === "pca" && pcaState.schema) refreshPcaInputs();
     if (tool.id === "ml") { openMlSub(mlSub); }
     if (tool.id === "raster2table") refreshRtInputs();
+    if (tool.id === "rasterml") refreshRm();
     if (tool.id === "samples") renderSamples();
     if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
@@ -602,6 +605,7 @@
     refreshAnalyzeInputs();
     if (pcaState.schema) refreshPcaInputs();
     if (currentTool === "raster2table") refreshRtInputs();
+    if (currentTool === "rasterml" && rm.ready) refreshRm();
     if (currentTool === "samples") renderSamples();
     if (currentTool === "stack") refreshStack();
     if (currentTool === "ml" && mlSub === "predict" && mlx.schema) refreshPredictRasters();
@@ -620,7 +624,8 @@
   function saveLayers() {
     try {
       if (!inProject()) {
-        const keep = layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, ...rest }) => rest);
+        const keep = layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, _original, ...rest }) =>
+          _original !== undefined ? { ...rest, geojson: { ...rest.geojson, features: JSON.parse(_original) } } : rest);
         const text = JSON.stringify(keep);
         if (text.length < 4e6) localStorage.setItem("lulc-layers", text);
       }
@@ -793,6 +798,7 @@
       ["Train a model with this table", () => { switchTool("ml"); openMlSub("train"); refreshTrainTables(it.path); }],
       "-",
       ["Save to folder…", () => saveItemToFolder(it)],
+      ["Restore previous version", () => restoreTable(it)],
       ["Download", () => { location.href = `/api/tables/file?path=${encodeURIComponent(it.path)}`; }],
       "-",
       ["Remove from Contents", () => removeItem(it.id), "danger"],
@@ -849,9 +855,16 @@
     if (!viewerOpen()) setViewer(true); else renderViewer();
     return t;
   }
-  function closeTab(key) {
+  function closeTab(key, force = false) {
     const i = vw.tabs.findIndex((t) => t.key === key);
     if (i < 0) return;
+    const tt = vw.tabs[i];
+    if (tt.edit && !force) {
+      if (isDirty(tt)) { vw.active = tt.key; renderViewer(); askSaveEdits(tt); return; }
+      finishEdit(tt, "discard").catch(() => {});
+      return;
+    }
+    if (tt.edit && force && tt.kind === "attr") { const l = getLayer(tt.layerId); if (l && l._original !== undefined) { l.geojson.features = JSON.parse(l._original); delete l._original; } }
     vw.tabs.splice(i, 1);
     if (vw.active === key) vw.active = vw.tabs[Math.max(0, i - 1)]?.key || null;
     clearRowMarker();
@@ -888,12 +901,31 @@
         <span class="vt-pager"><button data-pg="first" title="First page">«</button><button data-pg="prev" title="Previous page">‹</button><button data-pg="next" title="Next page">›</button><button data-pg="last" title="Last page">»</button>
           <select class="vt-limit" title="Rows per page">${[50, 100, 250, 1000].map((n) => `<option ${n === t.limit ? "selected" : ""}>${n}</option>`).join("")}</select></span>
         <span class="grow"></span>
+        <button class="btn small vt-edit-btn ${t.edit ? "on" : ""}" data-act="edit" title="Edit: add / calculate / rename / delete fields, edit cells, delete rows">✎ Edit</button>
         ${isAttr ? `<button class="btn small" data-act="zoomlayer">Zoom to layer</button>`
           : `<button class="btn small hidden" data-act="points" title="Add the rows as points on the map (uses the current search)">Show on map</button>
              <button class="btn small" data-act="train" title="Open Train a model with this table">Train a model</button>
              <a class="btn small" href="/api/tables/file?path=${encodeURIComponent(t.path)}" download title="Download the file">⬇</a>`}
       </div>
+      <div class="vt-editbar ${t.edit ? "" : "hidden"}">
+        <button class="btn small" data-ed="addfield" title="Add a new field (column), empty or calculated">+ Add field</button>
+        <button class="btn small" data-ed="calc" title="Calculate values with an expression (new or existing field)">ƒx Field calculator</button>
+        ${isAttr ? "" : `<button class="btn small" data-ed="addrow" title="Append an empty row at the end">+ Add row</button>`}
+        <button class="btn small danger" data-ed="delrows" disabled title="Delete the ticked rows">Delete selected</button>
+        <button class="btn small" data-ed="derive" title="Save the rows matching the current search as a new ${isAttr ? "layer" : "table"}">New ${isAttr ? "layer" : "table"} from filtered rows</button>
+        <span class="grow"></span>
+        <button class="btn small" data-ed="python" title="Change the ${isAttr ? "attributes" : "table"} with Python (pandas)">🐍 Python</button>
+        <span class="vt-pending"><span class="vt-pending-n">No changes yet</span></span>
+        <button class="btn small" data-ed="undo" title="Undo the last change">↶ Undo</button>
+        <button class="btn small" data-ed="discard" title="Throw away all changes since you started editing">Discard</button>
+        <button class="btn small primary" data-ed="save" title="Save the changes: over the original or as a new ${isAttr ? "layer" : "table"}">💾 Save…</button>
+        <span class="hint vt-edit-hint" style="margin:0">Double-click a cell to edit · ⋯ on a column for more</span>
+      </div>
       <div class="vt-wrap"><div class="vt-content"></div></div>`;
+    t.sel ||= new Set(); t.pending ||= new Map();
+    $('[data-act="edit"]', body).onclick = () => toggleEdit(t);
+    $$("[data-ed]", body).forEach((b) => b.onclick = () => editAction(t, b.dataset.ed));
+    updateEditBar(t);
     const input = $(".vt-search input", body);
     let deb = 0;
     input.oninput = () => { clearTimeout(deb); deb = setTimeout(() => { t.q = input.value; t.offset = 0; t.stats = null; loadTab(t); }, 300); };
@@ -954,22 +986,29 @@
     count.innerHTML = `<b>${from.toLocaleString()}–${to.toLocaleString()}</b> of ${d.filtered.toLocaleString()} rows${d.filtered !== d.total ? ` <span class="muted">(filtered from ${d.total.toLocaleString()})</span>` : ""} · ${d.columns.length} columns`;
     $$(".vt-pager [data-pg]", body).forEach((b) => b.disabled = ["first", "prev"].includes(b.dataset.pg) ? d.offset === 0 : to >= d.filtered);
     const num = d.types.map((ty) => ty === "integer" || ty === "number");
-    content.innerHTML = d.rows.length ? `<table class="vt"><thead><tr><th class="rn">#</th>${d.columns.map((c, i) =>
+    const ed = !!t.edit, pend = t.pending || new Map();
+    const cell = (rid, i, v) => { const key = `${rid}|${d.columns[i]}`; return pend.has(key) ? { v: pend.get(key), dirty: true } : { v, dirty: false }; };
+    content.innerHTML = d.rows.length ? `<table class="vt ${ed ? "editing" : ""}"><thead><tr>${ed ? `<th class="ck"><input type="checkbox" data-ckall title="Select all rows on this page"></th>` : ""}<th class="rn">#</th>${d.columns.map((c, i) =>
       `<th data-col="${esc(c)}" class="${num[i] ? "num" : ""} ${t.sort === c ? "sorted" : ""}" title="${esc(c)} (${d.types[i]}). Click to sort">
-        <span class="th-n">${esc(c)}</span><i class="ty">${TYPE_TAG[d.types[i]] || ""}</i><i class="arr">${t.sort === c ? (t.desc ? "▼" : "▲") : "↕"}</i></th>`).join("")}</tr></thead>
-      <tbody>${d.rows.map((r, k) => `<tr data-rid="${d.row_ids[k]}" class="${t.selRow === d.row_ids[k] ? "sel" : ""}"><td class="rn">${d.row_ids[k] + 1}</td>${r.map((v, i) =>
-        `<td class="${num[i] ? "num" : ""}">${fmtCell(v, d.types[i])}</td>`).join("")}</tr>`).join("")}</tbody></table>`
-      : `<div class="vw-empty small"><b>No rows match</b><span>Clear the search or change the filter.</span></div>`;
-    $$("th[data-col]", content).forEach((th) => th.onclick = () => {
+        <span class="th-n">${esc(c)}</span><i class="ty">${TYPE_TAG[d.types[i]] || ""}</i><i class="arr">${t.sort === c ? (t.desc ? "▼" : "▲") : "↕"}</i>${ed ? `<button class="th-menu" data-colmenu="${esc(c)}" title="Field options">⋯</button>` : ""}</th>`).join("")}</tr></thead>
+      <tbody>${d.rows.map((r, k) => { const rid = d.row_ids[k]; return `<tr data-rid="${rid}" class="${t.selRow === rid ? "sel" : ""} ${t.sel?.has(rid) ? "picked" : ""}">${ed ? `<td class="ck"><input type="checkbox" data-ck ${t.sel?.has(rid) ? "checked" : ""}></td>` : ""}<td class="rn">${rid + 1}</td>${r.map((v, i) => {
+        const c = cell(rid, i, v);
+        return `<td data-c="${i}" class="${num[i] ? "num" : ""} ${c.dirty ? "dirty" : ""}">${fmtCell(c.v, d.types[i])}</td>`; }).join("")}</tr>`; }).join("")}</tbody></table>`
+      : `<div class="vw-empty small"><b>No rows match</b><span>Clear the search or change the filter${ed && t.kind !== "attr" ? ", or add a row" : ""}.</span></div>`;
+    if (ed) wireEditing(t, d, content);
+    $$("th[data-col]", content).forEach((th) => th.onclick = (e) => {
+      if (e.target.closest(".th-menu")) return;
       const c = th.dataset.col;
       if (t.sort !== c) { t.sort = c; t.desc = false; } else if (!t.desc) t.desc = true; else { t.sort = null; t.desc = false; }
       t.offset = 0; loadTab(t);
     });
-    $$("tbody tr", content).forEach((tr) => tr.onclick = () => {
+    $$("tbody tr", content).forEach((tr) => tr.onclick = (e) => {
+      if (e.target.closest(".ck, input, .cell-edit")) return;
       t.selRow = +tr.dataset.rid;
       $$("tbody tr", content).forEach((x) => x.classList.toggle("sel", x === tr));
       rowToMap(t, d, +tr.dataset.rid, [...d.rows[[...tr.parentNode.children].indexOf(tr)]]);
     });
+    updateEditBar(t);
   }
 
   function drawStats(t, content, count) {
@@ -1059,6 +1098,552 @@
     if (l.type !== "vector") return;
     openTab({ key: "attr:" + l.id, kind: "attr", title: `${l.name} · attributes`, layerId: l.id });
   }
+
+  // ------------------------------------------------------------------ editing tables and attribute tables
+  // Tables (files) are edited on the server (one undo step per change; cell edits are batched until Save).
+  // Vector attribute tables are edited in the browser (immediately, with their own undo history).
+  const isDirty = (t) => !!(t.pending?.size || t.log?.length);
+  async function toggleEdit(t) {
+    try {
+      if (!t.edit) return await startEdit(t);
+      if (isDirty(t)) return await askSaveEdits(t);
+      await finishEdit(t, "discard");
+    } catch (e) { toast(e.message, true); }
+  }
+  async function startEdit(t) {
+    t.sel = new Set(); t.pending = new Map(); t.hist = [];
+    if (t.kind === "attr") {
+      const l = editLayer(t);
+      l._original = JSON.stringify(l.geojson.features);   // until Save, the stored / project version stays the original
+      t.log = [];
+    } else {
+      const r = await api("/api/tables/edit/start", { method: "POST", json: { path: t.path } });
+      t.origPath = t.path; t.path = r.work; t.log = r.log || [];
+      t.data = null; t.stats = null;
+      if (r.resumed && t.log.length) toast(`Your unsaved changes from ${r.started} were kept: save or discard them`);
+    }
+    t.edit = true;
+    renderViewer();
+  }
+  // overwrite | new | discard
+  async function finishEdit(t, mode, name) {
+    if (t.kind === "attr") {
+      const l = editLayer(t);
+      if (l && l._original !== undefined) {
+        if (mode === "discard") l.geojson.features = JSON.parse(l._original);
+        else if (mode === "new") {
+          const edited = l.geojson.features;
+          l.geojson.features = JSON.parse(l._original);
+          addVectorLayer({ type: "FeatureCollection", features: edited }, name || `${l.name}_edited`, { zoom: false });
+        }
+        delete l._original;
+        buildLeaflet(l); restack(); renderContents(); saveLayers();
+      }
+    } else {
+      if (mode !== "discard" && t.pending?.size) await tableOps(t, [], `Edited ${t.pending.size} cell(s)`, { silent: true });
+      if (mode === "discard") await api("/api/tables/edit/discard", { method: "POST", json: { path: t.path } });
+      else {
+        const r = await api("/api/tables/edit/save", { method: "POST", json: { path: t.path, mode, name } });
+        if (mode === "new") addItem({ kind: "table", name: r.name, path: r.path });
+      }
+      t.path = t.origPath || t.path;
+    }
+    t.edit = false; t.log = []; t.hist = []; t.pending = new Map(); t.sel = new Set(); t.data = null; t.stats = null;
+    renderViewer();
+    if (t.kind !== "attr") {
+      const it = dataItems.find((d) => d.path === t.path);
+      if (it && t.data) { it.rows = t.data.total; it.cols = t.data.columns.length; saveItems(); renderItems(); }
+    }
+    toast(mode === "discard" ? "Changes discarded: the original is unchanged" : mode === "new" ? `Saved as a new ${t.kind === "attr" ? "layer" : "table"}` : "Changes saved");
+  }
+  // the Save dialog: lists the changes and warns before overwriting the existing table / layer
+  function askSaveEdits(t) {
+    const isAttr = t.kind === "attr", l = isAttr ? editLayer(t) : null;
+    const what = isAttr ? l?.name : (t.origPath || t.path).split("/").pop();
+    const n = (t.log?.length || 0) + (t.pending?.size ? 1 : 0);
+    $("#se-title").textContent = `Save changes to ${what}`;
+    $("#se-summary").innerHTML = `<b>${n}</b> change${n === 1 ? "" : "s"} since you started editing:`;
+    $("#se-log").innerHTML = [...(t.log || []), ...(t.pending?.size ? [`Edited ${t.pending.size} cell(s) (not yet applied)`] : [])].map((x) => `<li>${esc(x)}</li>`).join("") || "<li>No changes</li>";
+    $("#se-warn").innerHTML = isAttr
+      ? `⚠ <b>Overwrite</b> applies these changes to the existing layer <b>${esc(what)}</b> in Contents${inProject() ? " and in the project" : ""}. This can't be undone afterwards. The original file on your computer (e.g. the shapefile you added) is not changed: use right-click ▸ <i>Save to folder…</i> to write a new file.`
+      : `⚠ <b>Overwrite</b> applies these changes to the existing table <b>${esc(what)}</b>. Tools that use it (Train a model, Clustering …) will see the new version. The previous version is kept: right-click the table ▸ <i>Restore previous version</i>.`;
+    $("#se-name").value = `${what.replace(/\.[^.]+$/, "")}_edited`;
+    $("#se-new-label").textContent = isAttr ? "Name of the new layer" : "Name of the new table";
+    $("#se-overwrite").textContent = `Overwrite ${what}`;
+    $("#dlg-save-edits").showModal();
+    const go = (mode) => async () => {
+      if (mode === "discard" && !confirm("Throw away all changes? The original stays as it was.")) return;
+      const name = $("#se-name").value.trim();
+      if (mode === "new" && !name) return toast("Give the new one a name", true);
+      $("#dlg-save-edits").close();
+      try { await finishEdit(t, mode, name); } catch (e) { toast(e.message, true); }
+    };
+    $("#se-overwrite").onclick = go("overwrite");
+    $("#se-new").onclick = go("new");
+    $("#se-discard").onclick = go("discard");
+  }
+  function updateEditBar(t) {
+    const body = $("#viewer-body");
+    if (!body || vw.active !== t.key) return;
+    const del = $('[data-ed="delrows"]', body);
+    if (del) { del.disabled = !t.sel?.size; del.textContent = t.sel?.size ? `Delete ${t.sel.size} selected` : "Delete selected"; }
+    const n = (t.log?.length || 0) + (t.pending?.size || 0), pend = $(".vt-pending", body);
+    if (pend) {
+      pend.classList.toggle("dirty", n > 0);
+      $(".vt-pending-n", body).innerHTML = n ? `● <b>${n}</b> unsaved change${n === 1 ? "" : "s"}` : "No changes yet";
+    }
+    $$('[data-ed="save"], [data-ed="discard"]', body).forEach((b) => b.disabled = !n);
+    const undo = $('[data-ed="undo"]', body);
+    if (undo) undo.disabled = t.kind === "attr" ? !t.hist?.length : !(t.data?.undo || t.pending?.size);
+  }
+  const editLayer = (t) => getLayer(t.layerId);
+
+  async function editAction(t, act) {
+    try {
+      if (act === "addfield") return openCalc(t, { mode: "new", title: "Add field" });
+      if (act === "calc") return openCalc(t, { mode: t.data?.columns?.length ? "update" : "new" });
+      if (act === "addrow") return await tableOps(t, [{ op: "add_row", values: {} }], "Added a row");
+      if (act === "delrows") {
+        const ids = [...t.sel];
+        if (!ids.length || !confirm(`Delete ${ids.length} row(s)? (Undo is available.)`)) return;
+        return t.kind === "attr" ? attrDeleteRows(t, ids) : await tableOps(t, [{ op: "delete_rows", rows: ids }], `Deleted ${ids.length} row(s)`);
+      }
+      if (act === "derive") return await deriveFiltered(t);
+      if (act === "undo") return t.kind === "attr" ? attrUndo(t) : await tableUndo(t);
+      if (act === "save") return askSaveEdits(t);
+      if (act === "discard") { if (confirm("Throw away all changes since you started editing? The original stays as it was.")) await finishEdit(t, "discard"); return; }
+      if (act === "python") return openPython(t);
+    } catch (e) { toast(e.message, true); }
+  }
+
+  // ---- tables on the server
+  async function tableOps(t, ops, msg, { silent = false } = {}) {
+    const cellsMsg = t.pending?.size ? `Edited ${t.pending.size} cell(s)` : null;
+    if (t.pending?.size) {
+      const cells = [...t.pending.entries()].map(([k, value]) => { const i = k.indexOf("|"); return { row: +k.slice(0, i), col: k.slice(i + 1), value }; });
+      ops = [{ op: "set_cells", cells }, ...ops];
+    }
+    if (!ops.length) return;
+    const r = await api("/api/tables/edit", { method: "POST", json: { path: t.path, ops } });
+    t.pending.clear(); t.sel = new Set(); t.data = null; t.stats = null;
+    const it = dataItems.find((d) => d.path === t.path);
+    if (it) { it.rows = r.rows; it.cols = r.columns.length; saveItems(); renderItems(); }
+    const entries = [cellsMsg, ops.length > (cellsMsg ? 1 : 0) ? msg : null].filter(Boolean);
+    t.log = [...(t.log || []), ...entries];
+    if (entries.length) api("/api/tables/edit/log", { method: "POST", json: { path: t.path, add: entries } }).catch(() => {});
+    await loadTab(t);
+    if (!silent) toast(msg + (r.notes?.length ? ` · ${r.notes.join(" · ")}` : ""));
+  }
+  async function tableUndo(t) {
+    if (t.pending?.size) { t.pending.clear(); drawTable(t); return toast("Unsaved cell edits discarded"); }
+    const r = await api("/api/tables/undo", { method: "POST", json: { path: t.path } });
+    t.log = (t.log || []).slice(0, -1);
+    api("/api/tables/edit/log", { method: "POST", json: { path: t.path, pop: 1 } }).catch(() => {});
+    t.data = null; t.stats = null; t.sel = new Set();
+    const it = dataItems.find((d) => d.path === t.path);
+    if (it) { it.rows = r.rows; it.cols = r.columns.length; saveItems(); renderItems(); }
+    await loadTab(t);
+    toast("Undone");
+  }
+  async function deriveFiltered(t) {
+    const n = t.data?.filtered ?? 0;
+    if (!t.q) { if (!confirm("No search / filter is active, so all rows will be copied. Continue?")) return; }
+    const name = prompt(`Name for the new ${t.kind === "attr" ? "layer" : "table"} (${n.toLocaleString()} rows):`, `${t.title.replace(/ · attributes$/, "").replace(/\.[^.]+$/, "")}_selection`);
+    if (!name) return;
+    if (t.kind === "attr") {
+      const l = editLayer(t), { feats, cols, types } = attrColumns(l);
+      const idx = attrFilter(feats, cols, types, t.q);
+      addVectorLayer({ type: "FeatureCollection", features: idx.map((i) => JSON.parse(JSON.stringify(feats[i]))) }, name);
+      return toast(`New layer “${name}” with ${idx.length} feature(s)`);
+    }
+    const r = await api("/api/tables/derive", { method: "POST", json: { path: t.path, q: t.q, name } });
+    addItem({ kind: "table", name: r.name, path: r.path }, { open: true });
+    toast(`New table ${r.name}`);
+  }
+
+  // ---- vector attribute tables in the browser
+  function attrSnapshot(t, l, label) {
+    t.hist ||= [];
+    t.hist.push(JSON.stringify(l.geojson.features));
+    if (t.hist.length > 12) t.hist.shift();
+    if (label) t.log = [...(t.log || []), label];
+  }
+  function attrChanged(t, l) {
+    buildLeaflet(l); restack(); renderContents(); saveLayers();
+    t.data = null; t.stats = null; t.sel = new Set();
+    loadTab(t);
+  }
+  function attrUndo(t) {
+    const l = editLayer(t);
+    if (!l || !t.hist?.length) return;
+    l.geojson.features = JSON.parse(t.hist.pop());
+    t.log = (t.log || []).slice(0, -1);
+    attrChanged(t, l);
+    toast("Undone");
+  }
+  function attrDeleteRows(t, ids) {
+    const l = editLayer(t), drop = new Set(ids);
+    attrSnapshot(t, l, `Deleted ${ids.length} feature(s)`);
+    l.geojson.features = l.geojson.features.filter((_, i) => !drop.has(i));
+    attrChanged(t, l);
+    toast(`Deleted ${ids.length} feature(s)`);
+  }
+  function coerceVal(raw, type) {
+    if (raw === null || String(raw).trim() === "") return null;
+    if (type === "integer" || type === "number") {
+      const v = Number(String(raw).replace(/,/g, ""));
+      if (!Number.isFinite(v)) throw new Error(`“${raw}” is not a number`);
+      return type === "integer" ? Math.round(v) : v;
+    }
+    if (type === "boolean") return /^(1|true|yes|y)$/i.test(String(raw).trim());
+    return String(raw);
+  }
+  function attrRenameKey(props, oldK, newK) {   // keeps the column order
+    const out = {};
+    for (const [k, v] of Object.entries(props || {})) out[k === oldK ? newK : k] = v;
+    return out;
+  }
+  function attrFieldOp(t, op) {
+    const l = editLayer(t), feats = l.geojson.features;
+    attrSnapshot(t, l, op.op === "rename_field" ? `Renamed field ${op.old} → ${op.new}` : op.op === "delete_field" ? `Deleted field ${op.name}` : `Converted ${op.column} to ${op.type}`);
+    if (op.op === "rename_field") feats.forEach((f) => { f.properties = attrRenameKey(f.properties, op.old, op.new); });
+    else if (op.op === "delete_field") feats.forEach((f) => { if (f.properties) delete f.properties[op.name]; });
+    else if (op.op === "cast") feats.forEach((f) => {
+      const v = f.properties?.[op.column];
+      if (v === undefined) return;
+      f.properties[op.column] = op.type === "text" ? (v == null ? null : String(v)) : op.type === "boolean" ? (v == null ? null : /^(1|true|yes|y)$/i.test(String(v)))
+        : (v == null || v === "" || !Number.isFinite(Number(v)) ? null : op.type === "integer" ? Math.trunc(Number(v)) : Number(v));
+    });
+    attrChanged(t, l);
+  }
+
+  // ---- inline cell editing, selection, column menus
+  function wireEditing(t, d, content) {
+    const ckAll = $("[data-ckall]", content);
+    const syncAll = () => { if (ckAll) ckAll.checked = d.row_ids.length > 0 && d.row_ids.every((r) => t.sel.has(r)); };
+    $$("[data-ck]", content).forEach((cb) => cb.onchange = () => {
+      const rid = +cb.closest("tr").dataset.rid;
+      cb.checked ? t.sel.add(rid) : t.sel.delete(rid);
+      cb.closest("tr").classList.toggle("picked", cb.checked);
+      syncAll(); updateEditBar(t);
+    });
+    if (ckAll) ckAll.onchange = () => {
+      d.row_ids.forEach((r) => ckAll.checked ? t.sel.add(r) : t.sel.delete(r));
+      $$("[data-ck]", content).forEach((cb) => { cb.checked = ckAll.checked; cb.closest("tr").classList.toggle("picked", ckAll.checked); });
+      updateEditBar(t);
+    };
+    syncAll();
+    $$("td[data-c]", content).forEach((td) => td.ondblclick = () => startCellEdit(t, d, td));
+    $$("[data-colmenu]", content).forEach((b) => b.onclick = (e) => {
+      e.stopPropagation();
+      const col = b.dataset.colmenu, r = b.getBoundingClientRect(), type = d.types[d.columns.indexOf(col)];
+      showMenu(`${col} (${type})`, [
+        ["Calculate values…", () => openCalc(t, { mode: "update", column: col })],
+        ["Rename…", () => renameField(t, col)],
+        "-",
+        type !== "number" ? ["Convert to decimal number", () => castField(t, col, "number")] : null,
+        type !== "integer" ? ["Convert to whole number", () => castField(t, col, "integer")] : null,
+        type !== "text" ? ["Convert to text", () => castField(t, col, "text")] : null,
+        "-",
+        ["Delete field", () => deleteField(t, col), "danger"],
+      ].filter(Boolean), r.left, r.bottom + 2);
+    });
+  }
+  function startCellEdit(t, d, td) {
+    if (td.querySelector("input")) return;
+    const tr = td.closest("tr"), rid = +tr.dataset.rid, i = +td.dataset.c, col = d.columns[i], type = d.types[i];
+    const k = d.row_ids.indexOf(rid), key = `${rid}|${col}`;
+    const cur = t.pending?.has(key) ? t.pending.get(key) : d.rows[k][i];
+    td.classList.add("cell-edit");
+    td.innerHTML = `<input value="${esc(cur ?? "")}" ${type === "integer" || type === "number" ? 'inputmode="decimal"' : ""}>`;
+    const inp = $("input", td);
+    inp.focus(); inp.select();
+    let done = false;
+    const finish = (save, move) => {
+      if (done) return;
+      done = true;
+      td.classList.remove("cell-edit");
+      const raw = inp.value;
+      if (save && String(cur ?? "") !== raw) {
+        try {
+          const v = coerceVal(raw, type);
+          if (t.kind === "attr") {
+            const l = editLayer(t);
+            attrSnapshot(t, l, `Edited ${col} of feature ${rid + 1}`);
+            const f = l.geojson.features[rid];
+            f.properties = { ...(f.properties || {}), [col]: v };
+            d.rows[k][i] = v;
+            buildLeaflet(l); restack(); saveLayers();
+          } else {
+            t.pending.set(key, raw.trim() === "" ? null : raw);
+            td.classList.add("dirty");
+          }
+        } catch (e) { toast(e.message, true); }
+      }
+      const shown = t.pending?.has(key) ? t.pending.get(key) : d.rows[k][i];
+      td.innerHTML = fmtCell(shown, type);
+      updateEditBar(t);
+      if (move) {   // Tab / Enter: continue in the next cell
+        const next = move === "down" ? tr.nextElementSibling?.querySelector(`td[data-c="${i}"]`) : (td.nextElementSibling || tr.nextElementSibling?.querySelector('td[data-c="0"]'));
+        if (next?.dataset.c !== undefined) startCellEdit(t, d, next);
+      }
+    };
+    inp.onkeydown = (e) => {
+      if (e.key === "Enter") { e.preventDefault(); finish(true, "down"); }
+      else if (e.key === "Tab") { e.preventDefault(); finish(true, "right"); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    };
+    inp.onblur = () => finish(true);
+  }
+  async function renameField(t, col) {
+    const nw = prompt(`New name for “${col}”:`, col);
+    if (!nw || nw.trim() === col) return;
+    if (t.data.columns.includes(nw.trim())) return toast(`There is already a field called ${nw.trim()}`, true);
+    try {
+      if (t.kind === "attr") { attrFieldOp(t, { op: "rename_field", old: col, new: nw.trim() }); toast(`Renamed to ${nw.trim()}`); }
+      else await tableOps(t, [{ op: "rename_field", old: col, new: nw.trim() }], `Renamed field ${col} → ${nw.trim()}`);
+      if (t.sort === col) t.sort = null;
+    } catch (e) { toast(e.message, true); }
+  }
+  async function deleteField(t, col) {
+    if (!confirm(`Delete the field “${col}”? (Undo is available.)`)) return;
+    try {
+      if (t.kind === "attr") { attrFieldOp(t, { op: "delete_field", name: col }); toast(`Deleted ${col}`); }
+      else await tableOps(t, [{ op: "delete_field", name: col }], `Deleted field ${col}`);
+      if (t.sort === col) t.sort = null;
+    } catch (e) { toast(e.message, true); }
+  }
+  async function castField(t, col, type) {
+    try {
+      if (t.kind === "attr") { attrFieldOp(t, { op: "cast", column: col, type }); toast(`${col} converted`); }
+      else await tableOps(t, [{ op: "cast", column: col, type }], `Converted ${col} to ${type}`);
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function restoreTable(it) {
+    if (!confirm(`Restore the previous version of ${it.name}?\n\nThe version saved before the last change comes back (the current one is replaced).`)) return;
+    try {
+      const r = await api("/api/tables/restore", { method: "POST", json: { path: it.path } });
+      it.rows = r.rows; it.cols = r.columns.length; saveItems(); renderItems();
+      const t = vw.tabs.find((x) => x.path === it.path);
+      if (t) { t.data = null; t.stats = null; if (vw.active === t.key) loadTab(t); }
+      toast("Previous version restored");
+    } catch (e) { toast(e.message, true); }
+  }
+
+  // ---- Python editor: change the table / attributes with pandas, in a separate process
+  const pyx = { t: null };
+  function pyExamples(t) {
+    const cols = t.data?.columns || [], types = t.data?.types || [];
+    const num = cols.find((c, i) => types[i] === "number" || types[i] === "integer") || "value";
+    const txt = cols.find((c, i) => types[i] === "text") || "name";
+    const q = (c) => JSON.stringify(c);
+    const ex = [
+      ["Add a calculated column", `df["${num}_x2"] = df[${q(num)}] * 2`],
+      ["Classify values into groups", `df["${num}_class"] = np.where(df[${q(num)}] >= df[${q(num)}].median(), "high", "low")`],
+      ["Bins / ranges", `df["${num}_bin"] = pd.cut(df[${q(num)}], bins=5).astype(str)`],
+      ["Keep only some rows", `df = df[df[${q(num)}] > 0]`],
+      ["Remove duplicate rows", `df = df.drop_duplicates()`],
+      ["Fill missing values", `df[${q(num)}] = df[${q(num)}].fillna(df[${q(num)}].median())`],
+      ["Rename columns", `df = df.rename(columns={${q(num)}: "${num}_new"})`],
+      ["Normalise a column to 0–1", `col = ${q(num)}\ndf[col + "_norm"] = (df[col] - df[col].min()) / (df[col].max() - df[col].min())`],
+      ["Clean up text", `df[${q(txt)}] = df[${q(txt)}].astype(str).str.strip().str.title()`],
+      ["Row-by-row function", `def label(row):\n    if row[${q(num)}] > 10:\n        return "big"\n    return "small"\n\ndf["size"] = df.apply(label, axis=1)`],
+      ["Summary statistics (print only)", `print(df.describe(include="all").T)`],
+      ["Group statistics (print only)", `print(df.groupby(${q(txt)})[${q(num)}].agg(["count", "mean", "min", "max"]))`],
+    ];
+    if (t.kind === "attr") ex.unshift(
+      ["Area of each polygon (hectares)", `df["area_ha"] = [round(area_ha(g), 3) for g in df["geometry"]]`],
+      ["Perimeter / length (metres)", `df["perimeter_m"] = [round(perimeter_m(g), 1) for g in df["geometry"]]`],
+      ["Centroid longitude / latitude", `xy = [centroid_xy(g) for g in df["geometry"]]\ndf["lon"] = [p[0] for p in xy]\ndf["lat"] = [p[1] for p in xy]`]);
+    return ex;
+  }
+  function openPython(t) {
+    pyx.t = t;
+    const isAttr = t.kind === "attr";
+    $("#py-vars").innerHTML = `<code>df</code> is the ${isAttr ? "attribute table" : "table"} as a pandas DataFrame (${(t.data?.total ?? 0).toLocaleString()} rows): change it, or assign a new table to <code>df</code>. ` +
+      `Available: <code>pd</code>, <code>np</code>, <code>math</code>, <code>re</code>, <code>datetime</code>. Use <code>print(…)</code> to see results.` +
+      (isAttr ? ` Geometries: <code>df["geometry"]</code> (shapely, read-only) with <code>area_m2(g)</code>, <code>area_ha(g)</code>, <code>perimeter_m(g)</code>, <code>length_m(g)</code>, <code>centroid_xy(g)</code>. Rows you drop delete those features.` : "");
+    const ex = pyExamples(t);
+    $("#py-ex").innerHTML = `<option value="">Insert an example…</option>` + ex.map(([k], i) => `<option value="${i}">${esc(k)}</option>`).join("");
+    $("#py-ex").onchange = (e) => {
+      const it = ex[+e.target.value];
+      if (!it) return;
+      const ta = $("#py-code");
+      ta.value = (ta.value.trim() ? ta.value.replace(/\s*$/, "\n\n") : "") + `# ${it[0]}\n${it[1]}\n`;
+      e.target.value = "";
+      ta.focus();
+    };
+    $("#py-code").value = prefs.get("py-code", "") || `# ${ex[0][0]}\n${ex[0][1]}\n`;
+    $("#py-out").textContent = ""; $("#py-out").classList.add("hidden");
+    $("#py-preview").innerHTML = ""; $("#py-summary").innerHTML = "";
+    $("#py-apply").disabled = !t.edit;
+    $("#py-apply").title = t.edit ? "" : "Turn on ✎ Edit first";
+    $("#dlg-py").showModal();
+    setTimeout(() => $("#py-code").focus(), 50);
+  }
+  $("#py-code").addEventListener("keydown", (e) => {   // Tab indents instead of leaving the editor
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    const ta = e.target, a = ta.selectionStart, b = ta.selectionEnd;
+    ta.value = ta.value.slice(0, a) + "    " + ta.value.slice(b);
+    ta.selectionStart = ta.selectionEnd = a + 4;
+  });
+  async function runPython(apply, btn) {
+    const t = pyx.t, code = $("#py-code").value;
+    if (!code.trim()) return toast("Write some Python first", true);
+    prefs.set("py-code", code);
+    const isAttr = t.kind === "attr";
+    let body = { code, apply };
+    if (isAttr) {
+      const l = editLayer(t), { feats, cols } = attrColumns(l);
+      body = { code, apply: false, columns: Object.fromEntries(cols.map((c) => [c, feats.map((f) => f.properties?.[c] ?? null)])),
+               geometries: feats.map((f) => f.geometry || null), n: feats.length };
+    } else {
+      if (apply && t.pending?.size) await tableOps(t, [], `Edited ${t.pending.size} cell(s)`, { silent: true });
+      body.path = t.path;
+    }
+    await busy(btn, apply ? "Running…" : "Testing…", async () => {
+      let r;
+      try {
+        const job = await api("/api/python/run", { method: "POST", json: body });
+        r = (await trackJob(job, { title: apply ? "Running Python" : "Testing Python" })).result;
+      } catch (e) { if (notCancelled(e)) toast(e.message, true); return; }
+      const out = $("#py-out");
+      out.textContent = r.ok ? (r.output || "(no printed output)") : r.error;
+      out.classList.toggle("err", !r.ok);
+      out.classList.remove("hidden");
+      if (!r.ok) { $("#py-summary").innerHTML = `<span style="color:var(--err)">⚠ The script failed. Nothing was changed.</span>`; $("#py-preview").innerHTML = ""; return; }
+      const m = r.meta;
+      $("#py-summary").innerHTML = `Rows <b>${m.before.rows.toLocaleString()} → ${m.after.rows.toLocaleString()}</b> · columns ${m.before.columns.length} → ${m.after.columns.length}` +
+        (m.added.length ? ` · added <b>${m.added.map(esc).join(", ")}</b>` : "") + (m.removed.length ? ` · removed <b>${m.removed.map(esc).join(", ")}</b>` : "") +
+        (apply ? "" : ` · <span class="muted">test only: nothing changed</span>`);
+      $("#py-preview").innerHTML = `<div class="load-wrap"><table class="data-table"><tr>${r.preview.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${r.preview.rows.map((row) => `<tr>${row.map((v) => `<td>${fmtCell(v)}</td>`).join("")}</tr>`).join("")}</table></div>`;
+      const lines = code.split("\n").map((ln) => ln.trim()).filter((ln) => ln && !ln.startsWith("#"));
+      const label = `Python: ${(lines.find((ln) => /^df(\[|\s*=)/.test(ln)) || lines[0] || "script").slice(0, 70)}${lines.length > 1 ? ` (+${lines.length - 1} line${lines.length > 2 ? "s" : ""})` : ""}`;
+      if (!apply) return;
+      if (isAttr) {
+        const l = editLayer(t), feats = l.geojson.features, res = r.result;
+        const newFeats = [], noGeom = res.index.filter((i) => i == null || !feats[i]).length;
+        res.index.forEach((fi, k) => {
+          if (fi == null || !feats[fi]) return;
+          const props = {};
+          res.columns.forEach((c, j) => { props[c] = res.rows[k][j]; });
+          newFeats.push({ ...feats[fi], properties: props });
+        });
+        attrSnapshot(t, l, label);
+        l.geojson.features = newFeats;
+        attrChanged(t, l);
+        if (noGeom) toast(`${noGeom} new row(s) have no geometry and were skipped`, true);
+      } else {
+        t.log = [...(t.log || []), label];
+        api("/api/tables/edit/log", { method: "POST", json: { path: t.path, add: [label] } }).catch(() => {});
+        t.data = null; t.stats = null; t.sel = new Set();
+        await loadTab(t);
+      }
+      toast("Python applied. Remember to Save.");
+    });
+  }
+  $("#py-test").onclick = (e) => runPython(false, e.currentTarget);
+  $("#py-apply").onclick = (e) => runPython(true, e.currentTarget);
+
+  // ---- field calculator dialog (shared by tables and vector layers)
+  const fcx = { t: null, fns: null, timer: 0 };
+  async function openCalc(t, { mode = "new", column = null, title } = {}) {
+    if (!t.data) await loadTab(t);
+    fcx.t = t;
+    fcx.fns ||= await api("/api/fields/functions").catch(() => ({ functions: {}, geometry: [] }));
+    const cols = t.data.columns, isAttr = t.kind === "attr";
+    $("#fc-title").textContent = title || "Field calculator";
+    $("#fc-name").value = "";
+    $("#fc-type").value = "auto";
+    $("#fc-col").innerHTML = cols.map((c) => `<option ${c === column ? "selected" : ""}>${esc(c)}</option>`).join("");
+    $$('input[name="fct"]').forEach((r) => r.checked = r.value === (cols.length ? mode : "new"));
+    $$('input[name="fct"]')[1].disabled = !cols.length;
+    const n = t.data.filtered, all = t.data.total;
+    $("#fc-only").checked = false;
+    $("#fc-only").disabled = !t.q;
+    $("#fc-only-n").textContent = t.q ? `${n.toLocaleString()} of ${all.toLocaleString()} rows match “${t.q}”` : "no search / filter active";
+    $("#fc-expr").value = mode === "update" && column ? `[${column}]` : "";
+    $("#fc-fields").innerHTML = cols.map((c, i) => `<button class="fc-chip" data-ins="[${esc(c)}]" title="${esc(t.data.types[i])}">${esc(c)} <i>${TYPE_TAG[t.data.types[i]] || ""}</i></button>`).join("");
+    $("#fc-geom-wrap").classList.toggle("hidden", !isAttr);
+    $("#fc-geom").innerHTML = [["$area", "area in m²"], ["$area_ha", "area in hectares"], ["$area_km2", "area in km²"], ["$perimeter", "perimeter in m"],
+      ["$length", "line length in m"], ["$x", "centroid longitude"], ["$y", "centroid latitude"], ["$id", "row number"]]
+      .map(([g, d]) => `<button class="fc-chip" data-ins="${g}" title="${d}">${g}</button>`).join("");
+    $("#fc-funcs").innerHTML = Object.entries(fcx.fns.functions).map(([k, h]) => `<button class="fc-chip" data-ins="${esc(k)}()" title="${esc(h)}">${esc(k)}</button>`).join("");
+    $("#fc-examples").innerHTML = (isAttr ? ["round($area_ha, 2)", "$perimeter / 1000", "iif($area_ha > 1, 'large', 'small')"] : [])
+      .concat(cols.length >= 2 && t.data.types.filter((x) => x === "number" || x === "integer").length >= 2
+        ? [`[${t.data.columns.find((c, i) => t.data.types[i] !== "text")}] * 2`] : [])
+      .concat([`upper([${cols.find((c, i) => t.data.types[i] === "text") || cols[0]}])`, `concat([${cols[0]}], " - ", [${cols[cols.length - 1]}])`, `iif([${cols.find((c, i) => t.data.types[i] !== "text") || cols[0]}] > 0, "yes", "no")`])
+      .map((e) => `<button class="fc-chip ex" data-ex="${esc(e)}">${esc(e)}</button>`).join("");
+    $$("#dlg-calc [data-ins]").forEach((b) => b.onclick = () => insertAtCursor($("#fc-expr"), b.dataset.ins.endsWith("()") ? b.dataset.ins.slice(0, -1) : b.dataset.ins + " "));
+    $$("#dlg-calc [data-ex]").forEach((b) => b.onclick = () => { $("#fc-expr").value = b.dataset.ex; calcPreview(); });
+    syncCalcTarget();
+    $("#dlg-calc").showModal();
+    calcPreview();
+    setTimeout(() => (mode === "new" ? $("#fc-name") : $("#fc-expr")).focus(), 50);
+  }
+  function insertAtCursor(ta, text) {
+    const a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? a;
+    ta.value = ta.value.slice(0, a) + text + ta.value.slice(b);
+    ta.focus(); ta.selectionStart = ta.selectionEnd = a + text.length;
+    calcPreview();
+  }
+  function syncCalcTarget() {
+    const isNew = $('input[name="fct"]:checked')?.value === "new";
+    $("#fc-name").disabled = !isNew; $("#fc-type").disabled = !isNew; $("#fc-col").disabled = isNew;
+    $("#fc-hint").textContent = isNew ? "Leave the expression empty to add an empty field you can fill in by hand." : "";
+  }
+  $$('input[name="fct"]').forEach((r) => r.onchange = syncCalcTarget);
+  $("#fc-expr").oninput = () => calcPreview();
+  function attrCalcPayload(l, expr, idx) {
+    const { feats, cols } = attrColumns(l);
+    const pick = idx || feats.map((_, i) => i);
+    const columns = Object.fromEntries(cols.map((c) => [c, pick.map((i) => feats[i].properties?.[c] ?? null)]));
+    return { expression: expr, columns, geometries: expr.includes("$") ? pick.map((i) => feats[i].geometry || null) : null, n: pick.length };
+  }
+  function calcPreview() {
+    clearTimeout(fcx.timer);
+    fcx.timer = setTimeout(async () => {
+      const t = fcx.t, expr = $("#fc-expr").value.trim(), box = $("#fc-preview");
+      if (!expr) { box.innerHTML = `<span class="muted">Preview of the first rows appears here.</span>`; return; }
+      try {
+        let r;
+        if (t.kind === "attr") {
+          const l = editLayer(t);
+          r = await api("/api/fields/calc", { method: "POST", json: attrCalcPayload(l, expr, l.geojson.features.slice(0, 8).map((_, i) => i)) });
+        } else r = await api(`/api/tables/calc-preview?path=${encodeURIComponent(t.path)}&expression=${encodeURIComponent(expr)}`);
+        box.innerHTML = `<span class="fc-ok">✓ ${esc(r.type)}</span> ${r.values.map((v) => `<code>${v == null ? "–" : esc(typeof v === "number" ? String(+v.toPrecision(8)) : String(v))}</code>`).join(" ")}`;
+      } catch (e) { box.innerHTML = `<span style="color:var(--err)">⚠ ${esc(e.message)}</span>`; }
+    }, 350);
+  }
+  $("#fc-apply").onclick = (e) => busy(e.currentTarget, "Calculating…", async () => {
+    const t = fcx.t, isNew = $('input[name="fct"]:checked').value === "new";
+    const expr = $("#fc-expr").value.trim(), name = isNew ? $("#fc-name").value.trim() : $("#fc-col").value;
+    const only = $("#fc-only").checked && t.q;
+    if (!name) return toast("Give the new field a name", true);
+    if (isNew && t.data.columns.includes(name)) return toast(`There is already a field called ${name}`, true);
+    if (!isNew && !expr) return toast("Type an expression", true);
+    try {
+      if (t.kind === "attr") {
+        const l = editLayer(t), { feats, cols, types } = attrColumns(l);
+        const idx = only ? attrFilter(feats, cols, types, t.q) : feats.map((_, i) => i);
+        let vals = idx.map(() => null), typ = $("#fc-type").value;
+        if (expr) { const r = await api("/api/fields/calc", { method: "POST", json: attrCalcPayload(l, expr, idx) }); vals = r.values; if (typ === "auto") typ = r.type; }
+        if (typ !== "auto" && expr) vals = vals.map((v) => { try { return coerceVal(v, typ); } catch { return null; } });
+        attrSnapshot(t, l, isNew ? `Added field ${name}${expr ? ` = ${expr}` : ""}` : `Calculated ${name} = ${expr}`);
+        if (isNew) feats.forEach((f) => { f.properties = { ...(f.properties || {}), [name]: null }; });
+        idx.forEach((fi, k) => { feats[fi].properties[name] = vals[k]; });
+        attrChanged(t, l);
+      } else {
+        await tableOps(t, [isNew ? { op: "add_field", name, expression: expr, type: $("#fc-type").value, ...(only ? { q: t.q } : {}) }
+                                 : { op: "calc", column: name, expression: expr, ...(only ? { q: t.q } : {}) }],
+                       isNew ? `Added field ${name}${expr ? ` = ${expr}` : ""}` : `Calculated ${name} = ${expr}${only ? " (filtered rows)" : ""}`);
+      }
+      $("#dlg-calc").close();
+      if (t.kind === "attr") toast(isNew ? `Field ${name} added` : `${name} updated`);
+    } catch (ex) { $("#fc-preview").innerHTML = `<span style="color:var(--err)">⚠ ${esc(ex.message)}</span>`; }
+  });
 
   // clicking a row shows it on the map: the feature (attribute tables) or the lon / lat point (tables)
   function clearRowMarker() { rowMarker?.remove(); rowMarker = null; }
@@ -1171,7 +1756,8 @@
   const inProject = () => !!proj.info?.project;
   function projectState() {
     const c = map.getCenter();
-    return { layers: layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, ...rest }) => rest),
+    return { layers: layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, _original, ...rest }) =>
+               _original !== undefined ? { ...rest, geojson: { ...rest.geojson, features: JSON.parse(_original) } } : rest),
              items: dataItems, view: { center: [c.lat, c.lng], zoom: map.getZoom() }, basemap: prefs.get("basemap", "streets") };
   }
   function scheduleProjectSave() {
@@ -1200,7 +1786,7 @@
   function clearContents() {
     [...layers].forEach((l) => removeLayer(l.id, { silent: true }));
     dataItems.splice(0);
-    [...vw.tabs].forEach((t) => closeTab(t.key));
+    [...vw.tabs].forEach((t) => closeTab(t.key, true));
     selectedId = null;
     renderContents(); renderItems();
   }
@@ -1331,7 +1917,7 @@
   const SAVE_SPOTS = [  // [key, element the option goes before, what is saved]
     ["search", "#dl-go", "the downloaded files"], ["analyze", "#ex-go", "the exported GeoTIFF"], ["pca", "#pca-run", "the result GeoTIFF"],
     ["stack", "#st-run", "the stacked GeoTIFF"], ["raster2table", "#rt-run", "the table"], ["train", "#mt-run", "the model and its evaluation report"],
-    ["predict", "#mp-run", "the map"], ["cluster", "#uc-run", "the table with clusters (and the model)"], ["tsne", "#ut-run", "the table with map coordinates"],
+    ["predict", "#mp-run", "the map"], ["rasterml", "#rm-run", "the classified map and the model (with its evaluation report)"], ["cluster", "#uc-run", "the table with clusters (and the model)"], ["tsne", "#ut-run", "the table with map coordinates"],
   ];
   function saveToHtml(key, what, label = "Also save to a folder on my computer") {
     const dir = prefs.get(`save-dir:${key}`, key === "train" ? prefs.get("report-dir", "") : "") || prefs.get("save-dir:last", "");
@@ -1724,6 +2310,7 @@
     "pca-area": { what: "image is used", onChange: () => {} },
     "rt-area": { what: "image is converted", onChange: () => updateRtEstimate() },
     "mp-area": { what: "image is classified", onChange: () => {} },
+    "rm-area": { what: "image is used", onChange: () => {} },
     "st-area": { what: "reference extent is used", onChange: () => {} },
   };
   const polygonLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
@@ -2410,7 +2997,7 @@
     }
     for (const j of list) {
       // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
-      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne"].includes(j.kind)) continue;
+      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
@@ -4258,6 +4845,215 @@
     $(".ut-colsel", box).onchange = draw;
     draw();
     $("[data-open-out]", box).onclick = () => previewTable(r.output_table);
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // ------------------------------------------------------------------ Classical ML for raster: image + ground truth → model + map
+  const rm = { schema: null, layer: null, kind: null, model: "rf", ready: false };
+  async function initRasterMl() {
+    if (!mlx.schema) mlx.schema = await api("/api/ml/schema");
+    if (!rm.schema) rm.schema = await api("/api/rasterml/schema");
+    if (!rm.ready) { rm.ready = true; renderRmModels(); renderRmSettings(true); }
+  }
+  async function refreshRm() {
+    try { await initRasterMl(); } catch (e) { return toast(e.message, true); }
+    const rasters = layers.filter((l) => l.type === "raster" && !l.derived);
+    const sel = $("#rm-input"), cur = rm.layer?.id || sel.value;
+    sel.innerHTML = `<option value="">${rasters.length ? "Choose a raster layer…" : "No raster layers yet: add one with + Add data"}</option>` +
+      rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info?.count ?? "?"} bands</option>`).join("");
+    if (cur && rasters.some((l) => l.id === cur)) sel.value = cur;
+    else if (!rm.layer && rasters.length === 1) sel.value = rasters[0].id;
+    const l = getLayer(sel.value);
+    if (l !== rm.layer) { rm.layer = l || null; renderRmImage(); }
+    // ground truth: any other raster (class map) or vector layer
+    const gt = $("#rm-gt"), gcur = gt.value;
+    const vecs = layers.filter((x) => x.type === "vector");
+    gt.innerHTML = `<option value="">Choose the ground truth…</option>` +
+      (vecs.length ? `<optgroup label="Polygons / points (shapefile, GeoJSON, training samples)">${vecs.map((x) => `<option value="${esc(x.id)}">${esc(x.name)} (${x.geojson.features.length} features)</option>`).join("")}</optgroup>` : "") +
+      (rasters.filter((x) => x !== rm.layer).length ? `<optgroup label="Class raster (e.g. a land-cover map)">${rasters.filter((x) => x !== rm.layer).map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}</optgroup>` : "");
+    const auto = vecs.find((x) => x.samples) || (vecs.filter((x) => x.id !== "aoi").length === 1 ? vecs.find((x) => x.id !== "aoi") : null);
+    gt.value = [...gt.options].some((o) => o.value === gcur) && gcur ? gcur : (auto ? auto.id : "");
+    renderRmGt();
+  }
+  $("#rm-input").onchange = () => { rm.layer = getLayer($("#rm-input").value); renderRmImage(); refreshRm(); if (rm.layer) selectLayer(rm.layer.id); };
+
+  function renderRmImage() {
+    const l = rm.layer;
+    $("#rm-kind").classList.add("hidden");
+    if (!l) { $("#rm-info").textContent = ""; $("#rm-bands").innerHTML = ""; $("#rm-bands-sum").textContent = "Bands"; return; }
+    const info = l.info;
+    $("#rm-info").textContent = `${info.count} bands · ${info.width.toLocaleString()} × ${info.height.toLocaleString()} px · pixel ${fmt(info.res[0], info.res[0] < 1 ? 3 : 1)}${/4326/.test(info.crs) ? "°" : " m"} · ${info.crs}`;
+    $("#rm-bands").innerHTML = info.bands.map((b) => `<label title="Band ${b.index}: ${esc(b.description)}"><input type="checkbox" value="${b.index}" checked>${esc(b.description !== `Band ${b.index}` ? b.description : String(b.index))}</label>`).join("");
+    $$("#rm-bands input").forEach((i) => i.onchange = rmBandsChanged);
+    const identity = (l.scale ?? 1) === 1 && (l.offset ?? 0) === 0;
+    $("#rm-refl").checked = !identity; $("#rm-refl").disabled = identity;
+    const r0 = info.res[0], unit = /4326/.test(info.crs) ? "°" : " m";
+    $("#rm-factor").innerHTML = [1, 2, 4, 8].map((f) => `<option value="${f}">${f === 1 ? `Native (${fmt(r0, r0 < 1 ? 3 : 0)}${unit})` : `${f}× coarser (${fmt(r0 * f, r0 < 1 ? 3 : 0)}${unit})`}</option>`).join("");
+    $("#rm-name").value = safeName(l.name.replace(/\.(tiff?|vrt)$/i, "")).slice(0, 40) + "_classified";
+    $("#rm-bands-wrap").open = info.count <= 16;
+    rmBandsChanged();
+  }
+  const rmBands = () => $$("#rm-bands input:checked").map((i) => +i.value);
+  let rmKindTimer = 0;
+  function rmBandsChanged() {
+    const n = rmBands().length, total = $$("#rm-bands input").length;
+    $("#rm-bands-sum").innerHTML = `Bands: <b>${n}</b> of ${total} used`;
+    clearTimeout(rmKindTimer);
+    rmKindTimer = setTimeout(detectRmKind, 250);
+  }
+  $("#rm-bands-all").onclick = () => { $$("#rm-bands input").forEach((i) => i.checked = true); rmBandsChanged(); };
+  $("#rm-bands-none").onclick = () => { $$("#rm-bands input").forEach((i) => i.checked = false); rmBandsChanged(); };
+  $("#rm-range").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const keep = new Set();
+    for (const part of $("#rm-range").value.split(",")) {
+      const m = part.trim().match(/^(\d+)\s*(?:-|–|to)\s*(\d+)$/) || part.trim().match(/^(\d+)$/);
+      if (!m) continue;
+      const a = +m[1], b = +(m[2] ?? m[1]);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) keep.add(i);
+    }
+    if (!keep.size) return toast("Type band numbers or ranges, e.g. 1-100, 120-180", true);
+    $$("#rm-bands input").forEach((i) => i.checked = keep.has(+i.value));
+    rmBandsChanged();
+  });
+  async function detectRmKind() {
+    const l = rm.layer, bands = rmBands();
+    if (!l || !bands.length) { $("#rm-kind").classList.add("hidden"); return; }
+    try { rm.kind = await api(`/api/rasterml/inspect?path=${encodeURIComponent(l.path)}&bands=${bands.length === l.info.count ? "" : bands.join(",")}`); }
+    catch (e) { rm.kind = null; return; }
+    const k = rm.kind, titles = rm.kind.models.map((m) => mlx.schema.models[m]?.title || m);
+    $("#rm-kind").innerHTML = `<div class="rm-kind-head"><span class="rm-kind-tag k-${k.kind}">${esc(k.title)}</span><small>${esc(k.reason)}</small></div>
+      <div class="hint" style="margin-top:4px">${esc(k.note)}</div>
+      <div class="hint" style="margin-top:4px">Suggested: <b>${titles.map(esc).join(", ")}</b>${k.scaling === "none" ? " · no feature scaling" : ""}${k.reduce === "auto" ? " · PCA band reduction for Maximum Likelihood / LDA" : ""}</div>
+      <button class="chip" id="rm-apply" style="margin-top:6px">Use recommended settings</button>`;
+    $("#rm-kind").classList.remove("hidden");
+    $("#rm-apply").onclick = () => applyRmRecommended(true);
+    renderRmModels();
+    if (!rm.touched) applyRmRecommended(false);
+  }
+  function applyRmRecommended(pickModel) {
+    const k = rm.kind;
+    if (!k) return;
+    if (pickModel && k.models[0]) { rm.model = k.models[0]; renderRmModels(); }
+    renderRmSettings(true);
+    if (pickModel) toast(`Settings for ${k.title.toLowerCase()} applied`);
+  }
+
+  function renderRmGt() {
+    const l = getLayer($("#rm-gt").value);
+    $("#rm-gt-raster").classList.toggle("hidden", l?.type !== "raster");
+    $("#rm-gt-vector").classList.toggle("hidden", l?.type !== "vector");
+    $("#rm-gt-classes").textContent = "";
+    if (l?.type === "raster") {
+      $("#rm-gt-band").innerHTML = l.info.bands.map((b) => `<option value="${b.index}">Band ${b.index}${b.description !== `Band ${b.index}` ? " · " + esc(b.description) : ""}</option>`).join("");
+      const lg = l.legend?.kind === "classes" ? l.legend.classes : null;
+      $("#rm-gt-classes").textContent = lg ? `${lg.length} classes: ${lg.slice(0, 8).map((c) => c.name).join(", ")}${lg.length > 8 ? " …" : ""}` : "Each distinct pixel value is a class.";
+    } else if (l?.type === "vector") {
+      const keys = [...new Set(l.geojson.features.flatMap((f) => Object.keys(f.properties || {})))].filter((k) => !k.startsWith("_"));
+      const pref = keys.find((k) => /^(class|label|lulc|lc|landcover|type|category|code)$/i.test(k)) || keys[0];
+      $("#rm-gt-field").innerHTML = keys.length ? keys.map((k) => `<option ${k === pref ? "selected" : ""}>${esc(k)}</option>`).join("") : `<option value="">(no attributes)</option>`;
+      rmGtClasses();
+    }
+  }
+  function rmGtClasses() {
+    const l = getLayer($("#rm-gt").value), f = $("#rm-gt-field").value;
+    if (l?.type !== "vector") return;
+    const cnt = new Map();
+    l.geojson.features.forEach((ft) => { const v = ft.properties?.[f]; if (v != null && v !== "") cnt.set(String(v), (cnt.get(String(v)) || 0) + 1); });
+    const entries = [...cnt.entries()].sort((a, b) => b[1] - a[1]);
+    const few = entries.filter(([, n]) => n < 2).map(([k]) => k);
+    $("#rm-gt-classes").innerHTML = !entries.length ? `<span style="color:var(--warn)">No values in this attribute.</span>` :
+      `${entries.length} classes: ${entries.slice(0, 10).map(([k, n]) => `${esc(k)} <small>(${n})</small>`).join(", ")}${entries.length > 10 ? " …" : ""}` +
+      (entries.length < 2 ? `<br><span style="color:var(--warn)">At least two classes are needed.</span>` : "") +
+      (few.length ? `<br><span style="color:var(--warn)">Only one polygon / point for: ${few.slice(0, 5).map(esc).join(", ")}. Draw more for an honest accuracy.</span>` : "");
+  }
+  $("#rm-gt").onchange = renderRmGt;
+  $("#rm-gt-field").onchange = rmGtClasses;
+
+  function renderRmModels() {
+    const sc = mlx.schema, kind = rm.kind?.kind, rec = rm.kind?.models || [];
+    $("#rm-models").innerHTML = rm.schema.models.filter((k) => sc.models[k] && !sc.unavailable.includes(k)).map((k) => {
+      const m = sc.models[k], good = (rm.schema.good_for[k] || []).map((g) => rm.schema.kinds[g]?.title.replace(/ image$/, "").replace("Pixel ", "")).join(" · ");
+      return `<div role="button" tabindex="0" aria-pressed="${k === rm.model}" class="model-card ${k === rm.model ? "on" : ""}" data-model="${k}">
+        ${rec.includes(k) ? `<span class="rec" title="Suggested for this ${esc((rm.kind.title || "").toLowerCase())}">★ SUGGESTED</span>` : ""}
+        <span class="fam">${esc(m.family)}</span>
+        <span class="mc-top"><b>${esc(m.title)}</b>${tipBtn(m.tip)}</span>
+        <span class="stars"><span>Accuracy <b>${stars(m.accuracy)}</b></span><span>Speed <b>${stars(m.speed)}</b></span></span>
+        <small>${esc(m.desc)}</small><small class="good-for">Good for: ${esc(good)}</small></div>`;
+    }).join("");
+    $$("#rm-models .model-card").forEach((b) => {
+      b.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && !e.target.closest(".tip")) { e.preventDefault(); b.click(); } };
+      b.onclick = (e) => { if (e.target.closest(".tip")) return; rm.model = b.dataset.model; rm.touched = true; renderRmModels(); renderRmSettings(false); };
+    });
+  }
+  // settings: the model's parameters, preprocessing and validation, with recommendations for the detected kind
+  function renderRmSettings(useRecommended) {
+    const sc = mlx.schema, m = sc.models[rm.model], k = rm.kind;
+    const recP = (useRecommended && k?.params?.[rm.model]) || {};
+    const fits = (p) => !p.tasks || p.tasks.includes("classification");
+    $("#rm-params").innerHTML = m.params.filter(fits).map((p) => mlField(p, p.name in recP ? recP[p.name] : p.default, "model")).join("") ||
+      `<p class="hint">${esc(m.title)} has no settings: it works as it is.</p>`;
+    const prev = useRecommended ? {} : scopeVals("#rm-prep", "common");
+    const recPrep = k ? { scaling: k.scaling, reduce: k.reduce === "auto" && !["mlc", "lda", "nb", "knn", "svm", "mlp"].includes(rm.model) ? "none" : k.reduce } : {};
+    const prep = sc.common.filter((p) => p.group === "prep" && fits(p) && !["target_transform", "drop_correlated"].includes(p.name));
+    $("#rm-prep").innerHTML = prep.map((p) => mlField(p, p.name in prev ? prev[p.name] : (p.name in recPrep ? recPrep[p.name] : p.default), "common")).join("");
+    const sync = () => { const r = $('#rm-prep [data-p="outlier_pct"]')?.closest(".pca-field"); if (r) r.classList.toggle("hidden", $('#rm-prep [data-p="outliers"]').value !== "clip"); };
+    $('#rm-prep [data-p="outliers"]')?.addEventListener("change", sync);
+    sync();
+    const prevAdv = scopeVals("#rm-adv", "common");
+    const adv = sc.common.filter((p) => !p.group && fits(p) && !["cv_folds"].includes(p.name));
+    $("#rm-adv").innerHTML = adv.map((p) => mlField(p, p.name in prevAdv ? prevAdv[p.name] : p.default, "common")).join("");
+    const mr = $('#rm-adv [data-p="max_train_rows"]');
+    if (mr) mr.placeholder = `model default: ${m.max_rows.toLocaleString()}`;
+  }
+  $("#rm-reset").onclick = () => { rm.touched = false; applyRmRecommended(true); };
+
+  $("#rm-run").onclick = async () => {
+    const err = $("#rm-error"); err.classList.add("hidden");
+    const l = rm.layer, gl = getLayer($("#rm-gt").value), bands = rmBands();
+    if (!l) return toast("Choose the image first", true);
+    if (!bands.length) return toast("Use at least one band", true);
+    if (!gl) return toast("Choose the ground truth (polygons / points or a class raster)", true);
+    const ground_truth = gl.type === "raster" ? { type: "raster", path: gl.path, band: +$("#rm-gt-band").value || 1 }
+      : { type: "vector", geojson: gl.geojson, field: $("#rm-gt-field").value || null };
+    const refl = $("#rm-refl").checked, pc = +$("#rm-pc").value;
+    const tuning = $("#rm-tune").checked ? { enabled: true, method: "random", iter: 12, folds: 3, metric: "auto",
+      space: Object.fromEntries(Object.entries(mlx.schema.search[rm.model] || {}).map(([k2, v]) => [k2, v.map((x) => x === null ? "None" : String(x).replace(/,/g, ";"))])) } : {};
+    if (tuning.enabled && !Object.keys(tuning.space).length) tuning.enabled = false;
+    const body = {
+      path: l.path, bands: bands.length === l.info.count ? null : bands, ground_truth, model: rm.model,
+      params: scopeVals("#rm-params", "model"), common: { ...scopeVals("#rm-prep", "common"), ...scopeVals("#rm-adv", "common") }, tuning,
+      clip: getClip("rm-area"), map_whole: $("#rm-map-whole").checked, factor: +$("#rm-factor").value || 1,
+      scale: refl ? (l.scale ?? 1) : 1, offset: refl ? (l.offset ?? 0) : 0, per_class: pc || null,
+      name: $("#rm-name").value || "classified", class_colors: gl.samples ? gl.classColors : null,
+      confidence: $("#rm-conf").checked, resolution: $("#rm-res").value,
+    };
+    const btn = $("#rm-run"); btn.disabled = true; $("#rm-result").classList.add("hidden");
+    try {
+      const job = await api("/api/rasterml/run", { method: "POST", json: body });
+      const done = await trackJob(job, { tool: "rasterml", save: "rasterml", title: `${mlx.schema.models[rm.model].title} · ${body.name}` });
+      const r = done.result;
+      if (r.path) await addRasterFromPath(r.path, { name: body.name, zoom: false });
+      showRmResult(r);
+      refreshModels();
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+  function showRmResult(r) {
+    const box = $("#rm-result"), s = r.samples, k = r.kind;
+    const counts = Object.entries(s.classes).sort((a, b) => b[1] - a[1]), max = Math.max(1, ...counts.map(([, n]) => n));
+    box.innerHTML = `<div class="card rm-head-card">
+        <div class="row between"><h2 style="margin:0">✓ Map ready</h2><span class="rm-kind-tag k-${k.kind}">${esc(k.title)}</span></div>
+        <div class="pca-sum" style="margin-top:4px">${s.pixels.toLocaleString()} training pixels from ${counts.length} classes · ${s.bands} bands · ${r.seconds} s total
+          ${r.map ? ` · map ${r.map.width.toLocaleString()} × ${r.map.height.toLocaleString()} px${r.map.factor > 1 ? ` (${r.map.factor}× coarser)` : ""}` : ""}</div>
+        <div class="home-label" style="margin-top:10px">Training pixels per class</div>
+        <div class="dist">${counts.slice(0, 20).map(([c, n]) => `<div style="grid-template-columns:1fr 3fr auto"><span>${esc(c)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * n / max)}%"></span></span><b>${n.toLocaleString()}</b></div>`).join("")}</div>
+        <p class="hint">The map was added to Contents${r.map?.confidence ? " (band 2 = confidence %)" : ""}. The model is listed under Classical ML ▸ Your models, so you can apply it to other images with <b>Classify an image</b>.</p>
+      </div><div id="rm-train-res"></div>`;
+    box.classList.remove("hidden");
+    showTrainResult(r.model, $("#rm-train-res"));
     box.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 

@@ -86,12 +86,15 @@ MODELS = {
                P("criterion", "Split criterion", "select", "gini", "How split quality is measured. Results are usually similar.",
                  options=[["gini", "Gini"], ["entropy", "Entropy"], ["log_loss", "Log loss"]], advanced=True, tasks=["classification"]),
            ]},
-    "svm": {"title": "SVM (RBF kernel)", "family": "Kernel", "tasks": ["classification", "regression"], "speed": 1, "accuracy": 3, "scale": True, "max_rows": 20000,
-            "desc": "Support Vector Machine with a radial kernel. Very accurate on small, clean training sets; slow on large ones.",
+    "svm": {"title": "SVM", "family": "Kernel", "tasks": ["classification", "regression"], "speed": 1, "accuracy": 3, "scale": True, "max_rows": 20000,
+            "desc": "Support Vector Machine. Very accurate on small, clean training sets; slow on large ones. RBF kernel by default, linear for many bands / embeddings.",
             "tip": "Training time grows roughly with the square of the rows, so the training set is capped at 20,000 rows by default. Bands are standardized automatically.",
             "params": [
                 P("C", "C (regularisation)", "float", 10.0, "Higher = fits training data more tightly (risk of overfitting). 1–100 is typical.", min=0.001, max=10000),
-                P("gamma", "Gamma", "select", "scale", "Kernel width. 'scale' adapts to the data and is a good default.", options=[["scale", "scale (recommended)"], ["auto", "auto"]]),
+                P("kernel", "Kernel", "select", "rbf", "RBF (recommended) draws curved class boundaries. Linear is faster and works as well or better with "
+                  "many bands (hyperspectral) or embeddings (64–128 dimensions). Polynomial is in between.",
+                  options=[["rbf", "RBF (recommended)"], ["linear", "Linear (many bands / embeddings)"], ["poly", "Polynomial"]]),
+                P("gamma", "Gamma", "select", "scale", "Kernel width (RBF / polynomial). 'scale' adapts to the data and is a good default.", options=[["scale", "scale (recommended)"], ["auto", "auto"]]),
                 P("probability", "Estimate probabilities", "bool", False, "Needed for a confidence map when classifying an image, but makes training ~5× slower.", advanced=True, tasks=["classification"]),
             ]},
     "sgd": {"title": "SGD (linear)", "family": "Linear", "tasks": ["classification", "regression"], "speed": 3, "accuracy": 2, "scale": True, "max_rows": 2000000,
@@ -124,6 +127,15 @@ MODELS = {
                   options=[["equal", "Equal (classic MLC)"], ["data", "From training data"]]),
                 P("reg_param", "Covariance regularisation", "float", 0.001, "Small value that stabilises covariance matrices of correlated bands.", min=0, max=1, advanced=True),
             ]},
+    "mindist": {"title": "Minimum Distance", "family": "Distance", "tasks": ["classification"], "speed": 3, "accuracy": 1, "scale": False, "max_rows": 5000000,
+                "desc": "Assigns each pixel to the class whose average spectrum is closest. The simplest classic remote-sensing classifier.",
+                "tip": "Very fast and needs few training pixels. Good baseline for RGB and multispectral images; ignores class spread.",
+                "params": []},
+    "sam": {"title": "Spectral Angle Mapper", "family": "Distance", "tasks": ["classification"], "speed": 3, "accuracy": 2, "scale": False, "max_rows": 5000000,
+            "desc": "Compares the shape (angle) of each pixel's spectrum with each class's mean spectrum, ignoring brightness.",
+            "tip": "Classic for hyperspectral data and ideal for embeddings (AlphaEarth, TESSERA), whose vectors are compared by angle / cosine. "
+                   "Insensitive to illumination and shadow. Keep feature scaling off.",
+            "params": []},
     "lda": {"title": "Linear Discriminant", "family": "Probabilistic", "tasks": ["classification"], "speed": 3, "accuracy": 2, "scale": False, "max_rows": 5000000,
             "desc": "Gaussian classes with one shared covariance. Simpler than Maximum Likelihood and good with few training pixels.",
             "tip": "Linear class boundaries. Robust when some classes have little training data.",
@@ -134,6 +146,9 @@ MODELS = {
             "params": [
                 P("n_neighbors", "Neighbours (k)", "int", 7, "How many similar pixels vote. 5–15 is typical.", min=1, max=200),
                 P("weights", "Vote weights", "select", "distance", "Closer neighbours count more with 'distance'.", options=[["distance", "By distance"], ["uniform", "Equal"]]),
+                P("metric", "Distance", "select", "euclidean", "How similar two pixels are. Cosine (angle) is best for embeddings (AlphaEarth, TESSERA) "
+                  "and spectral shapes; Manhattan is robust with many bands.",
+                  options=[["euclidean", "Euclidean (recommended)"], ["cosine", "Cosine (embeddings, spectra)"], ["manhattan", "Manhattan"]]),
             ]},
     "mlp": {"title": "Neural network (MLP)", "family": "Neural", "tasks": ["classification", "regression"], "speed": 2, "accuracy": 3, "scale": True, "max_rows": 300000,
             "desc": "A small fully connected neural network. Captures complex patterns; benefits from more training data.",
@@ -181,6 +196,10 @@ COMMON = [
       "logistic, k-NN, MLP) and none for trees. Standard: mean 0, std 1. Min–max: 0 to 1. Robust: median / interquartile range, "
       "least affected by outliers.", options=[["auto", "Auto (recommended)"], ["standard", "Standard (z-score)"], ["minmax", "Min–max (0–1)"],
                                               ["robust", "Robust (median / IQR)"], ["none", "None"]], group="prep"),
+    P("reduce", "Reduce bands (PCA)", "select", "none", "Combine many correlated bands into fewer principal components before the model. "
+      "Needed for Maximum Likelihood / Linear Discriminant on hyperspectral data (more bands than training pixels per class makes their "
+      "statistics unstable), and speeds up SVM and k-NN. Auto: only when there are more than 30 bands, keeping 99 % of the variance (max 30 components).",
+      options=[["none", "No"], ["auto", "Auto (only above 30 bands)"], ["10", "10 components"], ["20", "20 components"], ["30", "30 components"], ["50", "50 components"]], group="prep"),
     P("target_transform", "Target transform", "select", "none", "For a skewed target (biomass, yield, counts): train on log(1 + y) or a "
       "Yeo-Johnson transform, then convert predictions back. Often lowers the error for skewed values.",
       options=[["none", "None"], ["log", "log(1 + y)"], ["yeo-johnson", "Yeo-Johnson"]], tasks=["regression"], group="prep"),
@@ -195,13 +214,15 @@ SEARCH = {
     "lgbm": {"n_estimators": [200, 400, 800], "learning_rate": [0.02, 0.05, 0.1], "num_leaves": [15, 31, 63], "subsample": [0.7, 0.9, 1.0]},
     "hgb": {"max_iter": [200, 400], "learning_rate": [0.05, 0.1, 0.2], "max_leaf_nodes": [15, 31, 63], "l2_regularization": [0.0, 0.1, 1.0]},
     "dt": {"max_depth": [5, 10, 15, 25, None], "min_samples_leaf": [1, 5, 10, 20]},
-    "svm": {"C": [1, 10, 100, 1000], "gamma": ["scale", "auto"]},
+    "svm": {"C": [1, 10, 100, 1000], "gamma": ["scale", "auto"], "kernel": ["rbf", "linear"]},
     "sgd": {"alpha": [1e-5, 1e-4, 1e-3, 1e-2]},
     "lr": {"C": [0.01, 0.1, 1, 10, 100]},
     "nb": {"var_smoothing": [1e-11, 1e-9, 1e-7, 1e-5]},
     "mlc": {"reg_param": [0.0, 0.001, 0.01, 0.1]},
     "lda": {},
-    "knn": {"n_neighbors": [3, 5, 7, 11, 15, 25], "weights": ["distance", "uniform"]},
+    "mindist": {},
+    "sam": {},
+    "knn": {"n_neighbors": [3, 5, 7, 11, 15, 25], "weights": ["distance", "uniform"], "metric": ["euclidean", "cosine"]},
     "mlp": {"hidden_layer_sizes": ["64", "128;64", "256;128"], "alpha": [1e-5, 1e-4, 1e-3]},
 }
 TUNE_METRICS = {
@@ -362,9 +383,9 @@ def _build(model_id: str, task: str, p: dict, seed: int, class_weight):
     if model_id == "svm":
         from sklearn import svm
         if cls:
-            return svm.SVC(C=p["C"], gamma=p["gamma"], kernel="rbf", probability=p.get("probability", False),
+            return svm.SVC(C=p["C"], gamma=p["gamma"], kernel=p.get("kernel", "rbf"), probability=p.get("probability", False),
                            class_weight=cw, random_state=seed, cache_size=500)
-        return svm.SVR(C=p["C"], gamma=p["gamma"], kernel="rbf", cache_size=500)
+        return svm.SVR(C=p["C"], gamma=p["gamma"], kernel=p.get("kernel", "rbf"), cache_size=500)
     if model_id == "sgd":
         from sklearn import linear_model as lm
         if cls:
@@ -380,13 +401,17 @@ def _build(model_id: str, task: str, p: dict, seed: int, class_weight):
     if model_id == "mlc":
         from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
         return QuadraticDiscriminantAnalysis(reg_param=p["reg_param"])  # priors set at fit time
+    if model_id == "mindist":
+        return MinimumDistance()
+    if model_id == "sam":
+        return SpectralAngleMapper()
     if model_id == "lda":
         from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
         return LinearDiscriminantAnalysis()
     if model_id == "knn":
         from sklearn import neighbors as nb
         Est = nb.KNeighborsClassifier if cls else nb.KNeighborsRegressor
-        return Est(n_neighbors=p["n_neighbors"], weights=p["weights"], n_jobs=-1)
+        return Est(n_neighbors=p["n_neighbors"], weights=p["weights"], metric=p.get("metric", "euclidean"), n_jobs=-1)
     if model_id == "mlp":
         from sklearn import neural_network as nn
         try:
@@ -442,7 +467,7 @@ def _fit_with_progress(model_id: str, est, X, y, sample_weight, task: str):
 
 # ------------------------------------------------------------------ training
 
-from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin  # noqa: E402
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, TransformerMixin  # noqa: E402
 
 
 class Clipper(TransformerMixin, BaseEstimator):
@@ -518,6 +543,88 @@ class TargetTransformedRegressor(RegressorMixin, BaseEstimator):
     @property
     def feature_importances_(self):
         return self.model.feature_importances_
+
+
+class MinimumDistance(ClassifierMixin, BaseEstimator):
+    """Minimum distance to class means (Euclidean). Pseudo-probabilities from distances, for confidence maps."""
+
+    def fit(self, X, y, sample_weight=None):
+        X, y = np.asarray(X, dtype="float64"), np.asarray(y)
+        self.classes_ = np.unique(y)
+        self.means_ = np.vstack([X[y == c].mean(axis=0) for c in self.classes_])
+        own = self._d2(X)[np.arange(len(X)), np.searchsorted(self.classes_, y)]
+        self.scale_ = float(np.sqrt(np.median(own))) or 1.0
+        return self
+
+    def _d2(self, X):
+        X = np.asarray(X, dtype="float64")
+        return np.maximum((X ** 2).sum(1)[:, None] - 2 * X @ self.means_.T + (self.means_ ** 2).sum(1)[None, :], 0)
+
+    def predict(self, X):
+        return self.classes_[np.argmin(self._d2(X), axis=1)]
+
+    def predict_proba(self, X):
+        z = -np.sqrt(self._d2(X)) / self.scale_
+        z -= z.max(axis=1, keepdims=True)
+        e = np.exp(z)
+        return e / e.sum(axis=1, keepdims=True)
+
+
+class SpectralAngleMapper(ClassifierMixin, BaseEstimator):
+    """Spectral Angle Mapper: the class whose mean spectrum makes the smallest angle with the pixel (cosine similarity)."""
+
+    def fit(self, X, y, sample_weight=None):
+        X, y = np.asarray(X, dtype="float64"), np.asarray(y)
+        self.classes_ = np.unique(y)
+        m = np.vstack([X[y == c].mean(axis=0) for c in self.classes_])
+        self.means_ = m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-12)
+        own = self._angles(X)[np.arange(len(X)), np.searchsorted(self.classes_, y)]
+        self.scale_ = float(np.median(own)) or 0.05
+        return self
+
+    def _angles(self, X):
+        X = np.asarray(X, dtype="float64")
+        Xn = X / np.maximum(np.linalg.norm(X, axis=1, keepdims=True), 1e-12)
+        return np.arccos(np.clip(Xn @ self.means_.T, -1.0, 1.0))
+
+    def predict(self, X):
+        return self.classes_[np.argmin(self._angles(X), axis=1)]
+
+    def predict_proba(self, X):
+        z = -self._angles(X) / self.scale_
+        z -= z.max(axis=1, keepdims=True)
+        e = np.exp(z)
+        return e / e.sum(axis=1, keepdims=True)
+
+
+class AutoPCA(TransformerMixin, BaseEstimator):
+    """Reduce many bands to principal components: 'auto' only above max_components bands (keeps `variance`), or a fixed number."""
+
+    def __init__(self, mode: str = "auto", max_components: int = 30, variance: float = 0.99):
+        self.mode, self.max_components, self.variance = mode, max_components, variance
+
+    def fit(self, X, y=None):
+        from sklearn.decomposition import PCA
+        X = np.asarray(X, dtype="float64")
+        n, d = X.shape
+        self.n_in_ = d
+        self.pca_ = None
+        if self.mode == "auto" and d <= self.max_components:
+            return self
+        sub = X[np.random.default_rng(0).choice(n, 50000, replace=False)] if n > 50000 else X
+        if self.mode == "auto":
+            full = PCA(random_state=0).fit(sub)
+            k = int(np.searchsorted(np.cumsum(full.explained_variance_ratio_), self.variance) + 1)
+            k = max(2, min(k, self.max_components, d))
+        else:
+            k = max(1, min(int(self.mode), d, len(sub)))
+        self.pca_ = PCA(n_components=k, random_state=0).fit(sub)
+        self.explained_ = float(self.pca_.explained_variance_ratio_.sum())
+        return self
+
+    def transform(self, X):
+        X = np.asarray(X, dtype="float64")
+        return X if self.pca_ is None else self.pca_.transform(X)
 
 
 def _remove_features(X_tr, features, cat_set, drop_constant: bool, corr: str, seed: int):
@@ -786,7 +893,8 @@ def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, fe
     num_steps = ([("impute", SimpleImputer(strategy="median"))] if impute else []) + \
                 ([("clip", Clipper(c["outlier_pct"]))] if c["outliers"] == "clip" else []) + \
                 ([("skew", SkewTransformer(c["skew"]))] if c["skew"] != "none" else []) + \
-                ([("scale", {"standard": StandardScaler, "minmax": MinMaxScaler, "robust": RobustScaler}[scaling]())] if scale else [])
+                ([("scale", {"standard": StandardScaler, "minmax": MinMaxScaler, "robust": RobustScaler}[scaling]())] if scale else []) + \
+                ([("reduce", AutoPCA(c["reduce"]))] if c["reduce"] != "none" and len(num_cols) > 1 else [])
     if num_cols and (num_steps or cat_cols):
         transformers.append(("num", Pipeline(num_steps) if num_steps else "passthrough", num_idx))
     if cat_cols:
@@ -939,7 +1047,9 @@ def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, fe
 
     # ---- feature importance per original column (one-hot columns are summed back to their source column)
     imp, kind = None, None
-    if hasattr(est, "feature_importances_"):
+    rd = _find_step(pre, "reduce")
+    reduced = rd is not None and getattr(rd, "pca_", None) is not None
+    if hasattr(est, "feature_importances_") and not reduced:
         raw = np.asarray(est.feature_importances_, dtype="float64")
         owners = list(num_cols) if cat_cols else list(features)
         if cat_cols:
@@ -950,13 +1060,16 @@ def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, fe
                 owners = owners[:len(raw)]
         imp = np.array([raw[[i for i, o in enumerate(owners) if o == f]].sum() for f in features])
         kind = "built-in (impurity / gain)"
-    elif len(features) > 1:
+    elif 1 < len(features) <= 120:   # permutation cost grows with the number of features (hyperspectral / embeddings)
         progress.update(0.93, "Measuring feature importance")
         from sklearn.inspection import permutation_importance
-        n = min(3000, len(X_te))
+        few = len(features) <= 30
+        n = min(3000 if few else 1000, len(X_te))
         sel = np.random.default_rng(seed).choice(len(X_te), n, replace=False)
-        r = permutation_importance(pipe, X_te[sel], np.asarray(y_te)[sel], n_repeats=3, random_state=seed, n_jobs=1)
+        r = permutation_importance(pipe, X_te[sel], np.asarray(y_te)[sel], n_repeats=3 if few else 1, random_state=seed, n_jobs=1)
         imp, kind = np.clip(r.importances_mean, 0, None), "permutation (drop in score when a feature is shuffled)"
+    elif len(features) > 120:
+        report["warnings"].append(f"Feature importance skipped: {len(features)} features is too many to measure one by one.")
     if imp is not None and imp.sum() > 0:
         imp = imp / imp.sum()
         order = np.argsort(-imp)
@@ -1019,8 +1132,15 @@ def _prep_summary(pre, c, scaling, tt, num_cols, removed, impute) -> dict:
     skewed = [num_cols[i] for i in sk.cols_] if sk is not None else []
     if sk is not None:
         steps.append(f"Yeo-Johnson transform on {len(skewed)} column(s)" + (f": {', '.join(skewed[:8])}" + ("…" if len(skewed) > 8 else "") if skewed else ""))
+    rd = _find_step(pre, "reduce")
+    if rd is not None and getattr(rd, "pca_", None) is not None:
+        steps_after = f"PCA: {rd.n_in_} bands → {rd.pca_.n_components_} components ({rd.explained_:.1%} of the variance)"
+    else:
+        steps_after = None
     if scaling != "none":
         steps.append({"standard": "standard scaling (z-score)", "minmax": "min–max scaling (0–1)", "robust": "robust scaling (median / IQR)"}[scaling])
+    if steps_after:
+        steps.append(steps_after)
     if tt != "none":
         steps.append({"log": "target trained as log(1 + y)", "yeo-johnson": "target Yeo-Johnson transformed"}[tt])
     return {"steps": steps, "removed": removed, "scaling": scaling, "skewed_columns": skewed, "target_transform": tt}

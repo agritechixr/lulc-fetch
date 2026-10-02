@@ -839,10 +839,272 @@ def table_rows(path: str, offset: int = 0, limit: int = 100, q: str = "", sort: 
     from lulc_fetch import tableview
 
     try:
-        return tableview.page(_table_path(path), offset=max(0, offset), limit=max(1, min(limit, 1000)), query=q[:200],
-                              sort=sort, desc=desc)
+        p = _table_path(path)
+        return {**tableview.page(p, offset=max(0, offset), limit=max(1, min(limit, 1000)), query=q[:200], sort=sort, desc=desc),
+                "undo": tableview.undo_count(p)}
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+class TableEditRequest(BaseModel):
+    path: str
+    ops: list[dict] = Field(min_length=1, max_length=50)
+
+
+@app.post("/api/tables/edit")
+def table_edit(req: TableEditRequest):
+    """Edit a table: add / calculate / rename / convert / delete fields, edit cells, add / delete rows (one undo step)."""
+    from lulc_fetch import tableview
+
+    try:
+        return tableview.edit(_table_path(req.path), req.ops)
+    except (ValueError, KeyError) as e:
+        raise HTTPException(400, str(e).strip("'"))
+
+
+class TablePathRequest(BaseModel):
+    path: str
+
+
+@app.post("/api/tables/undo")
+def table_undo(req: TablePathRequest):
+    from lulc_fetch import tableview
+
+    try:
+        return tableview.undo(_table_path(req.path))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class EditStartRequest(BaseModel):
+    path: str
+
+
+@app.post("/api/tables/edit/start")
+def table_edit_start(req: EditStartRequest):
+    """Start (or resume) an edit session: changes go to a working copy until they are saved."""
+    from lulc_fetch import tableview
+
+    p = _table_path(req.path)
+    if tableview.is_work(p):
+        raise HTTPException(400, "This is already an edit session")
+    r = tableview.edit_start(p)
+    return {**r, "work": ws.rel(r["work"]), "original": ws.rel(r["original"])}
+
+
+class EditLogRequest(BaseModel):
+    path: str
+    add: list[str] = Field(default_factory=list, max_length=50)
+    pop: int = Field(0, ge=0, le=50)
+
+
+@app.post("/api/tables/edit/log")
+def table_edit_log(req: EditLogRequest):
+    from lulc_fetch import tableview
+
+    p = _table_path(req.path)
+    if not tableview.is_work(p):
+        raise HTTPException(400, "Not an edit session")
+    return {"log": tableview.edit_log(p, [a[:200] for a in req.add], req.pop)}
+
+
+class EditSaveRequest(BaseModel):
+    path: str
+    mode: str = "overwrite"   # overwrite | new
+    name: str | None = Field(None, max_length=80)
+
+
+@app.post("/api/tables/edit/save")
+def table_edit_save(req: EditSaveRequest):
+    from lulc_fetch import tableview
+
+    p = _table_path(req.path)
+    if not tableview.is_work(p) or req.mode not in ("overwrite", "new"):
+        raise HTTPException(400, "Not an edit session")
+    try:
+        dest = tableview.edit_save(p, req.mode, req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"path": ws.rel(dest), "name": dest.name}
+
+
+@app.post("/api/tables/edit/discard")
+def table_edit_discard(req: EditStartRequest):
+    from lulc_fetch import tableview
+
+    p = _table_path(req.path)
+    try:
+        tableview.edit_discard(p)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.post("/api/tables/restore")
+def table_restore(req: EditStartRequest):
+    """Bring back the version from before the last save over this table."""
+    from lulc_fetch import tableview
+
+    try:
+        return tableview.restore_previous(_table_path(req.path))
+    except ValueError as e:
+        raise HTTPException(400, "No previous version is kept for this table" if "undo" in str(e).lower() else str(e))
+
+
+class PythonRequest(BaseModel):
+    path: str | None = None                       # a table (edit session working copy)
+    code: str = Field(max_length=100_000)
+    apply: bool = False
+    columns: dict[str, list] | None = None        # or vector attributes (+ geometries)
+    geometries: list[dict | None] | None = None
+    n: int = Field(0, ge=0, le=2_000_000)
+
+
+def _python_result(r: dict, preview: int = 8) -> dict:
+    import math
+
+    import pandas as pd
+    out = {"ok": r["ok"], "output": r["output"], "error": r["error"]}
+    if r["ok"]:
+        df = pd.read_parquet(r["out"])
+        out["meta"] = r["meta"]
+        cols = [c for c in df.columns if c != "__row__"]
+        clean = lambda v: None if v is None or (isinstance(v, float) and not math.isfinite(v)) else (v.item() if hasattr(v, "item") else v)
+        out["preview"] = {"columns": cols, "rows": [[clean(v) for v in row] for row in df[cols].head(preview).itertuples(index=False)]}
+    return out
+
+
+@app.post("/api/python/run")
+def python_run(req: PythonRequest):
+    """Run the user's Python on a table (edit session) or on vector attributes, in a separate process (a job)."""
+    import shutil
+    import tempfile
+
+    import pandas as pd
+
+    from lulc_fetch import pyexec, tableview
+
+    work = _table_path(req.path) if req.path else None
+    if work is not None and req.apply and not tableview.is_work(work):
+        raise HTTPException(400, "Start editing first: changes go to a working copy until you save them")
+    if work is None and req.columns is None:
+        raise HTTPException(400, "Nothing to run on")
+
+    def run(job):
+        tmp = Path(tempfile.mkdtemp(prefix="lulc_in_"))
+        try:
+            if work is not None:
+                src = tableview.to_parquet_for_python(work, tmp / "in.parquet")
+            else:
+                data = {"__row__": [float(i) for i in range(req.n)]}
+                for c, vals in (req.columns or {}).items():
+                    if all(v is None or (isinstance(v, (int, float)) and not isinstance(v, bool)) for v in vals):
+                        data[c] = [float("nan") if v is None else float(v) for v in vals]
+                    elif all(v is None or isinstance(v, bool) for v in vals):
+                        data[c] = vals
+                    else:
+                        data[c] = [None if v is None else v if isinstance(v, str) else str(v) for v in vals]
+                if req.geometries is not None:
+                    import json as _json
+                    data["__geometry__"] = [_json.dumps(g) if g else None for g in req.geometries]
+                src = tmp / "in.parquet"
+                pd.DataFrame(data).to_parquet(src, index=False)
+            r = pyexec.run(src, req.code)
+            res = _python_result(r)
+            if r["ok"] and work is not None and req.apply:
+                res["applied"] = tableview.replace_from_python(work, r["out"])
+            elif r["ok"] and work is None:
+                df = pd.read_parquet(r["out"])
+                cols = [c for c in df.columns if c != "__row__"]
+                import math
+                clean = lambda v: None if v is None or (isinstance(v, float) and not math.isfinite(v)) else (v.item() if hasattr(v, "item") else v)
+                res["result"] = {"columns": cols, "index": [None if not math.isfinite(v) else int(v) for v in df["__row__"].tolist()],
+                                 "rows": [[clean(v) for v in row] for row in df[cols].itertuples(index=False)]}
+            shutil.rmtree(r.get("dir", ""), ignore_errors=True)
+            return res
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    return jobs.submit("python", "Python script" + (" (apply)" if req.apply else " (test)"), {"source": "Data viewer"}, run).to_dict()
+
+
+@app.get("/api/tables/calc-preview")
+def table_calc_preview(path: str, expression: str):
+    from lulc_fetch import tableview
+
+    try:
+        return tableview.calc_preview(_table_path(path), expression)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class TableDeriveRequest(BaseModel):
+    path: str
+    q: str = ""
+    name: str = Field("selection", max_length=80)
+
+
+@app.post("/api/tables/derive")
+def table_derive(req: TableDeriveRequest):
+    """Save the rows matching the current search / filter as a new table."""
+    from lulc_fetch import tableview
+
+    try:
+        out = tableview.derive(_table_path(req.path), req.q[:200], TABLE_DIR.path, req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"path": ws.rel(out), "name": out.name}
+
+
+class FieldCalcRequest(BaseModel):
+    expression: str = Field(max_length=2000)
+    columns: dict[str, list] = Field(default_factory=dict)   # attribute values of a vector layer
+    geometries: list[dict | None] | None = None
+    n: int = Field(ge=0, le=2_000_000)
+
+
+@app.post("/api/fields/calc")
+def field_calc(req: FieldCalcRequest):
+    """Field calculator for vector layers (attributes live in the browser): returns the new values."""
+    import math
+
+    from lulc_fetch import fieldcalc
+
+    try:
+        used, geoms = fieldcalc.referenced(req.expression, list(req.columns))
+        data = {}
+        for c in used:
+            vals = req.columns.get(c)
+            if vals is None:
+                continue
+            if all(v is None or (isinstance(v, (int, float)) and not isinstance(v, bool)) for v in vals):
+                data[c] = np.array([np.nan if v is None else float(v) for v in vals])
+            else:
+                data[c] = np.array([None if v is None else v if isinstance(v, str) else str(v) for v in vals], dtype=object)
+        g = None
+        if geoms:
+            if req.geometries is None or len(req.geometries) != req.n:
+                raise fieldcalc.CalcError("Geometry values ($area …) only work on vector layers")
+            g = fieldcalc.geometry_measures(req.geometries, geoms)
+        vals, typ = fieldcalc.evaluate(req.expression, data, req.n, g)
+    except fieldcalc.CalcError as e:
+        raise HTTPException(400, str(e))
+    out = []
+    for v in vals.tolist():
+        if isinstance(v, float) and not math.isfinite(v):
+            out.append(None)
+        elif typ == "integer" and isinstance(v, float):
+            out.append(int(v))
+        else:
+            out.append(v)
+    return {"values": out, "type": typ}
+
+
+@app.get("/api/fields/functions")
+def field_functions():
+    from lulc_fetch import fieldcalc
+
+    return {"functions": fieldcalc.FUNC_HELP, "geometry": list(fieldcalc.GEOM_VARS)}
 
 
 @app.get("/api/tables/stats")
@@ -1138,6 +1400,93 @@ def ml_train(req: TrainRequest):
 
     title = f"Train {ml.MODELS[req.model]['title']} · {req.name}"
     return jobs.submit("train", title, {"source": ml.MODELS[req.model]["title"]}, run).to_dict()
+
+
+# ------------------------------------------------------------------ Classical ML for rasters (image + ground truth → map)
+
+@app.get("/api/rasterml/schema")
+def rasterml_schema():
+    from lulc_fetch import rasterml
+
+    return rasterml.schema()
+
+
+@app.get("/api/rasterml/inspect")
+def rasterml_inspect(path: str, bands: str = ""):
+    from lulc_fetch import rasterml
+
+    idx = [int(b) for b in bands.split(",") if b.strip()] or None
+    try:
+        return rasterml.inspect_kind(_raster_path(path), idx)
+    except (ValueError, IndexError) as e:
+        raise HTTPException(400, str(e))
+
+
+class RasterMLRequest(BaseModel):
+    path: str
+    bands: list[int] | None = None
+    ground_truth: dict
+    model: str = "rf"
+    params: dict = Field(default_factory=dict)
+    common: dict = Field(default_factory=dict)
+    tuning: dict = Field(default_factory=dict)
+    clip: dict | None = None
+    map_whole: bool = True
+    factor: int = Field(1, ge=1, le=64)
+    scale: float = 1.0
+    offset: float = 0.0
+    per_class: int | None = Field(3000, ge=10, le=10_000_000)
+    name: str = Field("classified", max_length=80)
+    class_colors: dict[str, str] | None = None
+    confidence: bool = True
+    resolution: str = "auto"
+
+
+@app.post("/api/rasterml/run")
+def rasterml_run(req: RasterMLRequest):
+    import json as _json
+    import shutil
+
+    from lulc_fetch import ml, rasterml
+
+    src = _raster_path(req.path)
+    if req.model not in ml.MODELS:
+        raise HTTPException(400, f"Unknown model {req.model}")
+    gt = dict(req.ground_truth)
+    if gt.get("type") == "raster":
+        gt["path"] = str(_raster_path(gt["path"]))
+    clip = _clip(req.clip) if req.clip else None
+
+    def run(job):
+        res = rasterml.classify(src, job.dir, bands=req.bands, ground_truth=gt, model=req.model, params=req.params, common=req.common,
+                                tuning=req.tuning, clip=clip, map_clip=None if req.map_whole else clip, factor=req.factor, scale=req.scale,
+                                offset=req.offset, per_class=req.per_class, name=req.name, class_colors=req.class_colors,
+                                confidence=req.confidence, resolution=req.resolution)
+        rep = res["model"]
+        # the model joins Your models (with its evaluation report); no table is kept
+        MODEL_DIR.mkdir(exist_ok=True)
+        tmp = Path(rep["path"])
+        dest, i = MODEL_DIR / tmp.name, 2
+        while dest.exists():
+            dest = MODEL_DIR / f"{tmp.stem}_{i}.joblib"
+            i += 1
+        shutil.move(tmp, dest)
+        ev = tmp.with_suffix(".evaluation.html")
+        if ev.exists():
+            shutil.move(ev, dest.with_suffix(".evaluation.html"))
+            rep["evaluation_html"] = ws.rel(dest.with_suffix(".evaluation.html"))
+        Path(str(tmp) + ".json").unlink(missing_ok=True)
+        rep["path"], rep["table"] = ws.rel(dest), src.name
+        Path(str(dest) + ".json").write_text(_json.dumps(rep, indent=1, default=str))
+        res["model_path"] = rep["path"]
+        if res.get("map"):
+            res["map"]["path"] = ws.rel(res["map"]["path"])
+            res["path"] = res["map"]["path"]          # the map: added to Contents, saved by "also save to a folder"
+        res["outputs"] = [res["model_path"]]
+        return res
+
+    title = f"Raster classification · {ml.MODELS[req.model]['title']} · {req.name}"
+    return jobs.submit("rasterml", title, {"source": src.name}, run).to_dict()
 
 
 # ------------------------------------------------------------------ Classical ML: unsupervised (clustering, t-SNE)
