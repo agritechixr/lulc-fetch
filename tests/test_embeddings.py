@@ -190,3 +190,21 @@ def test_convert_refuses_big_values_for_aef_coding(client, emb_tif, tmp_path):
         cv.convert(big, tmp_path / "x.tif", "int8-aef")
     r = cv.convert(big, tmp_path / "u.tif", "int8-aef", normalise=True)
     assert r["cosine_min"] > 0.999
+
+
+def test_embedding_layer_keeps_all_bands_and_shows_colour(client, emb_tif, tmp_path):
+    """An embedding is recognised, drawn in colour from all its bands (PCA), and exported with all of them."""
+    info = ok(client.get("/api/rasters/info", params={"path": emb_tif}))
+    assert info["embedding"]["dims"] == 64 and info["count"] == 64
+    r = ok(client.post("/api/analyze/render", json={"path": emb_tif, "band_map": {}, "scale": 1, "offset": 0, "pca": True, "stretch": "auto"}))
+    assert r["kind"] == "rgb" and "PCA of 64 bands" in r["title"] and r["image"].startswith("data:image/png")
+    again = ok(client.post("/api/analyze/render", json={"path": emb_tif, "band_map": {}, "scale": 1, "offset": 0, "pca": True, "stretch": "auto"}))
+    assert again["image"] == r["image"]                                    # the same colours every time
+    (x0, y1), (x1, y0) = lonlat(5, 5), lonlat(25, 25)
+    for clip in (None, {"type": "Polygon", "coordinates": [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]}):
+        e = run(client, "/api/layers/export", {"path": emb_tif, "format": "tif", "name": "emb_export", "band_map": {}, "pca": True, "clip": clip})
+        blob = client.get(e["url"]).content
+        f = tmp_path / "x.tif"
+        f.write_bytes(blob)
+        with rasterio.open(f) as s:
+            assert s.count == 64                                           # all bands, not the 3 shown

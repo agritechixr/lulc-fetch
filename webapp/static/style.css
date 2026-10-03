@@ -1070,15 +1070,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .rb-info { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 1px solid var(--muted); background: none; color: var(--muted);
   font: italic 700 11px/16px Georgia, serif; padding: 0; cursor: pointer; }
 .rb-info:hover, .rb-info[aria-expanded="true"] { border-color: var(--accent); color: var(--accent-text); background: var(--accent); }
-.rb-details { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
-.rb-times { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.rb-times b { color: var(--text); font-weight: 600; }
-.rb-full { font-size: 12.5px; margin-top: 4px; overflow-wrap: anywhere; }
-.rb-log { margin: 6px 0 0; height: 160px; min-height: 60px; max-height: 70vh; resize: vertical; overflow: auto; background: var(--panel-2);
-  border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font: 11.5px/1.45 var(--mono); white-space: pre-wrap;
-  overflow-wrap: anywhere; color: var(--text); }
-.rb-log .err { color: var(--err); font-weight: 600; }
-.rb-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .rb-actions:empty { display: none; }
 .run-bar.failed { border-top: 2px solid var(--err); }
 .run-bar.failed .rb-title-text, .run-bar.failed #rb-title { color: var(--err); }
@@ -1086,3 +1077,20 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .run-bar.done #rb-title { color: var(--ok); }
 .run-bar.failed .spinner, .run-bar.done .spinner { animation: none; border-color: transparent; }
 .run-bar.failed #rb-spin, .run-bar.done #rb-spin { display: none; }
+
+/* the floating run-details window */
+.rb-float { position: fixed; z-index: 1500; display: flex; flex-direction: column; width: 440px; height: 340px; min-width: 280px; min-height: 180px;
+  max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(16,24,40,.28); resize: both; overflow: hidden; }
+.rb-float.failed { border-color: var(--err); }
+.rb-float-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border);
+  background: var(--panel-2); cursor: move; user-select: none; touch-action: none; }
+.rb-float-head b { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-float.failed .rb-float-head b { color: var(--err); }
+.rb-float.done .rb-float-head b { color: var(--ok); }
+.rb-float.failed #rb-float-spin, .rb-float.done #rb-float-spin { display: none; }
+.rb-float-x { flex: none; width: 26px; height: 26px; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.rb-float-x:hover { background: var(--border); color: var(--text); }
+.rb-float-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 12px 12px; }
+.rb-float-body .rb-full { flex: none; }
+.rb-float-body .rb-log { flex: 1; min-height: 40px; height: auto; max-height: none; resize: none; }
