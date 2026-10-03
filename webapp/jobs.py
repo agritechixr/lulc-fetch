@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
 import threading
@@ -17,6 +18,8 @@ from . import workspace as ws
 from .workspace import Dir
 
 DOWNLOAD_DIR = Dir("downloads")   # follows the open project
+# the request that started the current job (set by the server for every POST): its settings go into History
+REQUEST: contextvars.ContextVar[dict | None] = contextvars.ContextVar("lulc_request", default=None)
 
 
 def errors_log() -> Path:
@@ -79,6 +82,7 @@ class Job:
     live: dict | None = None   # live data published by the work (lulc_fetch.progress.live), e.g. training curves
     error: str | None = None
     base: Path = field(default_factory=lambda: DOWNLOAD_DIR.path)   # fixed when the job is created
+    request: dict | None = None   # {"endpoint", "body"}: the settings the tool was started with (History)
 
     @property
     def dir(self) -> Path:
@@ -120,6 +124,7 @@ class JobManager:
 
     def submit(self, kind: str, title: str, params: dict, fn: Callable[[Job], dict]) -> Job:
         job = Job(uuid.uuid4().hex[:10], kind, title, params)
+        job.request = REQUEST.get()
         self.jobs[job.id] = job
         self.pool.submit(self._run, job, fn)
         return job
@@ -174,6 +179,12 @@ class JobManager:
             progress.set_live_handler(None)
             job.finished = time.time()
             _current.job = None
+            if job.status in ("done", "error", "cancelled"):
+                try:
+                    from . import history
+                    history.record(job)
+                except Exception:
+                    logging.getLogger(__name__).debug("History not written", exc_info=True)
 
     def list(self) -> list[Job]:
         return list(self.jobs.values())
