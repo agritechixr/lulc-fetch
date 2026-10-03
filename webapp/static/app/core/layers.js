@@ -31,7 +31,10 @@
         style: (f) => vecStyle(l, f),
         pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 6, ...vecStyle(l, f), fillOpacity: 0.85 * l.opacity, bubblingMouseEvents: false }),
         // A selected raster wins: clicking on top of a polygon still reads the raster's pixel values.
-        onEachFeature: (f, lyr) => lyr.on("click", (e) => {
+        onEachFeature: (f, lyr) => lyr.on("contextmenu", (e) => {   // the map's right-click menu also on shapes
+          L.DomEvent.stop(e); if (picking || activeDraw) return;
+          e.originalEvent?.preventDefault(); showMapMenu(e.latlng, e.originalEvent.clientX, e.originalEvent.clientY);
+        }).on("click", (e) => {
           if (picking || activeDraw) return;
           const sel = selectedLayer();
           if (sel?.type === "raster" && sel.visible) identify(e.latlng);

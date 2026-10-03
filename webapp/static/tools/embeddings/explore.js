@@ -39,7 +39,7 @@
       </div>`,
 
     setup(LF) {
-      const { $, fmt, map, api, toast, getLayer, runJob, notCancelled, addRasterFromPath, switchTool, startDraw } = LF;
+      const { $, fmt, map, toast, getLayer, runJob, notCancelled, addRasterFromPath, switchTool, startDraw } = LF;
       const st = { points: [], markers: L.featureGroup().addTo(map) };
 
       function renderLayers(pick) {
@@ -54,11 +54,12 @@
         $("#em-pick-n").textContent = st.points.length ? `${st.points.length} place${st.points.length > 1 ? "s" : ""}` : "";
         $("#em-pick-clear").classList.toggle("hidden", !st.points.length);
       }
-      $("#em-pick").onclick = () => startDraw(L.Draw.CircleMarker, (g) => {
-        st.points.push(g.coordinates);
-        L.circleMarker([g.coordinates[1], g.coordinates[0]], { radius: 6, color: "#fff", weight: 2, fillColor: "#7c3aed", fillOpacity: 1, interactive: false }).addTo(st.markers);
+      function addPoint(lonlat) {
+        st.points.push(lonlat);
+        L.circleMarker([lonlat[1], lonlat[0]], { radius: 6, color: "#fff", weight: 2, fillColor: "#7c3aed", fillOpacity: 1, interactive: false }).addTo(st.markers);
         syncPoints();
-      }, "#7c3aed");
+      }
+      $("#em-pick").onclick = () => startDraw(L.Draw.CircleMarker, (g) => addPoint(g.coordinates), "#7c3aed");
       $("#em-pick-clear").onclick = () => { st.points = []; st.markers.clearLayers(); syncPoints(); };
 
       const showError = (e) => { if (notCancelled(e)) { const err = $("#em-explore-error"); err.textContent = e.message; err.classList.remove("hidden"); } };
@@ -87,7 +88,12 @@
       };
       $("#em-classify").onclick = () => switchTool("rasterml");
 
-      return { open: (arg) => renderLayers(arg?.layer), layersChanged: () => renderLayers() };
+      // opened with { layer, point: [lon, lat] } (right-click on the map, or a pixel's "Find similar places")
+      function open(arg) {
+        renderLayers(arg?.layer);
+        if (arg?.point) { addPoint(arg.point); toast(`Place added (${st.points.length} in all): click “Find similar places”, or add more`); }
+      }
+      return { open, layersChanged: () => renderLayers() };
     },
   });
 })();

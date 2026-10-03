@@ -201,7 +201,8 @@ Double-click a table, or click its ▭ button, to open it in the data viewer. Ri
 | Reorder | Drag a layer up or down (top = drawn on top) |
 | Zoom to layer | 🔍 button, double-click, or right-click ▸ Zoom to layer |
 | Legend + opacity | ▶ arrow on the left of the layer |
-| Pixel values | Select a raster layer, then click the map. A popup shows the value, class name or band values. |
+| Pixel values | Select a raster layer, then click the map. A popup shows the value, class name and **every band** (the list scrolls, e.g. all 64 / 128 embedding dimensions), with **Copy values**, **Copy coordinates** and, for an embedding, **Find similar places** |
+| Right-click the map | **Copy coordinates** (lat, lon · lon, lat · UTM easting, northing) · **What's here?** (the values of every shown layer at that point) · **Add a point here** (collected in a *Map points* layer you can export) · Centre / zoom here · **Find imagery around here** and **Download embeddings around here** (a 2 × 2 km area) · **Find places similar to this one** (with an embedding layer) · Open the place in Google Maps or OpenStreetMap |
 | Attribute table | Right-click a vector layer ▸ **Open attribute table**: opens in the data viewer |
 | More options | Right-click or **⋯**: Zoom · Properties · **Band combination (RGB)** · **Metadata** · Compute indices · Open attribute table (vector layers) · Use as area of interest (polygon layers) · Export / save to computer · Move to top/bottom · Remove |
 
