@@ -2367,6 +2367,204 @@ def det_train(req: DetTrainRequest):
     return jobs.submit("dettrain", title, {"image": Path(inp["path"]).name}, run).to_dict()
 
 
+# ------------------------------------------------------------------ Agri: crop disease diagnosis and the crop disease guide
+
+# where a copy of the disease repository (with its model weights) is often kept, tried when no models folder is chosen yet
+_AGRI_GUESSES = ("Desktop/Farmer_ai", "Farmer_ai", "Desktop/multicrop-disease-decision-support", "multicrop-disease-decision-support",
+                 "Documents/Farmer_ai", "Documents/multicrop-disease-decision-support")
+
+
+def _agri_settings() -> dict:
+    import json as _json
+    try:
+        return _json.loads((ws.CONFIG_DIR / "agri.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _agri_models() -> dict:
+    """The chosen models folder (or one found in a usual place) and what it holds."""
+    from lulc_fetch.agri.disease import find_models
+
+    saved = _agri_settings().get("models")
+    if saved and Path(saved).is_dir():
+        return {**find_models(saved), "chosen": True}
+    for g in _AGRI_GUESSES:
+        f = find_models(Path.home() / g)
+        if f["crops"] or f["detectors"]:
+            return {**f, "chosen": False}
+    return {"folder": None, "crops": {}, "detectors": {}, "chosen": False}
+
+
+def _agri_status() -> dict:
+    m = _agri_models()
+    return {"folder": m["folder"], "chosen": m["chosen"], "crops": sorted(m["crops"]), "detectors": sorted(m["detectors"])}
+
+
+@app.get("/api/agri/schema")
+def agri_schema():
+    from lulc_fetch.agri import knowledge
+    return {**knowledge.schema(), "models": _agri_status()}
+
+
+class AgriModelsRequest(BaseModel):
+    folder: str = Field(max_length=2000)
+
+
+@app.post("/api/agri/models")
+def agri_set_models(req: AgriModelsRequest):
+    import json as _json
+
+    from lulc_fetch.agri.disease import find_models
+    folder = _abs_user_folder(req.folder)
+    f = find_models(folder)
+    if not f["crops"] and not f["detectors"]:
+        raise HTTPException(400, f"No disease models in {folder}: choose the disease app's folder (with data/<Crop>/convnext_best.pth "
+                                 "and master_model/)")
+    try:
+        ws.CONFIG_DIR.mkdir(exist_ok=True)
+        (ws.CONFIG_DIR / "agri.json").write_text(_json.dumps({**_agri_settings(), "models": str(folder)}, indent=1))
+    except OSError as e:
+        raise HTTPException(500, f"Couldn't save the setting: {e}")
+    return _agri_status()
+
+
+def _agri_photo(path: str) -> Path:
+    from lulc_fetch.agri.disease import PHOTO_EXTS
+    p = Path(path)
+    p = (p if p.is_absolute() else ws.root() / p).resolve()
+    if p.suffix.lower() not in PHOTO_EXTS or not p.is_file():
+        raise HTTPException(404, f"No such photo: {path}")
+    return p
+
+
+@app.post("/api/agri/photos/upload")
+async def agri_upload_photos(files: list[UploadFile] = File(...)):
+    """Photos added from the computer: kept in the workspace's uploads/photos/<batch>/."""
+    import shutil
+    import uuid
+
+    from lulc_fetch.agri.disease import PHOTO_EXTS
+    dest = ws.root() / "uploads" / "photos" / uuid.uuid4().hex[:8]
+    out, skipped = [], []
+    for f in files:
+        name = Path(f.filename or "").name
+        if Path(name).suffix.lower() not in PHOTO_EXTS:
+            skipped.append(name)
+            continue
+        dest.mkdir(parents=True, exist_ok=True)
+        p = _unique(dest, name)
+        with open(p, "wb") as fh:
+            shutil.copyfileobj(f.file, fh, length=8 << 20)
+        out.append({"path": str(p), "name": p.name})
+    return {"photos": out, "skipped": skipped}
+
+
+@app.get("/api/agri/photos/folder")
+def agri_folder_photos(path: str, recursive: bool = False):
+    """The photos in a folder (and its sub-folders when recursive), up to 5,000."""
+    from lulc_fetch.agri.disease import PHOTO_EXTS
+    folder = _abs_user_folder(path)
+    it = folder.rglob("*") if recursive else folder.iterdir()
+    out = []
+    for p in it:
+        if p.suffix.lower() in PHOTO_EXTS and p.is_file() and not p.name.startswith("."):
+            out.append({"path": str(p), "name": str(p.relative_to(folder))})
+            if len(out) >= 5000:
+                break
+    out.sort(key=lambda x: x["name"].lower())
+    return {"folder": str(folder), "photos": out, "truncated": len(out) >= 5000}
+
+
+@app.get("/api/agri/photo")
+def agri_photo(path: str, size: int = 256):
+    """A photo as a JPEG, upright and at most size pixels (thumbnails in the tool, the full photo with size=0)."""
+    import io
+
+    from fastapi.responses import Response
+
+    from lulc_fetch.agri.disease import open_photo
+    p = _agri_photo(path)
+    try:
+        img, _ = open_photo(p)
+    except Exception as e:
+        raise HTTPException(400, f"Couldn't read {p.name}: {e}")
+    if size > 0:
+        img.thumbnail((min(size, 2048), min(size, 2048)))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=85)
+    return Response(buf.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
+
+
+class DiagnoseRequest(BaseModel):
+    photos: list[str] = Field(min_length=1, max_length=5000)
+    crop: str = Field("auto", max_length=40)
+    strict: bool = True                        # refuse unclear photos (the disease app's photo check)
+    device: str = Field("auto", pattern="^(auto|cpu|cuda|mps)$")
+    name: str = Field("diagnosis", max_length=80)
+
+
+@app.post("/api/agri/diagnose")
+def agri_diagnose(req: DiagnoseRequest):
+    import json as _json
+    import re
+    import shutil
+
+    from lulc_fetch import dlrunner
+    from lulc_fetch.agri import knowledge
+    if not _dl_status()["available"]:
+        raise HTTPException(400, "The deep-learning add-on isn't installed yet")
+    m = _agri_models()
+    if not m["folder"] or not (m["crops"] or m["detectors"]):
+        raise HTTPException(400, "Choose the disease models folder first")
+    if req.crop != "auto":
+        if req.crop not in knowledge.crops():
+            raise HTTPException(400, f"Unknown crop {req.crop}")
+        if req.crop not in m["crops"]:
+            raise HTTPException(400, f"The models folder has no {knowledge.crops()[req.crop]['name']} model")
+    elif not m["detectors"]:
+        raise HTTPException(400, "The models folder has no crop detector (master_model/): choose the crop")
+    from lulc_fetch.agri.disease import PHOTO_EXTS
+    photos = [str(Path(p) if Path(p).is_absolute() else ws.root() / p) for p in req.photos]
+    if any(Path(p).suffix.lower() not in PHOTO_EXTS for p in photos):
+        raise HTTPException(400, "Only photos (JPG, PNG, WebP, BMP, TIFF, HEIC) can be diagnosed")
+    if not any(Path(p).is_file() for p in photos):   # a missing photo among others is reported in its row
+        raise HTTPException(404, "None of the photos exist any more: add them again")
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "diagnosis"
+
+    def run(job):
+        res = dlrunner.run("diagnose", photos=photos, models_dir=m["folder"], out_dir=str(job.dir), name=stem, crop=req.crop,
+                           strict=req.strict, device=req.device)
+        res["geojson"] = _json.loads(Path(res["geojson_path"]).read_text(encoding="utf-8")) if res["geojson_path"] else None
+        TABLE_DIR.mkdir(exist_ok=True)   # the data viewer opens tables from tables/ (never overwrite an earlier one)
+        table = _unique(TABLE_DIR.path, Path(res["csv"]).name)
+        shutil.copyfile(res["csv"], table)
+        res["outputs"] = [ws.rel(res["csv"])] + ([ws.rel(res["geojson_path"])] if res["geojson_path"] else [])
+        res["csv"] = ws.rel(table)
+        res["geojson_path"] = ws.rel(res["geojson_path"]) if res["geojson_path"] else None
+        return res
+
+    crop = "crop detected" if req.crop == "auto" else knowledge.crops()[req.crop]["name"]
+    return jobs.submit("diagnose", f"Crop disease · {len(photos)} photo{'s' if len(photos) > 1 else ''} · {req.name}",
+                       {"crop": crop}, run).to_dict()
+
+
+@app.get("/api/agri/guide/diseases")
+def agri_guide_diseases(crop: str):
+    from lulc_fetch.agri import knowledge
+    if crop not in knowledge.crops():
+        raise HTTPException(404, f"Unknown crop {crop}")
+    return {"crop": crop, "diseases": knowledge.diseases(crop)}
+
+
+@app.get("/api/agri/guide/search")
+def agri_guide_search(crop: str, disease: str | None = None, q: str | None = None, section: str | None = None, limit: int = 200):
+    from lulc_fetch.agri import knowledge
+    if crop not in knowledge.crops():
+        raise HTTPException(404, f"Unknown crop {crop}")
+    return knowledge.search(crop, disease=disease or None, q=(q or "")[:200], section=section or None, limit=max(1, min(limit, 1000)))
+
+
 # ------------------------------------------------------------------ Classical ML: unsupervised (clustering, t-SNE)
 
 @app.get("/api/unsup/schema")

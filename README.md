@@ -27,6 +27,13 @@ A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your 
 | **Classical ML: unsupervised** | **Clustering** with K-means, hierarchical (dendrogram), DBSCAN, HDBSCAN, spectral clustering and Gaussian mixture: automatic choice of k, quality scores, cluster profiles, comparison with known labels, and **unsupervised classification of images**. **t-SNE maps** to see how classes or clusters separate. |
 | **Export data** | Save any layer as GeoTIFF, PNG, Shapefile, GeoJSON or KML, for the whole layer or just an area |
 
+**Agri menu** (from the Multi-Crop Disease Decision Support System):
+
+| Tool | What it does |
+|---|---|
+| **Diagnose crop disease** | Leaf photos → the crop (two ConvNeXt crop detectors, 42 crops) → its disease (one ConvNeXt model per crop, top 3 with confidence; 91–100 % on test photos). Add single photos or a whole survey folder. Unclear or non-leaf photos get "retake" instead of a guess. A results table, and **geotagged photos become a disease map** (point layer). Needs the deep-learning add-on and the disease models folder (8 GB, not on GitHub). |
+| **Crop disease guide** | About 9,000 expert questions and answers: symptoms, treatment, spray schedules and pests per crop and disease, searchable; offline. Diagnosis results link straight to their disease. |
+
 Across the app:
 - **Projects:** one folder per project keeps your layers, results, tables, models and map view; it autosaves and reopens where you left off. You can also work without a project in a temporary workspace.
 - **Save anywhere:** every tool can also save its result to a folder you choose, and right-click ▸ **Save to folder…** works on any layer, table or picture. A built-in folder picker helps.

@@ -37,6 +37,9 @@
     <div class="menu"><button class="menu-btn">Tools</button>
       <div class="menu-pop wide" id="tools-menu"></div>
     </div>
+    <div class="menu"><button class="menu-btn">Agri</button>
+      <div class="menu-pop wide" id="agri-menu"></div>
+    </div>
     <div class="menu"><button class="menu-btn">View</button>
       <div class="menu-pop">
         <button data-cmd="toggle-contents" class="check" id="mi-contents">Contents panel<kbd>Ctrl+1</kbd></button>
@@ -1050,6 +1053,57 @@
         <div class="row"><button class="btn primary grow" id="lx-go">⬇ Export and download</button></div>
         <p class="hint">The file goes to your browser's Downloads folder.</p>
       </div>
+    </section>
+
+    <section id="tab-agridisease" class="tabpanel hidden">
+      <div class="dl-addon card hidden" data-addon></div>
+      <div class="dl-body">
+      <div class="card">
+        <h2><span class="step">1</span>Disease models <button type="button" class="tip" data-tip="The photo models of the Multi-Crop Disease Decision Support System: one ConvNeXt model per crop (42 crops, about 190 MB each) and two crop detectors. They stay in their own folder, a copy of the disease app with data/&lt;Crop&gt;/convnext_best.pth and master_model/." aria-label="Help">i</button></h2>
+        <div id="ad-models"></div>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Leaf photos <span class="req">required</span> <button type="button" class="tip" data-tip="One leaf per photo, filling most of the picture, in daylight and in focus. JPG, PNG, WebP, BMP or TIFF (HEIC from iPhones needs pillow-heif: save as JPG instead). Photos taken with location on (GPS) are also put on the map." aria-label="Help">i</button></h2>
+        <div class="row tight" style="flex-wrap:wrap;gap:6px">
+          <button class="btn small" id="ad-add">Add photos…</button>
+          <button class="btn small" id="ad-folder">Add a folder…</button>
+          <label class="inline" style="margin:0;font-size:12px"><input type="checkbox" id="ad-recursive"> with sub-folders</label>
+          <button class="btn small ghost hidden" id="ad-clear" style="margin-left:auto">Clear all</button>
+        </div>
+        <input type="file" id="ad-file" accept="image/*,.heic,.heif" multiple hidden>
+        <div class="ad-drop" id="ad-drop">Drop leaf photos here</div>
+        <div class="ad-grid" id="ad-photos"></div>
+        <p class="hint" id="ad-photos-hint"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Crop</h2>
+        <select id="ad-crop"></select>
+        <p class="hint" id="ad-crop-info"></p>
+        <label class="inline" style="margin-top:8px"><input type="checkbox" id="ad-strict" checked> Refuse unclear photos <button type="button" class="tip" data-tip="As in the disease app: photos that are too dark, blank, too small, or not confidently a leaf of a supported crop get 'retake' instead of a guess. Blurry or very bright photos are refused only when the models are unsure. Untick to diagnose every photo anyway (doubtful results are marked)." aria-label="Help">i</button></label>
+        <div class="grid2"><label>Device<select id="ad-device"><option value="auto">Auto</option><option value="mps">Apple GPU (MPS)</option><option value="cuda">NVIDIA GPU (CUDA)</option><option value="cpu">CPU</option></select></label></div>
+      </div>
+      <div class="card">
+        <h2><span class="step">4</span>Output</h2>
+        <label>Name <button type="button" class="tip" data-tip="The results table (CSV, one row per photo) and, for photos with a GPS position, a point layer get this name." aria-label="Help">i</button><input id="ad-name" maxlength="80" value="diagnosis"></label>
+        <button class="btn primary big-btn" id="ad-run">Diagnose photos</button>
+        <div id="ad-error" class="warn err hidden"></div>
+      </div>
+      <div id="ad-result" class="hidden"></div>
+      <p class="hint">Photo diagnosis supports, but doesn't replace, a local agriculture expert. Field photos can score lower than the test results shown.</p>
+      </div>
+    </section>
+
+    <section id="tab-agriguide" class="tabpanel hidden">
+      <div class="card">
+        <label style="margin-top:0">Crop<select id="ag-crop"></select></label>
+        <p class="hint" id="ag-crop-info"></p>
+        <label>Search this crop <input type="search" id="ag-q" placeholder="e.g. yellow leaves, spray schedule, fruit drop" autocomplete="off"></label>
+      </div>
+      <div class="card">
+        <h2>Diseases &amp; pests</h2>
+        <div class="ag-list" id="ag-diseases"></div>
+      </div>
+      <div id="ag-records"></div>
     </section>
 
     <section id="tab-jobs" class="tabpanel hidden">

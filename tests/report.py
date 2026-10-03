@@ -36,6 +36,7 @@ TOOLS = {
     "test_unsupervised": "Classical ML: unsupervised", "test_raster_ml": "Classical ML for raster", "test_export": "Export data",
     "test_training_data": "Make training data", "test_train_classify_model": "Train classify model & Classify image",
     "test_detection": "Detect object & Train detection model", "test_jobs_and_cli": "Downloads & jobs, command line",
+    "test_agri": "Agri: Diagnose crop disease & Crop disease guide",
 }
 
 

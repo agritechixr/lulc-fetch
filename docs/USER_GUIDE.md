@@ -25,15 +25,17 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 19. [Classify image](#19-classify-image)
 20. [Detect object](#20-detect-object)
 21. [Train detection model](#21-train-detection-model)
-22. [Export data](#22-export-data)
-23. [Downloads & jobs](#23-downloads--jobs)
-24. [Credentials](#24-credentials)
-25. [Command-line tool](#25-command-line-tool)
-26. [Data sources and band conventions](#26-data-sources-and-band-conventions)
-27. [Files and folders](#27-files-and-folders)
-28. [Limits and known issues](#28-limits-and-known-issues)
-29. [Troubleshooting](#29-troubleshooting)
-30. [For developers: adding a tool](#30-for-developers-adding-a-tool)
+22. [Agri: Diagnose crop disease](#22-agri-diagnose-crop-disease)
+23. [Agri: Crop disease guide](#23-agri-crop-disease-guide)
+24. [Export data](#24-export-data)
+25. [Downloads & jobs](#25-downloads--jobs)
+26. [Credentials](#26-credentials)
+27. [Command-line tool](#27-command-line-tool)
+28. [Data sources and band conventions](#28-data-sources-and-band-conventions)
+29. [Files and folders](#29-files-and-folders)
+30. [Limits and known issues](#30-limits-and-known-issues)
+31. [Troubleshooting](#31-troubleshooting)
+32. [For developers: adding a tool](#32-for-developers-adding-a-tool)
 
 ---
 
@@ -51,7 +53,7 @@ python3 -m venv .venv
 - `lulc-fetch-web --port 8080` runs on another port. `--no-browser` stops it from opening a browser tab.
 - Stop the server with **Ctrl+C** in the terminal.
 
-The app runs entirely on your computer. Searching and downloading uses free public catalogues with no login. Accounts are only needed for Copernicus and USGS original-product downloads (see [Credentials](#16-credentials)).
+The app runs entirely on your computer. Searching and downloading uses free public catalogues with no login. Accounts are only needed for Copernicus and USGS original-product downloads (see [Credentials](#26-credentials)).
 
 ---
 
@@ -105,6 +107,7 @@ The window is laid out like a desktop GIS (QGIS / ArcGIS):
 |---|---|
 | **File** | New project · Open project · Close project · Show project folder · Add data from computer · Add GeoTIFF from workspace · Open Sentinel product (.SAFE) · Export / Properties / Remove the selected layer · Remove all layers · Clean up working files · Credentials |
 | **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (supervised: ↳ Train a model, ↳ Classify an image · unsupervised: ↳ Clustering, ↳ t-SNE map) · Export data · Downloads & jobs |
+| **Agri ▾** | Diagnose crop disease · Crop disease guide · shortcuts to Index analysis (crop health: NDVI, EVI…) and Find imagery |
 | **View** | Show/hide Contents, Tool panel and Data viewer · Reset panel sizes · Basemap (Streets, Satellite, Topographic, None) · Place labels on top · Zoom to all layers · Theme (system / light / dark) |
 | **Help** | Getting started (start page, incl. your Sentinel products) · Quick guide · Keyboard shortcuts |
 
@@ -1012,7 +1015,44 @@ dataset/             the training tiles and YOLO label files (data.yaml): reusab
 run/, val/           everything ultralytics wrote
 ```
 
-## 22. Export data
+## 22. Agri: Diagnose crop disease
+
+**Agri ▸ Diagnose crop disease** tells which disease a crop has from **photos of its leaves**. It uses the photo models of the Multi-Crop Disease Decision Support System: one ConvNeXt model per crop for **42 crops**, and two crop detectors that recognise the crop first. It needs the deep-learning add-on (PyTorch).
+
+| Crops | Photo models trained on | Guide (section 23) |
+|---|---|---|
+| Apple, Banana, Brinjal, Cashew, Cherry, Coconut, Custard Apple, Guava, Mango, Mulberry (varieties, not diseases), Okra, Papaya, Pomegranate, Rose, Strawberry, Watermelon | public datasets (PlantVillage, MangoLeafBD…) | symptoms, treatment and spray schedules, pests |
+| Apricot, Betel, Bitter Gourd, Black Pepper, Bottle Gourd, Cassava, Chrysanthemum, Citrus, Coffee, Cucumber, Cucurbit (pumpkin / melon), Fig, Grape, Loquat, Maize, Peach, Pear, Potato, Rice, Ridge Gourd, Snake Gourd, Soybean, Sugarcane, Tea, Tomato, Walnut | LeafNet and field photos | symptoms only |
+
+Test accuracy is 91–100 % per crop (shown in the panel for the crop you choose). These are test photos from the same datasets the models learned from: real field photos score lower.
+
+1. **Disease models.** The model files (about 190 MB per crop, 8 GB in all) aren't part of LULC Fetch or its GitHub repository. Choose the folder that holds them: your copy of the disease app, with `data/<Crop>/convnext_best.pth` and `master_model/` (the crop detectors). A copy in `~/Desktop/Farmer_ai` or `~/multicrop-disease-decision-support` is found automatically. The panel shows how many crop models the folder has.
+2. **Leaf photos.** **Add photos…** (or drop them on the box), or **Add a folder…** for a whole field survey (tick *with sub-folders* to look deeper; up to 5,000 photos). JPG, PNG, WebP, BMP or TIFF. iPhone HEIC photos need the `pillow-heif` package: save them as JPG instead. The best photos show **one leaf filling most of the picture**, in daylight and in focus.
+3. **Crop.**
+   - **Detect the crop in each photo** (default): the original detector (16 crops, 99.8 % on test photos) decides, unless the added-crops detector (36 crops, 98 %) is at least 80 % sure of one of the added crops. Pepper, Raspberry, Sorghum and Squash leaves are recognised (so they aren't taken for another crop) but have no disease model.
+   - **Or choose the crop** when all photos are of one crop: faster, and no crop mix-ups.
+   - **Refuse unclear photos** (on): the disease app's photo check. Photos that are too small (under 96 pixels), too dark or blank get **Retake photo** instead of a guess, and so do photos the crop detector is less than 60 % sure about (probably not a leaf of a supported crop) or the disease model less than 45 % sure about. Blurry or very bright photos are refused only when the models are also unsure. Untick it to diagnose every photo anyway; doubtful results are then marked.
+4. **Output.** A name for the results, then **Diagnose photos**.
+
+**Results.**
+- **Summary:** how many photos were diseased, healthy, to retake or without a model, and a bar per crop and diagnosis.
+- **One card per photo:** the crop (with the detector's confidence, and the runner-up when it is close), the diagnosis, the **top 3** with confidence bars, why a photo was refused and how to retake it, and a link to the disease in the **Crop disease guide**. Click the photo to see it full size.
+- **Results table** in Contents ▸ Tabular data (opens in the data viewer): one row per photo with `status` (disease / healthy / variety / retake / no_model / error), `crop`, `crop_confidence`, `diagnosis`, `confidence`, the second and third diagnoses, `reason`, `lat`, `lon`, `taken` and the photo's path.
+- **Disease map:** photos taken with location on (GPS in the photo's EXIF) become a **point layer**: red diseased, green healthy, orange retake. Click a point for its diagnosis. Export it as a Shapefile, GeoJSON or KML with Export data, or put it over Index analysis results (e.g. NDVI) to compare.
+
+The CSV and GeoJSON are in the job's folder (**Show in folder**). Photo diagnosis supports, but doesn't replace, a local agriculture expert.
+
+## 23. Agri: Crop disease guide
+
+**Agri ▸ Crop disease guide** is the disease app's knowledge base: about **9,000 questions and answers** by agriculture experts, from extension booklets and datasets. It needs no add-on and no internet.
+
+1. **Crop.** Crops with the full guide (symptoms, treatment, spray schedules, pests) are listed first; the LeafNet crops only describe symptoms. Local names are shown too (e.g. Rice: paddy, dhan).
+2. **Diseases & pests.** First the diseases the photo model detects (with their number of answers), then everything else in the knowledge base for that crop (pests, disorders, practices). Click one to read about it.
+3. **Search** the crop's answers with any words, e.g. *yellow leaves*, *spray schedule*, *fruit drop*. All words must appear; the best matches come first. Search and a chosen disease work together.
+
+Answers are grouped as **Symptoms & identification**, **Management & treatment**, **Pests** and **Growing the crop**; the chips filter them. Each answer shows the growth stage it applies to. **Symptoms & treatment of …** on a Diagnose crop disease result opens the guide at that disease.
+
+## 24. Export data
 
 **Tools ▸ Export data**, or right-click a layer ▸ **Export / save to computer**.
 
@@ -1032,7 +1072,7 @@ Files are saved to your browser's Downloads folder.
 
 ---
 
-## 23. Downloads & jobs
+## 25. Downloads & jobs
 
 **Tools ▸ Downloads & jobs** lists background jobs (downloads, composites, product downloads, Sentinel-1 processing, …). Each job shows:
 - its progress, current step and **Cancel**
@@ -1045,7 +1085,7 @@ Downloads that finish while the app is open are added to Contents automatically.
 
 ---
 
-## 24. Credentials
+## 26. Credentials
 
 Click **Credentials** (top right). Secrets are stored in your **operating-system keychain** (macOS Keychain, Windows Credential Locker, Linux Secret Service). They're never shown again or sent back to the browser, and are only used with the service they belong to. Each entry has a **Test** button.
 
@@ -1060,7 +1100,7 @@ Click **Credentials** (top right). Secrets are stored in your **operating-system
 
 ---
 
-## 25. Command-line tool
+## 27. Command-line tool
 
 `lulc-fetch` does the downloading parts without the web app. An area can be given as `--bbox minlon,minlat,maxlon,maxlat`, `--geojson file.geojson`, `--point lon,lat --buffer-km 5`, or `--match existing.tif` (reuse a raster's exact grid).
 
@@ -1090,7 +1130,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 26. Data sources and band conventions
+## 28. Data sources and band conventions
 
 | Source | Login | Notes |
 |---|---|---|
@@ -1105,7 +1145,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 27. Files and folders
+## 29. Files and folders
 
 With a project open, these folders are inside the project folder (next to `lulc_project.json`). Without a project they are in the app's folder (the temporary workspace). `data/` is always also read from the app's folder. The list of recent projects is stored in `~/.lulc-fetch/recent.json`.
 
@@ -1119,13 +1159,13 @@ With a project open, these folders are inside the project folder (next to `lulc_
 | `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports; deep-learning models as folders (`best_model.pt`, `model_config.json`, `report.html`…) |
 | `addons/` | (desktop app) the deep-learning add-on (PyTorch) and the YOLO & SAM add-on (ultralytics), if installed |
 | `training_data/` | Datasets made with Make training data when no folder is chosen (images/, labels/, classes.txt, dataset.json…) |
-| `uploads/`, `analysis/`, `exports/` | Uploaded files, index exports, other exports |
+| `uploads/`, `analysis/`, `exports/` | Uploaded files (photos added to Diagnose crop disease go to `uploads/photos/`), index exports, other exports |
 
 All of these are excluded from git.
 
 ---
 
-## 28. Limits and known issues
+## 30. Limits and known issues
 
 - **Download size:** one download is capped at 60 M pixels (≈77 × 77 km at 10 m). Use a coarser pixel size or split the area.
 - **Map previews** of large rasters are drawn at reduced resolution (≈1400 px), and their statistics come from that preview unless you pick an area. **GeoTIFF exports are always full resolution.**
@@ -1140,10 +1180,11 @@ All of these are excluded from git.
 - **Saved models** (`.joblib`) may not load after a major scikit-learn / XGBoost / LightGBM upgrade. Retrain them if so.
 - **Untested downloads:** the USGS EarthExplorer bundle download and the Copernicus S3 source follow the providers' APIs but need real credentials to verify.
 - **Job history** is kept in memory: restarting the server clears the job list (files stay on disk).
+- **Crop disease models** aren't included (8 GB): Diagnose crop disease needs a copy of the disease app's models folder. Mulberry's model tells varieties, not diseases. Coffee's *Cercospora brown eye spot* is usually missed (few training photos). Leaves of crops the detectors don't know can still be taken for a known crop; the photo check catches only part of them.
 
 ---
 
-## 29. Troubleshooting
+## 31. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -1158,12 +1199,12 @@ All of these are excluded from git.
 
 ---
 
-## 30. For developers: adding a tool
+## 32. For developers: adding a tool
 
 The web app is a FastAPI backend (`webapp/server.py`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package.
 
 1. Add a panel to `webapp/static/index.html`: `<section id="tab-mytool" class="tabpanel hidden">…</section>`.
-2. Add an entry to `TOOLS` in `webapp/static/app.js`: `{ id: "mytool", title, icon, subtitle }`. The Tools-menu item and start-page card are generated from it.
+2. Add an entry to `TOOLS` in `webapp/static/app.js`: `{ id: "mytool", title, icon, subtitle }`. The Tools-menu item and start-page card are generated from it. Add `menu: "agri"` to list it in the Agri menu instead.
 3. Add server endpoints in `webapp/server.py` and processing code in `lulc_fetch/`. Long tasks should run as jobs (`jobs.submit(...)`) and call `lulc_fetch.progress.update(fraction, message)` at checkpoints, so the progress bar and Cancel work.
 4. Add results to Contents with `addRasterFromPath(path)` or `addVectorLayer(geojson, name)`, so they get layer styling, identify and export for free. Track jobs in the UI with `trackJob(job, { tool })`.
 5. **Classical ML sub-tools:** add `{ id, title, icon, subtitle }` to `ML_SUBTOOLS` in `app.js` and a `<div id="ml-sub-<id>" class="ml-sub hidden">` inside the ML panel. `/api/tables` and `/api/models` list the available tables and models.
@@ -1176,3 +1217,4 @@ The web app is a FastAPI backend (`webapp/server.py`) with a single-page fronten
 | `pca.py`, `ml.py` | PCA family; model catalogue, training, evaluation, classification |
 | `tabular.py`, `stack.py` | Raster → table; layer stacking |
 | `vector_io.py`, `progress.py`, `extras.py` | Vector writers; progress and cancellation; reference maps and other collections |
+| `agri/` | Agri menu: `disease.py` (leaf photo → crop → disease, run in the deep-learning helper process), `knowledge.py` (crop list and the guide's search), `labels.py` (crop and disease names), `data/` (each crop's labels, test results and knowledge base). `python -m lulc_fetch.agri.import_data <disease repo folder>` refreshes `data/` after the disease models are retrained |
