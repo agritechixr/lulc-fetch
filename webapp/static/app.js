@@ -595,10 +595,9 @@
     });
   }
   function buildToolsMenu() {
-    const tools = [...TOOLS].sort(byTitle), subs = [...ML_SUBTOOLS].sort(byTitle);
-    $("#tools-menu").innerHTML = tools.filter((t) => !t.menu).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t) +
-        (t.id === "ml" ? subs.map((st) => toolEntry("tool-item sub", `data-tool="ml" data-sub="${st.id}"`, st, false)).join("") : "")).join("");
-    wireEntries($("#tools-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); if (b.dataset.tool === "ml") openMlSub(b.dataset.sub || null); toggleMenu(null); });
+    const tools = [...TOOLS].sort(byTitle);   // Classical ML's own tools are tabs inside it (see renderMlHub)
+    $("#tools-menu").innerHTML = tools.filter((t) => !t.menu).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t)).join("");
+    wireEntries($("#tools-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });
     Object.entries(MENUS).forEach(([key, m]) => {
       const el = $(m.el);
       el.innerHTML = TOOLS.filter((t) => t.menu === key).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t)).join("") +
@@ -4547,6 +4546,7 @@
   function openMlSub(id) {
     mlSub = id;
     $("#ml-home").classList.toggle("hidden", !!id);
+    $$("#ml-tabs [data-mltab]").forEach((b) => { const on = b.dataset.mltab === (id || ""); b.classList.toggle("active", on); b.setAttribute("aria-selected", on); });
     $$(".ml-sub").forEach((d) => d.classList.toggle("hidden", d.id !== `ml-sub-${id}`));
     const st = ML_SUBTOOLS.find((t) => t.id === id);
     $("#tool-sub").textContent = st ? st.title + " · " + st.subtitle : TOOLS.find((t) => t.id === "ml").subtitle;
@@ -4564,7 +4564,11 @@
     $(".ml-group-ic.sup").innerHTML = svg("ml");
     $(".ml-group-ic.unsup").innerHTML = svg("cluster");
     wireEntries($("#ml-home"), "[data-mlsub]", (b) => openMlSub(b.dataset.mlsub));
-    $$(".ml-back").forEach((b) => b.onclick = () => openMlSub(null));
+    // the tool's tabs: an overview (tables, models) and one tab per sub-tool, in the order of a typical workflow
+    const order = ["train", "predict", "cluster", "tsne"].map((id) => ML_SUBTOOLS.find((t) => t.id === id)).filter(Boolean);
+    $("#ml-tabs").innerHTML = [{ id: "", title: "Overview" }, ...order, ...ML_SUBTOOLS.filter((t) => !order.includes(t))]
+      .map((t) => `<button type="button" class="chip" role="tab" data-mltab="${t.id}" title="${esc(t.subtitle || "Your tables and models, and what each tool does")}">${esc(t.title)}</button>`).join("");
+    $$("#ml-tabs [data-mltab]").forEach((b) => b.onclick = () => openMlSub(b.dataset.mltab || null));
     $("#ml-goto-rt").onclick = (e) => { e.preventDefault(); switchTool("raster2table"); };
   }
   async function refreshTables() {

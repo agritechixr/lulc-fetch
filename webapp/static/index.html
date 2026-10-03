@@ -420,6 +420,7 @@
     </section>
 
     <section id="tab-ml" class="tabpanel hidden">
+      <div class="ml-tabs" id="ml-tabs" role="tablist" aria-label="Classical ML tools"></div>
       <!-- hub: list of ML sub-tools + the tables they work on -->
       <div id="ml-home">
         <p class="hint" style="margin-top:0">Machine-learning tools that work on <b>tables</b>: one row per pixel or sample, one column per feature, plus an optional label. Create tables from images with the <a href="#" id="ml-goto-rt"><b>Raster → table</b></a> tool.</p>
@@ -439,7 +440,6 @@
 
       <!-- sub-tool: train a model -->
       <div id="ml-sub-train" class="ml-sub hidden">
-        <button class="btn small ml-back">‹ All ML tools</button>
         <div class="card">
           <h2>Training table <button type="button" class="tip" data-tip="A table with one row per sample: feature columns (e.g. band values) and a label column. Create one from an image and ground truth with the Raster → table tool." aria-label="Help">i</button></h2>
           <select id="mt-table"></select>
@@ -511,7 +511,6 @@
 
       <!-- sub-tool: clustering (unsupervised) -->
       <div id="ml-sub-cluster" class="ml-sub hidden">
-        <button class="btn small ml-back">‹ All ML tools</button>
         <div class="card">
           <h2>Table <button type="button" class="tip" data-tip="Any table in Contents ▸ Tabular data or made by Raster → table. No label column is needed." aria-label="Help">i</button></h2>
           <select id="uc-table"></select>
@@ -550,7 +549,6 @@
 
       <!-- sub-tool: t-SNE map (unsupervised) -->
       <div id="ml-sub-tsne" class="ml-sub hidden">
-        <button class="btn small ml-back">‹ All ML tools</button>
         <div class="card">
           <h2>Table</h2>
           <select id="ut-table"></select>
@@ -585,7 +583,6 @@
 
       <!-- sub-tool: classify an image -->
       <div id="ml-sub-predict" class="ml-sub hidden">
-        <button class="btn small ml-back">‹ All ML tools</button>
         <div class="card">
           <h2>Model <button type="button" class="tip" data-tip="A model you trained in 'Train a model'. Its accuracy is shown so you can pick the best one." aria-label="Help">i</button></h2>
           <select id="mp-model"></select>
