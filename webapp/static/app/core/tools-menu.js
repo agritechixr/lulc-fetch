@@ -61,13 +61,14 @@
   };
   let currentTool = "home";
 
-  // Tools are listed A–Z; each explanation is behind an eye button (click it to show / hide, or hover for a tooltip)
+  // Tools are listed A–Z; each explanation is behind an ⓘ button (click it to show / hide, or hover for a tooltip)
   const byTitle = (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
-  const EYE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  // the ⓘ that shows / hides a tool's explanation (the same circled i as every other hint)
+  const INFO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor" stroke="none"/></svg>';
   function toolEntry(cls, attrs, t, withIcon = true) {
     return `<div role="button" tabindex="0" class="${cls}" ${attrs}>${withIcon ? `<span class="ic">${svg(t.icon)}</span>` : ""}
       <span class="te-text"><b>${esc(t.title)}</b><small class="te-desc">${esc(t.subtitle || "")}</small></span>
-      ${t.subtitle ? `<button type="button" class="eye" title="${esc(t.subtitle)}" aria-label="What does ${esc(t.title)} do?" aria-expanded="false">${EYE_SVG}</button>` : ""}</div>`;
+      ${t.subtitle ? `<button type="button" class="eye" title="${esc(t.subtitle)}" aria-label="What does ${esc(t.title)} do?" aria-expanded="false">${INFO_SVG}</button>` : ""}</div>`;
   }
   function wireEntries(root, selector, onOpen) {
     $$(selector, root).forEach((el) => {
@@ -92,8 +93,8 @@
     $("#tool-cards").innerHTML = tools.map((t) => toolEntry("tool-card", `data-tool="${t.id}"`, t)).join("");
     wireEntries($("#tool-cards"), "[data-tool]", (b) => switchTool(b.dataset.tool));
   }
-  // the open tool's explanation, under its title, also behind an eye button
-  $("#tool-eye").innerHTML = EYE_SVG;
+  // the open tool's explanation, under its title, also behind an ⓘ button
+  $("#tool-eye").innerHTML = INFO_SVG;
   const syncToolSub = () => {
     const on = prefs.get("tool-sub", false);
     $("#tool-sub").classList.toggle("hidden", !on);
