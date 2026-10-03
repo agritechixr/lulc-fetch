@@ -109,7 +109,7 @@ The window is laid out like a desktop GIS (QGIS / ArcGIS):
 | **File** | New project · Open project · Close project · Show project folder · Add data from computer · Add GeoTIFF from workspace · Open Sentinel product (.SAFE) · Export / Properties / Remove the selected layer · Remove all layers · Clean up working files · Credentials |
 | **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (supervised: ↳ Train a model, ↳ Classify an image · unsupervised: ↳ Clustering, ↳ t-SNE map) · Export data · Downloads & jobs |
 | **Agri ▾** | Diagnose crop disease · Crop disease guide · shortcuts to Index analysis (crop health: NDVI, EVI…), Download embeddings and Find imagery |
-| **Embeddings ▾** | Download embeddings · Convert embeddings · Explore embeddings · shortcuts to Classical ML for raster, Classical ML (tabular data) and PCA |
+| **Embeddings ▾** | Download embeddings · Train embedding model · Classify with embedding model · Convert embeddings · Explore embeddings · shortcuts to Classical ML for raster, Classical ML (tabular data) and PCA |
 | **History ▾** | Your recent tool runs (finished, failed, running) with ⓘ for each · Open full history |
 | **View** | Show/hide Contents, Tool panel and Data viewer · Reset panel sizes · Basemap (Streets, Satellite, Topographic, None) · Place labels on top · Zoom to all layers · Theme (system / light / dark) |
 | **Help** | Getting started (start page, incl. your Sentinel products) · Quick guide · Keyboard shortcuts |
@@ -1140,6 +1140,32 @@ layer** in Contents: the layer you started from is never changed or overwritten.
 without a project, the app's working folder, `downloads/`). Tick **Also save to a folder on my computer** in a tool to also
 save a copy in a folder you choose (it is remembered per tool); existing files there are never overwritten.
 
+### Train embedding model
+
+**Embeddings ▸ Train embedding model** trains one of ten **light segmentation models** on an embedding layer, in one run:
+it cuts the layer into patches (all bands), trains with early stopping, writes an HTML report and maps the layer.
+
+1. **Embedding layer:** every band goes into the model (64 for AlphaEarth, 128 for TESSERA, or any other image); run PCA
+   first only if you want fewer. It needs a coordinate system in metres (as Download embeddings gives).
+2. **Labels:** polygons or points with a class field (Tools ▸ Training samples, a shapefile, GeoJSON…), or a class raster.
+   Optionally an **Area** to train and map only part of the layer.
+3. **Model:** ENet, CGNet, DABNet (recommended), LEDNet, FDDWNet, LEANet, LSNet, EFSNet (smallest), FPENet or ADSCNet,
+   0.15–0.95 M parameters each, with accuracy / speed stars and ⓘ (see `lulc_fetch/lightseg/README.md`). They train from
+   scratch, which suits embeddings: no pretrained weights expect 64 or 128 bands.
+4. **Training:** patch size **256 × 256** (128 or 64 with 50 % overlap for small labelled areas: more patches), epochs,
+   batch size, learning rate, validation %, early stopping, rarer classes counting more, flips and rotations, device. With
+   fewer than 40 patches the validation patches are chosen at random (spatial blocks need more).
+5. **Output:** the model name and **Map the layer**. The result shows accuracy, mIoU, kappa and IoU per class, **Open the
+   report**, and **Classify another layer with it…**; the class map (band 2 = confidence) is added to Contents. The model
+   is kept in the project's `models/` folder and also appears in Train classify model / Classify image.
+
+### Classify with embedding model
+
+**Embeddings ▸ Classify with embedding model** maps any embedding layer with a model from Train embedding model, e.g. the
+same area in another year, or a neighbouring area. The layer must have the model's number of bands (the panel checks).
+Optionally an area, a confidence band, the tile overlap and the device. The ten light models are also offered in **Tools ▸
+Train classify model** (architecture group *Light*), for datasets made with Make training data.
+
 ### Convert embeddings
 
 **Embeddings ▸ Convert embeddings** changes how an embedding layer's numbers are stored, without changing what they mean: keep
@@ -1345,6 +1371,6 @@ The web app is a FastAPI backend (`webapp/server.py`) with a single-page fronten
 | `pca.py`, `ml.py` | PCA family; model catalogue, training, evaluation, classification |
 | `tabular.py`, `stack.py` | Raster → table; layer stacking |
 | `vector_io.py`, `progress.py`, `extras.py` | Vector writers; progress and cancellation; reference maps and other collections |
-| `lightseg/` | Ten light segmentation networks (ENet, CGNet, DABNet, LEDNet, FDDWNet, LEANet, LSNet, EFSNet, FPENet, ADSCNet; 0.15–0.95 M parameters) for any number of bands and any image size, and 256 × 256 tiling; not yet connected to a tool (see its README) |
+| `lightseg/` | Ten light segmentation networks (ENet, CGNet, DABNet, LEDNet, FDDWNet, LEANet, LSNet, EFSNet, FPENet, ADSCNet; 0.15–0.95 M parameters) for any number of bands and any image size, and 256 × 256 tiling; used by Embeddings ▸ Train embedding model and Train classify model (see its README) |
 | `embeddings/` | Embeddings menu: `sources.py` (the datasets), `alphaearth.py` and `tessera.py` (readers), `download.py` (grid, availability, download), `explore.py` (colour view, similar places), `formats.py` (8-bit ↔ float conversion) |
 | `agri/` | Agri menu: `disease.py` (leaf photo → crop → disease, run in the deep-learning helper process), `knowledge.py` (crop list and the guide's search), `labels.py` (crop and disease names), `data/` (each crop's labels, test results and knowledge base). `python -m lulc_fetch.agri.import_data <disease repo folder>` refreshes `data/` after the disease models are retrained, and `python -m lulc_fetch.agri.publish <disease repo folder> <out>` converts the models for Hugging Face (then upload `<out>`), and `python -m lulc_fetch.agri.publish --repos <out> <folder> --upload` updates the 44 one-model repositories and the collection |

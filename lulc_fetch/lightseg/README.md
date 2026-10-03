@@ -1,7 +1,8 @@
 # Light segmentation models
 
-Ten real-time semantic segmentation networks with 0.1–1 million parameters, written in PyTorch for LULC Fetch. They are
-not connected to the app's tools yet: they are here to be used for training later (e.g. in *Train classify model*).
+Ten real-time semantic segmentation networks with 0.1–1 million parameters, written in PyTorch for LULC Fetch. In the app
+they are **Embeddings ▸ Train embedding model** / **Classify with embedding model**, and the *Light* architectures of
+Train classify model (`dl.ARCHS["light_<name>"]`, backbone "builtin").
 
 - **Any number of bands:** `in_channels` can be 3 (RGB), 13 (Sentinel-2), 64 (AlphaEarth), 128 (TESSERA) or anything
   else. All bands go into the network; nothing is reduced first (run PCA yourself first if you want fewer).

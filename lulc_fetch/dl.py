@@ -62,7 +62,18 @@ ARCHS = {
                          "Needs the YOLO & SAM add-on. Any number of bands.",
                  "encoders": ["yolo-n", "yolo-s", "yolo-m", "yolo-l", "yolo-x"]},
 }
+# the light segmentation models (lulc_fetch/lightseg): 0.1–1 M parameters, any number of bands, no separate backbone
+from .lightseg import MODELS as _LIGHT   # noqa: E402  (no PyTorch needed to list them)
+
+_SPEED = {"enet": 5, "lsnet": 5, "lednet": 5, "leanet": 5, "efsnet": 5, "adscnet": 4, "cgnet": 4, "dabnet": 4, "fpenet": 4, "fddwnet": 3}
+_ACC = {"dabnet": 4, "lednet": 4, "leanet": 4, "fddwnet": 4, "cgnet": 4, "fpenet": 3, "adscnet": 3, "lsnet": 3, "enet": 3, "efsnet": 3}
+for _k, (_title, _mod, _paper, _mparams, _about) in _LIGHT.items():
+    ARCHS[f"light_{_k}"] = {"title": _title, "lib": "light", "accuracy": _ACC[_k], "speed": _SPEED[_k], "encoders": ["builtin"], "params_m": _mparams,
+                            "desc": f"{_about}. A light model ({_mparams:g} M parameters, {_paper}): trained from scratch, every band used "
+                                    "directly, so it suits embeddings (64 / 128 bands) and small datasets."}
+
 ENCODERS = {
+    "builtin": "Built in (light model, no separate backbone)",
     "mobilenet_v2": "MobileNetV2 (fast, 2 M params)",
     "tu-mobilenetv3_large_100": "MobileNetV3 large (fast, 3 M)",
     "tu-mobilenetv3_small_100": "MobileNetV3 small (fastest, 1 M)",
@@ -79,7 +90,7 @@ ENCODERS = {
     "yolo-n": "YOLO26 nano (fastest)", "yolo-s": "YOLO26 small", "yolo-m": "YOLO26 medium", "yolo-l": "YOLO26 large",
     "yolo-x": "YOLO26 extra large (most accurate)",
 }
-SMP_ENCODERS = [k for k in ENCODERS if k not in ("resnet101", "mobilenetv3_large") and not k.startswith("yolo-")]
+SMP_ENCODERS = [k for k in ENCODERS if k not in ("resnet101", "mobilenetv3_large", "builtin") and not k.startswith("yolo-")]
 
 PARAMS = [  # (name, title, kind, default, extra) — rendered by the UI; "adv" = advanced section
     {"name": "epochs", "title": "Epochs", "kind": "int", "default": 50, "min": 1, "max": 1000,
@@ -310,6 +321,9 @@ def build_model(arch: str, encoder: str, in_ch: int, n_classes: int, pretrained:
     import torch.nn as nn
     a = ARCHS[arch]
     note = ""
+    if a["lib"] == "light":
+        from . import lightseg
+        return lightseg.build_model(arch.removeprefix("light_"), in_ch, n_classes), None, "Light model: trained from scratch (no pretrained weights)."
     if a["lib"] == "smp":
         import segmentation_models_pytorch as smp
         if encoder not in SMP_ENCODERS:

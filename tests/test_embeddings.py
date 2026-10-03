@@ -208,3 +208,24 @@ def test_embedding_layer_keeps_all_bands_and_shows_colour(client, emb_tif, tmp_p
         f.write_bytes(blob)
         with rasterio.open(f) as s:
             assert s.count == 64                                           # all bands, not the 3 shown
+
+
+@pytest.mark.dl
+def test_train_and_classify_embedding_model(client, emb_tif, home):
+    """Embeddings ▸ Train embedding model (light model, all 64 bands) then Classify with embedding model."""
+    (x0, y1), (xm, _), (x1, y0) = lonlat(1, 1), lonlat(29, 0), lonlat(58, 38)
+    poly = lambda a, b, c, d: {"type": "Polygon", "coordinates": [[[a, b], [c, b], [c, d], [a, d], [a, b]]]}   # noqa: E731
+    gj = {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "geometry": poly(x0, y0, xm, y1), "properties": {"class": "left kind"}},
+        {"type": "Feature", "geometry": poly(lonlat(31, 0)[0], y0, x1, y1), "properties": {"class": "right kind"}}]}
+    body = {"path": emb_tif, "ground_truth": {"type": "vector", "geojson": gj, "field": "class"}, "arch": "light_enet", "patch_px": 32,
+            "overlap": 0.5, "params": {"epochs": 3, "batch_size": 4, "device": "cpu"}, "name": "emb_enet"}
+    assert client.post("/api/emb/train", json={**body, "arch": "unet"}).status_code == 400          # only the light models here
+    r = run(client, "/api/emb/train", body)
+    assert r["bands"] == 64 and r["patches"] >= 5 and r["report"] and r["config"]["arch"] == "light_enet"
+    with rasterio.open(home / r["map"]) as s:
+        assert s.count == 2 and (s.width, s.height) == (60, 40)                   # class + confidence, the whole layer
+    m = next(m for m in ok(client.get("/api/dl/models")) if m["folder"] == r["model_folder"])
+    assert m["arch_key"] == "light_enet" and m["in_channels"] == 64
+    p = run(client, "/api/dl/predict", {"model": m["folder"], "inputs": [{"path": emb_tif, "name": "emb"}], "name": "emb_map2"})
+    assert {c["name"] for c in p["classes"]} <= {"left kind", "right kind"}
