@@ -38,6 +38,7 @@ TOOLS = {
     "test_detection": "Detect object & Train detection model", "test_jobs_and_cli": "Downloads & jobs, command line",
     "test_agri": "Agri: Diagnose crop disease & Crop disease guide",
     "test_embeddings": "Satellite embeddings",
+    "test_lightseg": "Light segmentation models",
 }
 
 
