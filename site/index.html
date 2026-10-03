@@ -105,6 +105,21 @@ nav .links a:hover { color: var(--text); text-decoration: none; }
 .shot { border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); cursor: zoom-in; background: var(--panel); }
 .tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 6px; background: var(--accent-2); color: var(--accent); margin-bottom: 12px; }
 
+/* agriculture */
+section.agri { background: linear-gradient(180deg, color-mix(in srgb, #16a34a 9%, var(--bg)) 0%, var(--bg) 70%); }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 36px; }
+.stats .big b { font-size: 38px; color: var(--accent); }
+.leaves { display: grid; grid-template-columns: repeat(8, 1fr); gap: 12px; margin-top: 30px; }
+.leaves figure { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; text-align: left; }
+.leaves img { width: 100%; aspect-ratio: 1; object-fit: cover; }
+.leaves figcaption { padding: 8px 10px 10px; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.leaves figcaption b { display: block; color: var(--text); font-size: 13.5px; }
+.leaves figcaption .ok { color: #16a34a; } .leaves figcaption .bad { color: #dc2626; }
+.crops { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 36px; text-align: left; }
+.crops .chips { justify-content: flex-start; margin-top: 12px; gap: 7px; }
+.crops .chips span { font-size: 13px; padding: 4px 11px; }
+.note { max-width: 860px; margin: 28px auto 0; font-size: 14px; color: var(--muted); }
+
 /* honest accuracy */
 .compare { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; max-width: 760px; margin: 36px auto 0; }
 .big { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center; }
@@ -154,6 +169,9 @@ footer .links2 { display: flex; gap: 18px; }
 .lb img { max-height: 92vh; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 
 @media (max-width: 960px) {
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .leaves { grid-template-columns: repeat(4, 1fr); }
+  .crops { grid-template-columns: 1fr; }
   .steps { grid-template-columns: repeat(2, 1fr); row-gap: 26px; }
   .grid, .local { grid-template-columns: repeat(2, 1fr); }
   .types { grid-template-columns: repeat(2, 1fr); }
@@ -175,6 +193,7 @@ footer .links2 { display: flex; gap: 18px; }
     <a class="brand" href="#"><img src="assets/icon.png" alt="">LULC Fetch</a>
     <div class="links">
       <a href="#features">Features</a>
+      <a href="#agriculture">Agriculture</a>
       <a href="#workflow">How it works</a>
       <a href="#data">Data</a>
       <a href="#faq">FAQ</a>
@@ -186,9 +205,9 @@ footer .links2 { display: flex; gap: 18px; }
 
 <header class="hero center">
   <div class="wrap">
-    <span class="eyebrow">Free · Open source · Mac &amp; Windows · <b>Coming next: object detection with YOLO26 &amp; SAM</b></span>
+    <span class="eyebrow">Free · Open source · Mac &amp; Windows · <b>Coming next: crop disease diagnosis &amp; object detection</b></span>
     <h1>Land-cover maps from satellite images, <span>on your own computer</span></h1>
-    <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning and deep-learning models, classify images into land-use / land-cover maps and detect objects such as vehicles and ships, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
+    <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning and deep-learning models, classify images into land-use / land-cover maps and detect objects such as vehicles and ships, and diagnose crop diseases from leaf photos, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
     <div class="cta">
       <a class="btn primary" id="cta-main" href="#download">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
@@ -204,7 +223,7 @@ footer .links2 { display: flex; gap: 18px; }
     </div>
     <div class="chips">
       <span>Sentinel-2</span><span>Landsat 8–9</span><span>Sentinel-1 SAR</span><span>Copernicus .SAFE</span><span>ESA WorldCover</span>
-      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings</span><span>U-Net · DeepLabV3+ · SegFormer</span><span>YOLO26 · SAM 2.1</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
+      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings</span><span>U-Net · DeepLabV3+ · SegFormer</span><span>YOLO26 · SAM 2.1</span><span>Crop disease · 42 crops</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
     </div>
   </div>
 </header>
@@ -232,6 +251,8 @@ footer .links2 { display: flex; gap: 18px; }
       <p class="lead">Built on GDAL, scikit-learn, XGBoost, LightGBM and PyTorch, behind a friendly interface with hints on every option.</p>
     </div>
     <div class="grid">
+      <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 19C5 10 10 5 20 4c-1 10-6 15-15 15z"/><path d="M5 19l8-8"/></svg></div>
+        <h3>Crop disease diagnosis <span class="new-tag">next release</span></h3><p>The new <b>Agri</b> menu: photograph a leaf and get the crop and its disease, for 42 crops, with the top 3 diagnoses. Geotagged field photos become a disease map, and a guide of 9,000 expert answers explains symptoms and treatment. <a href="#agriculture">See it in action →</a></p></div>
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2" opacity=".5"/><rect x="6" y="7" width="7" height="6" rx=".5"/><rect x="12" y="13" width="6" height="5" rx=".5"/></svg></div>
         <h3>Detect object <span class="new-tag">next release</span></h3><p>Find vehicles, ships, planes, storage tanks, people and more in aerial, drone and very-high-resolution satellite images. Open-source pretrained YOLO26 (including a model trained on DOTA aerial images, with rotated boxes), Faster R-CNN, RetinaNet and Mask R-CNN, or SAM 2.1 to outline everything. Results are a vector layer with class, score and size.</p></div>
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2" opacity=".5"/><rect x="6" y="6" width="7" height="6" rx=".5"/><path d="M14 19l2.5-2.5L19 19M16.5 16.5V21"/></svg></div>
@@ -361,6 +382,79 @@ footer .links2 { display: flex; gap: 18px; }
   </div>
 </section>
 
+<section class="agri" id="agriculture">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Agriculture · new Agri menu · next release</span>
+      <h2>Which disease does this crop have? Ask a leaf photo.</h2>
+      <p class="lead">Photograph a leaf in the field. LULC Fetch recognises the crop, finds the disease with a deep-learning model trained for that crop, and tells you how to manage it. Photos taken with location on become a disease map of your fields, ready to compare with NDVI from satellite images.</p>
+    </div>
+    <div class="stats center">
+      <div class="big"><b>42</b><span>crops diagnosed, from apple and mango to rice, maize, tomato and sugarcane</span></div>
+      <div class="big"><b>91–100%</b><span>disease-model accuracy on held-out test photos, per crop</span></div>
+      <div class="big"><b>99.8%</b><span>crop recognised correctly by the crop detector (2,621 test photos)</span></div>
+      <div class="big"><b>9,076</b><span>expert questions &amp; answers on symptoms, treatment and pests</span></div>
+    </div>
+
+    <div class="leaves">
+      <figure><img src="assets/leaves/apple_scab.jpg" alt="Apple leaf diagnosed as Apple Scab" loading="lazy" width="256" height="256"><figcaption><b class="bad">Apple Scab</b>Apple · 92 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/grape_black_rot.jpg" alt="Grape leaf diagnosed as Black Rot" loading="lazy" width="256" height="256"><figcaption><b class="bad">Black Rot</b>Grape · 94 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/maize_common_rust.jpg" alt="Maize leaf diagnosed as Common Rust" loading="lazy" width="256" height="256"><figcaption><b class="bad">Common Rust</b>Maize · 95 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/potato_early_blight.jpg" alt="Potato leaf diagnosed as Early Blight" loading="lazy" width="256" height="256"><figcaption><b class="bad">Early Blight</b>Potato · 97 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/tomato_late_blight.jpg" alt="Tomato leaf diagnosed as Late Blight" loading="lazy" width="256" height="256"><figcaption><b class="bad">Late Blight</b>Tomato · 97 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/strawberry_leaf_scorch.jpg" alt="Strawberry leaf diagnosed as Leaf Scorch" loading="lazy" width="256" height="256"><figcaption><b class="bad">Leaf Scorch</b>Strawberry · 95 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/peach_bacterial_spot.jpg" alt="Peach leaf diagnosed as Bacterial Spot" loading="lazy" width="256" height="256"><figcaption><b class="bad">Bacterial Spot</b>Peach · 89 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/tomato_healthy.jpg" alt="Tomato leaf diagnosed as Healthy" loading="lazy" width="256" height="256"><figcaption><b class="ok">Healthy</b>Tomato · 88 % sure</figcaption></figure>
+    </div>
+    <p class="cta-note center">Real leaf photos from the public PlantVillage dataset (CC0), diagnosed by LULC Fetch with the crop detected automatically. Confidence is the disease model's.</p>
+
+    <div class="steps" style="margin-top:56px">
+      <div class="step"><h3>Add photos</h3><p>Single leaf photos, or a whole folder from a field survey (up to 5,000).</p></div>
+      <div class="step"><h3>Photo check</h3><p>Too dark, blank, blurry or not a leaf? You get "retake photo" with a tip, never a guess.</p></div>
+      <div class="step"><h3>Crop</h3><p>Two crop detectors recognise 42 crops, or you choose the crop yourself.</p></div>
+      <div class="step"><h3>Disease</h3><p>That crop's ConvNeXt model gives the top 3 diseases with confidence.</p></div>
+      <div class="step"><h3>Map &amp; act</h3><p>A results table, a disease map from GPS photos, and the guide's advice for each disease.</p></div>
+    </div>
+
+    <div class="show">
+      <div class="txt">
+        <span class="tag">Diagnose crop disease</span>
+        <h3>A disease map from a field walk</h3>
+        <p>Add the photos from your phone and click <b>Diagnose</b>. Every photo with a GPS position becomes a point: <b style="color:#dc2626">red</b> diseased, <b style="color:#16a34a">green</b> healthy, <b style="color:#d97706">orange</b> retake. The summary counts each crop and disease, and the results table (one row per photo, with the top 3 diagnoses) opens under the map.</p>
+        <ul>
+          <li>15 photos in under 6 seconds on a MacBook (Apple GPU)</li>
+          <li>Export the points as Shapefile, GeoJSON or KML, or lay them over NDVI</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/agri.jpg" alt="LULC Fetch showing 15 diagnosed leaf photos as red and green points on satellite imagery of farmland, with a summary of diseases per crop" loading="lazy">
+    </div>
+
+    <div class="show rev">
+      <div class="txt">
+        <span class="tag">Every photo explained</span>
+        <h3>Top 3 diagnoses, and how sure the model is</h3>
+        <p>Each photo gets a card: the crop and how sure the detector is, the diagnosis with confidence bars for the three most likely diseases, and a link to read about it. Photos the models can't trust are refused with a tip on how to retake them, as in the farmer app the models come from.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/agri-cards.jpg" alt="Result cards for leaf photos: healthy apple, apple scab, a refused blank photo and grape black rot, each with top-3 confidence bars" loading="lazy">
+    </div>
+
+    <div class="show">
+      <div class="txt">
+        <span class="tag">Crop disease guide</span>
+        <h3>Symptoms, treatment and spray schedules, offline</h3>
+        <p>About 9,000 questions and answers by agriculture experts, from extension booklets and datasets. Pick a crop and a disease, or search with your own words (<i>yellow leaves</i>, <i>fruit drop</i>, <i>spray schedule</i>). Answers are grouped into symptoms, management, pests and growing practices, with the growth stage they apply to.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/agri-guide.jpg" alt="Crop disease guide showing mango diseases and the management answers for powdery mildew" loading="lazy">
+    </div>
+
+    <div class="crops">
+      <div class="card"><h3>Full guide: symptoms, treatment, pests</h3><div class="chips"><span>Apple</span><span>Banana</span><span>Brinjal</span><span>Cashew</span><span>Cherry</span><span>Coconut</span><span>Custard Apple</span><span>Guava</span><span>Mango</span><span>Mulberry (varieties)</span><span>Okra</span><span>Papaya</span><span>Pomegranate</span><span>Rose</span><span>Strawberry</span><span>Watermelon</span></div></div>
+      <div class="card"><h3>Diagnosis with symptom descriptions</h3><div class="chips"><span>Apricot</span><span>Betel</span><span>Bitter Gourd</span><span>Black Pepper</span><span>Bottle Gourd</span><span>Cassava</span><span>Chrysanthemum</span><span>Citrus</span><span>Coffee</span><span>Cucumber</span><span>Cucurbit (pumpkin / melon)</span><span>Fig</span><span>Grape</span><span>Loquat</span><span>Maize</span><span>Peach</span><span>Pear</span><span>Potato</span><span>Rice</span><span>Ridge Gourd</span><span>Snake Gourd</span><span>Soybean</span><span>Sugarcane</span><span>Tea</span><span>Tomato</span><span>Walnut</span></div></div>
+    </div>
+    <p class="note center">The models come from the Multi-Crop Disease Decision Support System (ConvNeXt-Small, trained on public datasets such as PlantVillage and LeafNet and on field photos). They are a separate download of about 8 GB, chosen once in the tool. Test photos come from the same datasets the models learned from, so real field photos can score lower. Photo diagnosis supports, but doesn't replace, a local agriculture expert.</p>
+  </div>
+</section>
+
 <section class="alt" id="honest">
   <div class="wrap center">
     <span class="eyebrow">Honest accuracy</span>
@@ -406,7 +500,7 @@ footer .links2 { display: flex; gap: 18px; }
     <div class="center">
       <span class="eyebrow">Download</span>
       <h2>Get LULC Fetch, free</h2>
-      <p class="lead">Ready-to-run apps: Python and all libraries are included, so there's nothing else to install. Version 0.0.1 beta. The deep-learning tools install their PyTorch add-on from inside the app the first time you open them. Object detection (Detect object, Train detection model) arrives in the next release; to try it now, run LULC Fetch from source (see GitHub).</p>
+      <p class="lead">Ready-to-run apps: Python and all libraries are included, so there's nothing else to install. Version 0.0.1 beta. The deep-learning tools install their PyTorch add-on from inside the app the first time you open them. Object detection (Detect object, Train detection model) and the Agri menu (crop disease diagnosis and guide) arrive in the next release; to try them now, run LULC Fetch from source (see GitHub).</p>
     </div>
     <div class="dl">
       <div class="dlcard" id="dl-mac">
@@ -449,6 +543,7 @@ footer .links2 { display: flex; gap: 18px; }
       <details><summary>Why does my computer warn me the first time I open it?</summary><p>The app isn't signed with a paid Apple or Microsoft developer certificate yet, so macOS and Windows ask you to confirm once (Open Anyway / Run anyway). The full source code is public on GitHub.</p></details>
       <details><summary>Which machine-learning models are included?</summary><p>Random Forest, Extra Trees, Decision Tree, XGBoost, LightGBM, Histogram Gradient Boosting, SVM (RBF, linear, polynomial), Logistic Regression, SGD, Naive Bayes, Maximum Likelihood, Linear Discriminant, Minimum Distance, Spectral Angle Mapper, k-Nearest Neighbours and a neural network (MLP); for clustering K-means, hierarchical, DBSCAN, HDBSCAN, spectral and Gaussian mixture, plus t-SNE.</p></details>
       <details><summary>Can it do deep learning?</summary><p>Yes. <b>Make training data</b> cuts your image and ground truth into patches, <b>Train classify model</b> trains U-Net, DeepLabV3+, PSPNet, SegFormer, FCN, YOLO26 semantic and more, and <b>Classify image</b> maps whole scenes. <b>Detect object</b> finds vehicles, ships, planes, storage tanks, people and more in high-resolution aerial or drone images with open-source pretrained models (YOLO26, including an aerial model trained on DOTA, Faster R-CNN, RetinaNet, Mask R-CNN, and SAM 2.1 segment-everything), and <b>Train detection model</b> teaches YOLO your own objects from labelled polygons or points (both in the next release; available now when running from source). The first time, the app offers to install the free PyTorch add-on (about 0.8 GB on Mac; on Windows 1.1 GB for CPU only or 3.5 GB with NVIDIA GPU support); YOLO and SAM need a second, smaller add-on (ultralytics, AGPL-3.0). Training uses the Apple GPU on Macs and an NVIDIA GPU on Windows if there is one.</p></details>
+      <details><summary>Can it tell which disease my crop has?</summary><p>Yes, from the next release. <b>Agri ▸ Diagnose crop disease</b> recognises the crop on a leaf photo (42 crops, from apple and mango to rice, maize, tomato and sugarcane) and gives the top 3 diseases with confidence, using one ConvNeXt model per crop. Unclear photos get "retake" instead of a guess, and photos with GPS become a disease map. <b>Agri ▸ Crop disease guide</b> has about 9,000 expert answers on symptoms, treatment and pests, and works offline. The disease models (about 8 GB) are a separate download, chosen once in the tool.</p></details>
       <details><summary>Where are my files stored?</summary><p>In <b>Documents ▸ LULC Fetch</b> by default, or in a project folder you choose. You can save any result to another folder as well.</p></details>
     </div>
   </div>
