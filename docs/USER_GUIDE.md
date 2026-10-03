@@ -340,7 +340,14 @@ close it with ×. A run's details show:
 - **Copies saved to a folder:** where *Also save to a folder on my computer* put a copy.
 - **Why it failed** and the steps before it, for failed runs; **Copy as JSON**, **Open** the tool.
 
+**Run again.** A run's details have **↻ Run again** (the same tool, the same settings) and **Change settings & run…**, which
+shows the settings as editable text (JSON): change a value, such as the year, a model's option, the number of components or
+the output name, then **Run with these settings**. The results are added to Contents as new layers, and the new run appears in
+History. Runs made in another project ask first, since their layers and files are looked up in the project open now. A run
+whose settings include a password or key isn't kept for this (nor are settings over 10 MB, e.g. huge training layers).
+
 History is kept in `logs/history.jsonl` in the app's folder: it covers every project and is still there after a restart.
+The exact settings for Run again are in `logs/history_requests/` (the newest 3,000 runs).
 **Clear history…** (in the full list) moves it aside as `history.old.jsonl`.
 
 ### Area picker
@@ -382,6 +389,9 @@ Choose one way to define it:
 - **Upload** a shapefile, GeoJSON, KML or KMZ.
 
 Any polygon layer can also become the area: right-click it ▸ *Use as area of interest*. The area appears in Contents as *Area of interest*, and removing that layer clears it.
+
+**Get AI embeddings for this area…** (under the area once one is set) opens **Embeddings ▸ Download embeddings** with this
+area and the year of your dates already chosen, so you can get Google AlphaEarth or TESSERA embeddings for the same place.
 
 ### Step 2: Satellite, dates and filters
 - **Satellite:**
