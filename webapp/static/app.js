@@ -166,6 +166,40 @@
   setBasemap(prefs.get("basemap", "streets"));
   setLabels(prefs.get("labels", false));
   L.control.scale({ imperial: false, position: "bottomleft" }).addTo(map);
+  // map activity: a small spinner above the scale bar turns while basemap tiles or layers load (after a short delay, so quick
+  // redraws don't flicker)
+  const mapBusy = (() => {
+    const pending = new Set();
+    let timer = 0;
+    const ctl = L.control({ position: "bottomleft" });
+    ctl.onAdd = () => {
+      const d = L.DomUtil.create("div", "map-busy");
+      d.title = "Loading the map…";
+      d.setAttribute("role", "status");
+      d.setAttribute("aria-label", "Loading the map");
+      return d;
+    };
+    ctl.addTo(map);
+    const el = ctl.getContainer();
+    const sync = () => {
+      clearTimeout(timer);
+      if (pending.size) timer = setTimeout(() => el.classList.add("on"), 150);
+      else el.classList.remove("on");
+    };
+    const api = {
+      start: (key) => { pending.add(key); sync(); },
+      end: (key) => { pending.delete(key); sync(); },
+      watch: (layer) => {   // tile layers: "loading" when tiles are requested, "load" when all visible ones arrived
+        layer.on("loading", () => api.start(layer));
+        layer.on("load remove", () => api.end(layer));
+      },
+    };
+    return api;
+  })();
+  [...Object.values(BASEMAPS), placeLabels].filter(Boolean).forEach((l) => {
+    mapBusy.watch(l);
+    if (map.hasLayer(l) && l.isLoading()) mapBusy.start(l);   // the basemap started loading before this existed
+  });
   const geoLayer = L.featureGroup().addTo(map);  // transient hover previews for address results
 
   // ------------------------------------------------------------------ tools (Tools menu + tool panel)
@@ -549,6 +583,7 @@
   // raster layers are rendered by the server into a map-ready PNG (display style lives in l.render)
   async function renderRaster(l, { signal } = {}) {
     l.busy = true; l.error = null;
+    mapBusy.start(l);
     renderContents();
     try {
       const res = await api("/api/analyze/render", { method: "POST", signal, json: {
@@ -564,6 +599,7 @@
       throw e;
     } finally {
       l.busy = false;
+      mapBusy.end(l);
       renderContents();
       saveLayers();
     }
