@@ -35,10 +35,12 @@ def test_train_with_tuning_and_cross_validation(client, table):
     assert r["accuracy"] > 0.9 and r["tuning"]
 
 
-def test_regression(client, table):
+@pytest.mark.parametrize("model", ["rf", "svm", "sgd", "mlp", "knn"])
+def test_regression(client, table, model):
+    """The target (NIR in DN, values in the thousands) is far from unit size: SVM / SGD / MLP must still fit it."""
     r = run(client, "/api/ml/train", {"table": table["path"], "target": "B08", "features": ["B02", "B03", "B04", "B11", "B12"],
-                                      "model": "rf", "task": "regression", "name": "nir"})
-    assert r["task"] == "regression" and r["r2"] > 0.8
+                                      "model": model, "task": "regression", "name": f"nir_{model}"})
+    assert r["task"] == "regression" and r["r2"] > 0.85, f"{model}: R² {r['r2']:.3f}"
 
 
 def test_report_saved_to_a_folder(client, table, tmp_path):

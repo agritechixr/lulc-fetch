@@ -316,8 +316,35 @@ def _band_stats(img_dir, files, nb, max_files=300, seed=0):
 
 
 # ------------------------------------------------------------------ models
+def _mps_safe_pools(model):
+    """Apple GPUs (MPS) can't pool adaptively to a size that doesn't divide the input (PSPNet's 1/2/3/6 bins on a 16 × 16
+    feature map, i.e. 128 px patches): such pools fall back to the CPU for that one step. No weights are involved, so
+    saved models are unchanged."""
+    import torch.nn as nn
+    import torch.nn.functional as F
+
+    class MpsSafeAdaptiveAvgPool2d(nn.AdaptiveAvgPool2d):
+        def forward(self, x):
+            if x.device.type == "mps":
+                o = self.output_size if isinstance(self.output_size, (tuple, list)) else (self.output_size,) * 2
+                if any(s and d % s for d, s in zip(x.shape[-2:], o)):
+                    return F.adaptive_avg_pool2d(x.cpu(), self.output_size).to(x.device)
+            return super().forward(x)
+
+    for mod in list(model.modules()):
+        for name, child in list(mod.named_children()):
+            if type(child) is nn.AdaptiveAvgPool2d and child.output_size not in (1, (1, 1)):
+                setattr(mod, name, MpsSafeAdaptiveAvgPool2d(child.output_size))
+    return model
+
+
 def build_model(arch: str, encoder: str, in_ch: int, n_classes: int, pretrained: bool):
     """The segmentation network. Returns (model, encoder module or None, note about weights)."""
+    m, enc, note = _build_model(arch, encoder, in_ch, n_classes, pretrained)
+    return _mps_safe_pools(m), enc, note
+
+
+def _build_model(arch: str, encoder: str, in_ch: int, n_classes: int, pretrained: bool):
     import torch.nn as nn
     a = ARCHS[arch]
     note = ""

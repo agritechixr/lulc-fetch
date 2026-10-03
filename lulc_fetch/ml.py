@@ -517,7 +517,8 @@ class SkewTransformer(TransformerMixin, BaseEstimator):
 
 
 class TargetTransformedRegressor(RegressorMixin, BaseEstimator):
-    """A regressor trained on a transformed target (log(1 + y) or Yeo-Johnson); predictions are converted back."""
+    """A regressor trained on a transformed target (log(1 + y), Yeo-Johnson, or standardised: mean 0, std 1); predictions
+    are converted back."""
 
     def __init__(self, model=None, kind: str = "log"):
         self.model, self.kind = model, kind
@@ -529,6 +530,9 @@ class TargetTransformedRegressor(RegressorMixin, BaseEstimator):
             if y.min() <= -1:
                 raise ValueError("log(1 + y) needs target values above −1. Use Yeo-Johnson instead.")
             return np.log1p(y)
+        if self.kind == "standard":
+            self.mean_, self.std_ = float(y.mean()), float(y.std()) or 1.0
+            return (y - self.mean_) / self.std_
         from sklearn.preprocessing import PowerTransformer
         self.pt_ = PowerTransformer(method="yeo-johnson").fit(y.reshape(-1, 1))
         return self.pt_.transform(y.reshape(-1, 1)).ravel()
@@ -539,6 +543,8 @@ class TargetTransformedRegressor(RegressorMixin, BaseEstimator):
 
     def predict(self, X):
         p = np.asarray(self.model.predict(X), dtype="float64")
+        if self.kind == "standard":
+            return p * self.std_ + self.mean_
         return np.expm1(p) if self.kind == "log" else self.pt_.inverse_transform(p.reshape(-1, 1)).ravel()
 
     @property
@@ -908,9 +914,13 @@ def train(table_path: str | Path, out_dir: str | Path | None, *, target: str, fe
     if tt == "log" and np.nanmin(y) <= -1:
         raise ValueError("log(1 + y) needs target values above −1. Choose Yeo-Johnson instead.")
 
+    # SVM, SGD and the neural network assume a target of about unit size (SVR's epsilon is 0.1, SGD's step sizes, the MLP's
+    # output): a target in the thousands (e.g. reflectance DN) underfits badly, so it is standardised for them
+    ttx = tt if tt != "none" or task != "regression" or model not in ("svm", "sgd", "mlp") else "standard"
+
     def fit_one(params_i, Xa, ya, progress_fit=False):
-        if tt != "none":
-            wrap = TargetTransformedRegressor(kind=tt)
+        if ttx != "none":
+            wrap = TargetTransformedRegressor(kind=ttx)
             wrap.model = _fit_one(params_i, Xa, wrap.prepare(ya), progress_fit)
             return wrap
         return _fit_one(params_i, Xa, ya, progress_fit)

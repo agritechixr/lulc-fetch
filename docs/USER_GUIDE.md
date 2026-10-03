@@ -317,7 +317,7 @@ Renamed or deleted band / label columns are updated in a table's description, so
 Wherever you choose a model or method (Train a model, Clustering, Classical ML for raster, PCA, Deep learning), a dropdown lists one row per option with its accuracy / speed stars. Click **ⓘ** on a row to read what it does; it doesn't select the row. Every setting also has an ⓘ with its explanation.
 
 ### Finding a tool
-The **Tools** menu and the Start page list the tools in alphabetical order. The Classical ML sub-tools are listed A–Z under *Classical ML (tabular data)*. To read what a tool does, click the 👁 **eye** next to it (click again to hide it), or hover over the eye. The open tool has the same eye next to its title in the tool panel.
+The **Tools** menu and the Start page list the tools in alphabetical order. *Classical ML (tabular data)* has its own tools as tabs at the top of its panel: **Overview** (your tables and models), **Train a model**, **Classify an image**, **Clustering** and **t-SNE map**; it reopens at the tab you used last. To read what a tool does, click the 👁 **eye** next to it (click again to hide it), or hover over the eye. The open tool has the same eye next to its title in the tool panel.
 
 ### ⓘ hints
 Every option has a small **ⓘ** icon. Hover over it for half a second to see a plain-language explanation, or click it to keep the hint open.
@@ -1370,7 +1370,7 @@ The web app is a FastAPI backend (`webapp/`) with a single-page frontend (`webap
 3. A file `webapp/static/tools/<menu>/<tool>.js` that calls `LF.tool({ id, menu, title, icon, subtitle, kinds, save, clip, panel, setup })` (see the existing ones, e.g. `convert.js`), and a `<script>` line for it in `index.html` before `app.js`. The menu entry, the start-page card, the panel, "Also save to a folder", the area pickers and History all come from that one call. In `setup(LF)`: `LF.runButton("xx", async () => {...})` for the Run button, `LF.runJob(endpoint, body, { tool, title, save })` to run and follow a job, `LF.showResult("xx", html)`, `LF.addRasterFromPath(path)` / `LF.addVectorLayer(geojson, name)` to add results to Contents; return `{ open(arg), layersChanged(), clipChanged(id) }`. Open another tool with `LF.openTool(id, arg)`.
 4. A new menu: add a button to the menu bar in `index.html` and an entry in `MENUS` in `app.js`.
 
-**Tools of the Tools menu** (older, still inside `app.js`, `index.html` and `server.py`): a `<section id="tab-mytool" class="tabpanel hidden">` panel in `index.html`, an entry in `TOOLS` in `app.js`, endpoints in `server.py`. **Classical ML sub-tools:** add `{ id, title, icon, subtitle }` to `ML_SUBTOOLS` in `app.js` and a `<div id="ml-sub-<id>" class="ml-sub hidden">` inside the ML panel. `/api/tables` and `/api/models` list the available tables and models.
+**Tools of the Tools menu** (older, still inside `app.js`, `index.html` and `server.py`): a `<section id="tab-mytool" class="tabpanel hidden">` panel in `index.html`, an entry in `TOOLS` in `app.js`, endpoints in `server.py`. **Classical ML sub-tools:** add `{ id, title, icon, subtitle }` to `ML_SUBTOOLS` in `app.js` and a `<div id="ml-sub-<id>" class="ml-sub hidden">` inside the ML panel. It appears as a tab of the tool. `/api/tables` and `/api/models` list the available tables and models.
 
 | Module | Purpose |
 |---|---|
