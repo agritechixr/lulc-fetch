@@ -70,30 +70,94 @@
   class CancelledError extends Error { constructor() { super("Cancelled"); this.cancelled = true; } }
   const runs = {};  // tool id -> { title, progress (0–1 or null = unknown), message, started, cancel() }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // The run bar under every tool: progress, time taken, ⓘ details (times, every step in a resizable box), and after a
+  // failure the reason, Copy details and the error log (every failed run is also written to logs/errors.log).
   function renderRunBar() {
     const r = runs[currentTool], bar = $("#run-bar");
     bar.classList.toggle("hidden", !r);
     if (!r) return;
+    const st = r.state || "running";
+    bar.classList.toggle("failed", st === "failed");
+    bar.classList.toggle("done", st === "done");
+    const secs = ((r.finished || Date.now()) - r.started) / 1000;
     const known = r.progress != null;
-    const pct = known ? Math.round(r.progress * 100) : null;
-    const secs = (Date.now() - r.started) / 1000;
-    let eta = "";
-    if (known && r.progress > 0.05 && r.progress < 1) eta = ` · ~${fmtSecs(secs * (1 - r.progress) / r.progress)} left`;
-    $("#rb-title").textContent = r.title;
-    $("#rb-pct").textContent = known ? `${pct}%` : "";
-    $("#rb-fill").classList.toggle("indeterminate", !known);
-    $("#rb-fill").style.width = known ? `${Math.max(2, pct)}%` : "";
-    $("#rb-msg").textContent = `${r.message || "Working…"} · ${fmtSecs(secs)}${eta}`;
-    $("#rb-cancel").disabled = !!r.cancelling;
-    $("#rb-cancel").textContent = r.cancelling ? "Cancelling…" : "Cancel";
+    const pct = st === "done" ? 100 : known ? Math.round(r.progress * 100) : null;
+    const eta = st === "running" && known && r.progress > 0.05 && r.progress < 1 ? `~${fmtSecs(secs * (1 - r.progress) / r.progress)} left` : "";
+    $("#rb-title").textContent = st === "failed" ? `Failed: ${r.title}` : st === "done" ? `✓ ${r.title}` : r.title;
+    $("#rb-time").textContent = fmtClock(secs);
+    $("#rb-pct").textContent = st === "failed" ? "" : pct != null ? `${pct}%` : "";
+    $("#rb-fill").classList.toggle("indeterminate", st === "running" && !known);
+    $("#rb-fill").style.width = pct != null ? `${Math.max(2, pct)}%` : st === "failed" ? "100%" : "";
+    $("#rb-msg").textContent = st === "failed" ? r.error : st === "done" ? `Finished in ${fmtSecs(secs)}` : `${r.message || "Working…"}${eta ? ` · ${eta}` : ""}`;
+    $("#rb-msg").title = $("#rb-msg").textContent;
+    const btn = $("#rb-cancel");
+    btn.disabled = st === "running" && !!r.cancelling;
+    btn.textContent = st !== "running" ? "Close" : r.cancelling ? "Cancelling…" : "Cancel";
+    btn.classList.toggle("danger", st === "running");
+    const open = prefs.get("rb-open", false) || st === "failed";
+    $("#rb-details").classList.toggle("hidden", !open);
+    $("#rb-more").setAttribute("aria-expanded", open);
+    if (open) renderRunDetails(r, st, secs, eta, pct);
   }
-  const fmtSecs = (s) => s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
-  $("#rb-cancel").onclick = () => { const r = runs[currentTool]; if (r && !r.cancelling) { r.cancelling = true; r.message = "Cancelling…"; renderRunBar(); r.cancel(); } };
-  setInterval(() => { if (runs[currentTool]) renderRunBar(); }, 1000);  // keep the elapsed time ticking
+  function renderRunDetails(r, st, secs, eta, pct) {
+    const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    $("#rb-times").innerHTML = `Started <b>${clock(r.started)}</b> · ${st === "running" ? "running for" : "took"} <b>${fmtSecs(secs)}</b>` +
+      (st !== "running" ? ` · ended <b>${clock(r.finished)}</b>` : "") + (eta ? ` · <b>${eta}</b>` : "") + (st === "running" && pct != null ? ` · ${pct}% done` : "");
+    $("#rb-full").innerHTML = st === "failed" ? `<b style="color:var(--err)">Why it failed:</b> ${esc(r.error)}`
+      : st === "done" ? "" : esc(r.message || "Working…");
+    const log = $("#rb-log"), lines = r.logs || [];
+    if (log.dataset.n !== String(lines.length) || log.dataset.run !== String(r.started)) {
+      const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
+      log.innerHTML = lines.length ? lines.map((x) => /\bERROR\b|Traceback|Error:/.test(x) ? `<span class="err">${esc(x)}</span>` : esc(x)).join("\n")
+        : esc(r.jobId ? "Waiting for the first step…" : "This action has no step log: only its result or error is shown.");
+      log.dataset.n = lines.length; log.dataset.run = r.started;
+      if (atEnd || log.dataset.fresh !== String(r.started)) { log.scrollTop = log.scrollHeight; log.dataset.fresh = r.started; }
+    }
+    const acts = $("#rb-actions");
+    if (acts.dataset.state !== `${r.started}:${st}`) {
+      acts.dataset.state = `${r.started}:${st}`;
+      acts.innerHTML = st === "failed" ? `<button class="btn small" data-rb="copy">Copy details</button><button class="btn small" data-rb="log">Open error log</button>
+        <button class="btn small ghost" data-rb="reveal">Show error log file</button>` : "";
+      $$("[data-rb]", acts).forEach((b) => b.onclick = () => runAction(b.dataset.rb));
+    }
+  }
+  function runDetailsText(r) {
+    const secs = ((r.finished || Date.now()) - r.started) / 1000;
+    return [`${r.state === "failed" ? "FAILED" : r.state === "done" ? "Finished" : "Running"}: ${r.title}`, r.error ? `Error: ${r.error}` : "",
+            `Started ${new Date(r.started).toLocaleString()} · took ${fmtSecs(secs)}`, "", ...(r.logs || [])].filter((x, i) => x || i === 3).join("\n");
+  }
+  async function runAction(what) {
+    const r = runs[currentTool];
+    if (what === "copy" && r) {
+      try { await navigator.clipboard.writeText(runDetailsText(r)); toast("Details copied"); } catch { toast("Couldn't copy: select the text in the box instead", true); }
+    } else if (what === "log") window.open("/api/errors/file", "_blank", "noopener");
+    else if (what === "reveal") api("/api/errors/reveal", { method: "POST" }).catch((e) => toast(e.message, true));
+  }
+  const fmtSecs = (s) => s < 60 ? `${s < 10 ? s.toFixed(1) : Math.round(s)} s` : s < 3600 ? `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`
+    : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+  const fmtClock = (s) => { s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, "0");
+    return h ? `${h}:${String(m).padStart(2, "0")}:${x}` : `${m}:${x}`; };
+  $("#rb-cancel").onclick = () => {
+    const r = runs[currentTool];
+    if (!r) return;
+    if (r.state) { delete runs[currentTool]; renderRunBar(); return; }   // finished or failed: Close
+    if (!r.cancelling) { r.cancelling = true; r.message = "Cancelling…"; renderRunBar(); r.cancel(); }
+  };
+  $("#rb-more").onclick = () => { prefs.set("rb-open", !prefs.get("rb-open", false)); const r = runs[currentTool]; if (r?.state === "failed") prefs.set("rb-open", true); renderRunBar(); };
+  // the step log keeps the height you drag it to
+  { const log = $("#rb-log"), h = prefs.get("rb-log-h", 0);
+    if (h) log.style.height = `${h}px`;
+    new ResizeObserver(() => { if (log.offsetParent && log.offsetHeight > 40) prefs.set("rb-log-h", log.offsetHeight); }).observe(log); }
+  setInterval(() => { const r = runs[currentTool]; if (r && !r.state) renderRunBar(); }, 1000);  // keep the time ticking
+  function finishRun(tool, run, state, error) {
+    run.state = state; run.error = error || null; run.finished = Date.now();
+    if (runs[tool] === run) renderRunBar();
+    if (state === "done") setTimeout(() => { if (runs[tool] === run) { delete runs[tool]; renderRunBar(); } }, 5000);
+  }
 
   // Track a background job until it finishes. Resolves with the finished job; throws CancelledError / Error.
   async function trackJob(job, { tool = currentTool, title, save, onPoll } = {}) {
-    const run = { title: title || job.title, progress: 0, message: "Starting…", started: Date.now(),
+    const run = { title: title || job.title, progress: 0, message: "Starting…", started: Date.now(), jobId: job.id, logs: job.logs || [],
                   cancel: () => api(`/api/jobs/${job.id}/cancel`, { method: "POST" }).catch(() => {}) };
     runs[tool] = run;
     renderRunBar();
@@ -103,18 +167,34 @@
         await sleep(700);
         j = await api(`/api/jobs/${job.id}`);
         run.progress = j.progress;
+        run.logs = j.logs || run.logs;
         if (onPoll) try { onPoll(j); } catch {}
         if (!run.cancelling) run.message = (j.message || run.message).replace(/^\d\d:\d\d:\d\d\s+/, "");
         if (runs[tool] === run) renderRunBar();
       }
       if (j.status === "cancelled") throw new CancelledError();
-      if (j.status === "error") throw new Error(j.error || "The job failed");
+      if (j.status === "error") {   // stays on screen with the reason (also written to logs/errors.log by the server)
+        run.logs = j.logs || run.logs;
+        finishRun(tool, run, "failed", j.error || "The job failed");
+        throw new Error(j.error || "The job failed");
+      }
       if (save) await saveOutputs(save, j);
+      finishRun(tool, run, "done");
       return j;
+    } catch (e) {
+      if (!run.state && !(e instanceof CancelledError)) {   // the request itself failed (server unreachable…)
+        finishRun(tool, run, "failed", e.message);
+        reportError(run.title, e.message);
+      }
+      throw e;
     } finally {
-      if (runs[tool] === run) { delete runs[tool]; renderRunBar(); }
+      if (runs[tool] === run && !run.state) { delete runs[tool]; renderRunBar(); }
       refreshJobs();
     }
+  }
+  // failures that never reached a server job (a request that failed) also go into the error log
+  function reportError(title, message) {
+    api("/api/errors/report", { method: "POST", json: { title: String(title || "").slice(0, 300), error: String(message || "").slice(0, 4000), tool: currentTool } }).catch(() => {});
   }
   // Track a single request (no server-side progress): indeterminate bar; Cancel aborts it.
   async function trackFetch(fn, { tool = currentTool, title, message } = {}) {
@@ -123,12 +203,16 @@
     runs[tool] = run;
     renderRunBar();
     try {
-      return await fn(ctrl.signal);
+      const res = await fn(ctrl.signal);
+      finishRun(tool, run, "done");
+      return res;
     } catch (e) {
       if (e.name === "AbortError" || ctrl.signal.aborted) throw new CancelledError();
+      finishRun(tool, run, "failed", e.message);
+      reportError(title, e.message);
       throw e;
     } finally {
-      if (runs[tool] === run) { delete runs[tool]; renderRunBar(); }
+      if (runs[tool] === run && !run.state) { delete runs[tool]; renderRunBar(); }
     }
   }
   const notCancelled = (e) => { if (e?.cancelled) { status("Cancelled"); toast("Cancelled"); return false; } return true; };
@@ -412,6 +496,8 @@
       case "theme": applyTheme(arg); break;
       case "guide": showHelp("guide"); break;
       case "shortcuts": showHelp("shortcuts"); break;
+      case "error-log": window.open("/api/errors/file", "_blank", "noopener"); break;
+      case "error-log-reveal": api("/api/errors/reveal", { method: "POST" }).catch((e) => toast(e.message, true)); break;
       case "start": switchTool("home"); break;
     }
   }

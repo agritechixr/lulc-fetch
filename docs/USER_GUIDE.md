@@ -334,6 +334,18 @@ Only that window of the image is read, so area-limited work runs **faster and at
 ### Progress and Cancel
 Anything that takes time (searching, previews, downloads, composites, indices, PCA, tables, training, classification, stacking, exports) shows a bar at the bottom of the tool panel. It gives the **% complete**, the current step, elapsed time and an estimate of the time left, plus a **Cancel** button. Cancelling stops the work at the next checkpoint (usually within a second or two) and deletes partial files, so you can change a setting and run again.
 
+- **Time taken** is shown next to the % (minutes:seconds). When the run ends, the bar says **✓ … Finished in …** for a few
+  seconds.
+- **ⓘ** opens the details: when it started, how long it has run (or took), the time left, the full current message, and
+  **every step** the tool has done so far, with its time. Drag the bottom-right corner of the step box to make it bigger or
+  smaller (the size is remembered); ⓘ again hides the details.
+- **If a run fails**, the bar stays, in red, with **why it failed**, the steps before it, and **Copy details**, **Open error
+  log** and **Show error log file**. **Close** hides it.
+- **Error log:** every failed run is also written to `logs/errors.log` in the app's folder (whichever project is open): the
+  time, the tool and its settings, the error, the last steps and the technical traceback (also from the deep-learning helper
+  process). Open it any time with **Help ▸ Error log**, or show the file with **Help ▸ Show the error log file**; send it
+  along when reporting a problem. It starts a new file after 5 MB and keeps the previous one as `errors.old.log`.
+
 ---
 
 ## 5. Find imagery
@@ -1234,6 +1246,7 @@ With a project open, these folders are inside the project folder (next to `lulc_
 | `training_data/` | Datasets made with Make training data when no folder is chosen (images/, labels/, classes.txt, dataset.json…) |
 | `embeddings_cache/` | The AlphaEarth file index used by Download embeddings (downloaded once) |
 | `agri_models/` | Crop disease models downloaded from Hugging Face (shared by all projects) |
+| `logs/` | (app's folder) `app.log` of the desktop app, and `errors.log`: every failed run, with the reason and details (**Help ▸ Error log**) |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files (photos added to Diagnose crop disease go to `uploads/photos/`), index exports, other exports |
 
 All of these are excluded from git.
@@ -1271,6 +1284,7 @@ All of these are excluded from git.
 | The table or export is huge | Pick an area, a coarser pixel size, or a random / stratified sample |
 | Copernicus / USGS download fails | Check the credentials with **Test**; USGS needs M2M access approved on your account |
 | Nothing happens on the map after drawing | Press Esc and try again; make sure a class is selected (Training samples) |
+| A tool failed and the reason isn't clear | Open ⓘ on the red bar for the steps before the failure, or **Help ▸ Error log** for the full technical details of every failed run (`logs/errors.log`); include it when reporting a problem |
 | Diagnose crop disease: "Couldn't reach Hugging Face" | The first diagnosis of each crop downloads its model (about 95 MB): connect to the internet once. Models already downloaded (listed in the Disease models card) work offline |
 | Diagnose crop disease: "The … model download was damaged" | The download was interrupted or changed on the way: run it again (only that model is downloaded again) |
 | Free up the space of downloaded disease models | Delete the `agri_models/` folder in the app's folder; models download again when needed |

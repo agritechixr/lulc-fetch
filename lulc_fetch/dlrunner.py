@@ -98,7 +98,7 @@ def run(action: str, **kwargs) -> dict:
     flags = subprocess.CREATE_NO_WINDOW if sys.platform.startswith("win") else 0
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                             bufsize=1, env=env, creationflags=flags)
-    result, error, cancelled, stopping = None, None, False, False
+    result, error, trace, cancelled, stopping = None, None, None, False, False
     try:
         for line in proc.stdout:
             line = line.rstrip("\r\n")
@@ -127,8 +127,8 @@ def run(action: str, **kwargs) -> dict:
             elif t == "result":
                 result = msg["result"]
             elif t == "error":
-                error = msg["msg"]
-                log.debug(msg.get("trace", ""))
+                error, trace = msg["msg"], msg.get("trace")
+                log.debug(trace or "")
             elif t == "cancelled":
                 cancelled = True
         code = proc.wait()
@@ -145,7 +145,9 @@ def run(action: str, **kwargs) -> dict:
     if cancelled:
         raise progress.Cancelled()
     if error:
-        raise RuntimeError(error)
+        e = RuntimeError(error)
+        e.child_trace = trace   # the helper process's traceback, for the error log
+        raise e
     if result is None:
         raise RuntimeError(f"The deep-learning process stopped unexpectedly (exit code {code}). See the log; "
                            "lowering the batch size or the patch size can help if memory ran out.")

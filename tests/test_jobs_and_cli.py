@@ -37,3 +37,32 @@ def test_cli_search():
                         "--end", "2024-02-15", "--max-cloud", "30", "--json"], cwd=ROOT, capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stderr[-2000:]
     assert r.stdout.strip()
+
+
+def test_error_log(client, tmp_path):
+    """A failed job is written to logs/errors.log (tool, settings, error, traceback); so is a failure seen in the browser."""
+    import time
+
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    import webapp.workspace as ws
+    p = ws.root() / "uploads" / "testdata" / "emb_err.tif"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(p, "w", driver="GTiff", width=4, height=4, count=16, dtype="float32", crs="EPSG:32643",
+                       transform=from_origin(770000, 1435000, 10, 10)) as d:
+        d.write(np.ones((16, 4, 4), np.float32))
+    job = ok(client.post("/api/emb/similar", json={"path": ws.rel(p), "points": [[0.0, 0.0]], "name": "fails"}))
+    for _ in range(100):
+        j = ok(client.get(f"/api/jobs/{job['id']}"))
+        if j["status"] in ("done", "error"):
+            break
+        time.sleep(0.1)
+    assert j["status"] == "error"
+    text = client.get("/api/errors/file").text
+    assert f"job {job['id']}" in text and "None of the points" in text and "Traceback" in text and 'File "' in text
+    ok(client.post("/api/errors/report", json={"title": "Rendering a layer", "error": "Server unreachable", "tool": "analyze"}))
+    info = ok(client.get("/api/errors"))
+    assert info["exists"] and info["entries"] >= 2 and info["path"].endswith("errors.log")
+    assert "Rendering a layer" in client.get("/api/errors/file").text
