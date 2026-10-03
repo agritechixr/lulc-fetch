@@ -23,7 +23,7 @@ from shapely.geometry import shape
 from shapely.ops import unary_union
 
 from lulc_fetch import sentinel2 as s2
-from lulc_fetch.aoi import AOI, aoi_mask, make_grid
+from lulc_fetch.aoi import aoi_mask, make_grid
 from lulc_fetch.extras import LABEL_PRODUCTS
 from lulc_fetch.indices import INDICES
 from lulc_fetch.pipeline import export_composite, export_labels, export_scene, search_geometry
@@ -32,7 +32,17 @@ from lulc_fetch.sources import DEFAULT_BANDS, S2_BANDS, SOURCES, get_source
 
 from . import aoi_io, credentials
 from . import workspace as ws
-from .jobs import JobManager
+from .core import DL_MODEL_DIR, PATCH_DIR, RASTER_EXTS, RASTER_ROOTS, TABLE_DIR, UPLOAD_EXTS, jobs
+from .core import abs_user_folder as _abs_user_folder
+from .core import aoi as _aoi
+from .core import clip as _clip
+from .core import dl_status as _dl_status
+from .core import raster_path as _raster_path
+from .core import remember_dl as _remember_dl
+from .core import remembered as _remembered
+from .core import unique as _unique
+from .routes import agri as _agri_routes
+from .routes import embeddings as _emb_routes
 
 log = logging.getLogger("webapp")
 STATIC = Path(__file__).parent / "static"
@@ -43,7 +53,6 @@ SOURCE_TITLES = {"earth-search": "Earth Search (AWS) — no login",
                  "landsat-pc": "USGS Landsat via Planetary Computer — no login"}
 
 app = FastAPI(title="lulc-fetch")
-jobs = JobManager()
 
 
 @app.middleware("http")
@@ -75,28 +84,10 @@ async def readable_errors(request: Request, exc: Exception):
     return JSONResponse({"detail": str(exc)}, status_code=400)
 
 
-def _aoi(geometry: dict) -> AOI:
-    try:
-        geom = shape(geometry)
-    except Exception:
-        raise HTTPException(400, "Invalid AOI geometry")
-    if geom.is_empty or geom.area == 0:
-        raise HTTPException(400, "The AOI must be a polygon with some area")
-    return AOI(tuple(geom.bounds), [geometry])
-
-
 def _source(name: str):
     if name not in SOURCES:
         raise HTTPException(400, f"Unknown source {name}")
     return get_source(name, **credentials.source_kwargs(name))
-
-
-def _clip(geometry: dict | None) -> dict | None:
-    """Validate an optional clip polygon (GeoJSON, EPSG:4326)."""
-    if not geometry:
-        return None
-    _aoi(geometry)
-    return geometry
 
 
 def _png_data_url(rgba: np.ndarray) -> str:
@@ -460,20 +451,6 @@ def job_file(job_id: str, name: str):
 
 # ------------------------------------------------------------------ analyze existing GeoTIFFs
 
-RASTER_ROOTS = {"imports": "Imported products", "downloads": "Downloads", "uploads": "Uploaded",
-                "analysis": "Analysis results", "output": "CLI output"}
-RASTER_EXTS = {".tif", ".tiff", ".vrt"}  # .vrt only as written by the .SAFE importer
-UPLOAD_EXTS = {".tif", ".tiff"}  # never accept uploaded VRTs: they can point at arbitrary files
-
-
-def _raster_path(rel: str, roots=RASTER_ROOTS) -> Path:
-    """Resolve a client-supplied relative path, refusing anything outside the allowed folders."""
-    path = (ws.root() / rel).resolve()
-    for root in roots:
-        base = (ws.root() / root).resolve()
-        if path.is_relative_to(base) and path.suffix.lower() in RASTER_EXTS and path.is_file():
-            return path
-    raise HTTPException(404, "No such GeoTIFF")
 
 
 @app.get("/api/indices")
@@ -965,7 +942,6 @@ def pca_run(req: PcaRequest):
 
 # ------------------------------------------------------------------ Classical ML: tables (raster → table and future sub-tools)
 
-TABLE_DIR = ws.Dir("tables")
 TABLE_EXTS = {".csv", ".parquet"}
 
 
@@ -1709,7 +1685,6 @@ def rasterml_run(req: RasterMLRequest):
 
 # ------------------------------------------------------------------ Make training data (deep-learning patches)
 
-PATCH_DIR = ws.Dir("training_data")
 
 
 class PatchInput(BaseModel):
@@ -1789,78 +1764,12 @@ def patches_make(req: PatchRequest):
 
 # ------------------------------------------------------------------ Deep learning (optional PyTorch add-on)
 
-DL_MODEL_DIR = ws.Dir("models")
 
 
 def _addon_dir() -> Path:
     """Where the frozen app installs the deep-learning add-on (pip --target), per Python version."""
     import sys
     return ws.APP_DIR / "addons" / f"py{sys.version_info.major}{sys.version_info.minor}"
-
-
-def _remembered(fname: str) -> list[str]:
-    import json as _json
-    try:
-        return [x for x in _json.loads((ws.CONFIG_DIR / fname).read_text()) if isinstance(x, str)]
-    except (OSError, ValueError):
-        return []
-
-
-def _remember_dl(fname: str, folder: str, remove: bool = False):
-    import json as _json
-    items = [x for x in _remembered(fname) if Path(x).resolve() != Path(folder).resolve()]
-    if not remove:
-        items.append(str(Path(folder).resolve()))
-    try:
-        ws.CONFIG_DIR.mkdir(exist_ok=True)
-        (ws.CONFIG_DIR / fname).write_text(_json.dumps(items[-100:], indent=1))
-    except OSError:
-        pass
-
-
-def _abs_user_folder(folder: str) -> Path:
-    import os
-    raw = folder.strip().strip('"').strip("'")
-    p = Path(os.path.expandvars(os.path.expanduser(raw)))
-    if not p.is_absolute():
-        p = ws.root() / p
-    if not p.is_dir():
-        raise HTTPException(400, f"{p} isn't a folder")
-    return p.resolve()
-
-
-_dl_status_cache: dict = {}
-
-
-def _dl_status(force: bool = False) -> dict:
-    """Add-on status without importing PyTorch into this process (see lulc_fetch.dlrunner): the package check is
-    done here, the device check once in a helper process."""
-    import importlib.metadata as md
-    import importlib.util
-
-    if _dl_status_cache and not force:
-        return dict(_dl_status_cache)
-    pkgs, missing = {}, []
-    for mod, dist in (("torch", "torch"), ("torchvision", "torchvision"), ("segmentation_models_pytorch", "segmentation-models-pytorch")):
-        if importlib.util.find_spec(mod) is None:
-            missing.append(dist)
-        else:
-            try:
-                pkgs[dist] = md.version(dist)
-            except md.PackageNotFoundError:
-                pkgs[dist] = "?"
-    st = {"available": False, "packages": pkgs, "devices": ["cpu"], "device": "cpu"}
-    if missing:
-        st["error"] = f"ModuleNotFoundError: No module named {missing[0]!r}"
-    else:
-        from lulc_fetch import dlrunner
-        try:
-            st = dlrunner.run("status")
-        except Exception as e:
-            st["error"] = str(e)
-    _dl_status_cache.clear()
-    _dl_status_cache.update(st)
-    return dict(st)
 
 
 @app.get("/api/dl/status")
@@ -2495,461 +2404,10 @@ def errors_reveal():
     return {"ok": True, "path": str(f)}
 
 
-# ------------------------------------------------------------------ Satellite embeddings (AlphaEarth, TESSERA)
+# ------------------------------------------------------------------ menus kept in their own files (webapp/routes/)
 
-EMB_CACHE = ws.APP_DIR / "embeddings_cache"   # the AlphaEarth file index (shared by all projects)
-
-
-@app.get("/api/emb/sources")
-def emb_sources():
-    from lulc_fetch import embeddings as em
-    return {"sources": em.SOURCES, "other": em.OTHER, "years": em.YEARS, "formats": em.FORMATS}
-
-
-class EmbArea(BaseModel):
-    clip: dict
-    source: str = Field("aef", pattern="^(aef|tessera)$")
-    res: float = Field(10, ge=10, le=160)
-
-
-def _emb_clip(clip: dict) -> dict:
-    from shapely.geometry import shape
-    g = _clip(clip)
-    if not g:
-        raise HTTPException(400, "Choose an area")
-    if shape(g).area > 4:   # degrees²: about 200 × 200 km near the equator
-        raise HTTPException(400, "The area is too large: choose an area up to about 200 × 200 km")
-    return g
-
-
-@app.post("/api/emb/estimate")
-def emb_estimate(req: EmbArea):
-    from lulc_fetch import embeddings as em
-    return em.estimate(_emb_clip(req.clip), req.source, req.res)
-
-
-class EmbAvailRequest(BaseModel):
-    clip: dict
-
-
-@app.post("/api/emb/available")
-def emb_available(req: EmbAvailRequest):
-    from lulc_fetch import embeddings as em
-    g = _emb_clip(req.clip)
-    return jobs.submit("embcheck", "Satellite embeddings · what's available here", {}, lambda job: em.available(g, EMB_CACHE)).to_dict()
-
-
-class EmbFetchRequest(EmbArea):
-    year: int = Field(2024, ge=2017, le=2030)
-    name: str = Field("embedding", max_length=80)
-    colour: bool = True
-
-
-@app.post("/api/emb/fetch")
-def emb_fetch(req: EmbFetchRequest):
-    import re
-
-    from lulc_fetch import embeddings as em
-    g = _emb_clip(req.clip)
-    if req.res not in em.SOURCES[req.source]["resolutions"]:
-        raise HTTPException(400, f"{em.SOURCES[req.source]['short']} is available at {', '.join(map(str, em.SOURCES[req.source]['resolutions']))} m")
-    est = em.estimate(g, req.source, req.res)
-    if est["width"] * est["height"] > 25_000_000:
-        raise HTTPException(400, f"The area is too large at {req.res:g} m ({est['width']} × {est['height']} pixels): choose a smaller area"
-                                 + (" or a coarser resolution" if req.source == "aef" else ""))
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "embedding"
-
-    def run(job):
-        res = em.fetch(g, req.source, req.year, str(job.dir / f"{stem}.tif"), EMB_CACHE, req.res)
-        outs = [res["path"]]
-        if req.colour:
-            log.info("Colour view: the three main directions of variation (PCA) as red, green and blue")
-            res["colour"] = em.colour_view(res["path"], str(job.dir / f"{stem}_colour.tif"))
-            res["colour"]["path"] = ws.rel(res["colour"]["path"])
-            outs.append(res["colour"]["path"])
-        res["path"] = ws.rel(res["path"])
-        res["outputs"] = [res["path"]] + outs[1:]
-        return res
-
-    title = f"Satellite embeddings · {em.SOURCES[req.source]['short']} {req.year} · {req.name}"
-    return jobs.submit("embfetch", title, {"source": req.source, "year": req.year}, run).to_dict()
-
-
-class EmbLayerRequest(BaseModel):
-    path: str
-    points: list[list[float]] | None = Field(None, max_length=500)   # [lon, lat] (similar places)
-    name: str = Field("similarity", max_length=80)
-
-
-@app.post("/api/emb/similar")
-def emb_similar(req: EmbLayerRequest):
-    import re
-
-    from lulc_fetch import embeddings as em
-    src = _raster_path(req.path)
-    if not req.points:
-        raise HTTPException(400, "Click at least one place on the map")
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "similarity"
-
-    def run(job):
-        r = em.similarity(str(src), req.points, str(job.dir / f"{stem}.tif"))
-        r["path"] = ws.rel(r["path"])
-        r["outputs"] = [r["path"]]
-        return r
-
-    return jobs.submit("embsimilar", f"Similar places · {req.name}", {}, run).to_dict()
-
-
-class EmbTrainRequest(BaseModel):
-    path: str                                                # the embedding layer: every band is used
-    ground_truth: dict                                       # {"type": "vector", "geojson", "field"} | {"type": "raster", "path", "band"}
-    clip: dict | None = None
-    arch: str = Field("light_dabnet", max_length=40)
-    patch_px: int = Field(256, ge=32, le=1024)
-    overlap: float = Field(0.25, ge=0, le=0.75)              # share of a patch
-    params: dict = Field(default_factory=dict)               # epochs, batch_size, lr, val_share, early_stop, patience, loss, class_weights, …
-    name: str = Field("embedding_model", max_length=80)
-    map: bool = True                                         # also classify the whole layer (or area) with the trained model
-    class_colors: dict[str, str] | None = None
-
-
-@app.post("/api/emb/train")
-def emb_train(req: EmbTrainRequest):
-    """Train a light segmentation model on an embedding layer and labels in one go: 256 × 256 patches (all bands), training
-    with early stopping and a report, then the class map of the layer."""
-    import re
-
-    import rasterio
-
-    from lulc_fetch import dl, dlrunner, patches, progress
-    if not _dl_status()["available"]:
-        raise HTTPException(400, "The deep-learning add-on isn't installed yet")
-    if req.arch not in dl.ARCHS or dl.ARCHS[req.arch]["lib"] != "light":
-        raise HTTPException(400, f"Choose one of the light models ({', '.join(k for k, a in dl.ARCHS.items() if a['lib'] == 'light')})")
-    src = _raster_path(req.path)
-    gt = dict(req.ground_truth)
-    if gt.get("type") == "raster":
-        gt["path"] = str(_raster_path(gt["path"]))
-    elif gt.get("type") != "vector" or not gt.get("geojson", {}).get("features"):
-        raise HTTPException(400, "Choose the labels: a layer of polygons or points with a class field, or a class raster")
-    with rasterio.open(src) as s:
-        if s.crs is None or s.crs.is_geographic:
-            raise HTTPException(400, "The embedding layer needs a projected coordinate system in metres (e.g. UTM), as downloaded")
-        res, bands = abs(s.res[0]), s.count
-    patch_m = req.patch_px * res
-    clip = _clip(req.clip) if req.clip else None
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "embedding_model"
-    ds_parent = PATCH_DIR.path
-    out = DL_MODEL_DIR.path / stem
-    i = 2
-    while out.exists() and any(out.iterdir()):
-        out = DL_MODEL_DIR.path / f"{stem}_{i}"
-        i += 1
-    params = {"early_stop": True, "patience": 10, **req.params}
-
-    def run(job):
-        with progress.span(0, 0.1):
-            ds_name = f"{stem}_patches_{job.id}"
-            d = patches.make([{"path": str(src), "name": src.stem}], ds_parent, name=ds_name, ground_truth=gt, clip=clip,
-                             patch_m=[patch_m, patch_m], overlap_m=[patch_m * req.overlap] * 2, edge="pad", min_valid=0.3,
-                             require_labels=True, min_labelled=0.001, remap=True, class_colors=req.class_colors)
-            if not d.get("count"):
-                raise RuntimeError("No patch has labels: the labels don't overlap the embedding layer (or the area)")
-            log.info("%d patches of %d × %d pixels × %d bands", d["count"], req.patch_px, req.patch_px, bands)
-        p = dict(params)
-        if "split" not in req.params and d["count"] < 40:   # few patches (a small labelled area): spatial blocks can't fill both sides
-            p["split"] = "random"
-            log.info("Only %d patches: training / validation split at random (spatial blocks need more)", d["count"])
-        if d["count"] < 5:
-            raise RuntimeError(f"Only {d['count']} patch{'es' if d['count'] != 1 else ''} with labels: label a larger area, use smaller "
-                               "patches (e.g. 128) or more overlap")
-        with progress.span(0.1, 0.85 if req.map else 1):
-            tr = dlrunner.run("train", dataset=d["folder"], out_dir=str(out), arch=req.arch, encoder="builtin", pretrained=False,
-                              params=p, name=req.name)
-        _remember_dl("dl_models.json", str(out))
-        res = {"model_folder": str(out), "dataset": d["folder"], "patches": d["count"], "bands": bands, "patch_px": req.patch_px,
-               "config": tr.get("config", {}), "report": (out / "report.html").is_file(), "outputs": []}
-        if req.map:
-            with progress.span(0.85, 1):
-                pr = dlrunner.run("predict", model_dir=str(out), inputs=[{"path": str(src), "name": src.stem}],
-                                  out_path=str(job.dir / f"{stem}_map.tif"), clip=clip, overlap=0.25, batch_size=8, device=params.get("device", "auto"),
-                                  confidence=True)
-            res["map"] = ws.rel(pr["path"])
-            res["outputs"] = [res["map"]]
-        return res
-
-    title = f"Train embedding model · {dl.ARCHS[req.arch]['title']} · {req.name}"
-    return jobs.submit("embtrain", title, {"model": dl.ARCHS[req.arch]["title"], "bands": bands}, run).to_dict()
-
-
-@app.get("/api/emb/format")
-def emb_format(path: str):
-    from lulc_fetch import embeddings as em
-    return em.detect(_raster_path(path))
-
-
-class EmbConvertRequest(BaseModel):
-    path: str
-    to: str = Field(pattern="^(float32|float16|int8-aef|int8-scaled)$")
-    normalise: bool = False
-    name: str = Field("embedding", max_length=80)
-
-
-@app.post("/api/emb/convert")
-def emb_convert(req: EmbConvertRequest):
-    import re
-
-    from lulc_fetch import embeddings as em
-    src = _raster_path(req.path)
-    info = em.detect(src)
-    if info["format"] is None:
-        raise HTTPException(400, info["error"])
-    if info["format"] == req.to and not req.normalise:
-        raise HTTPException(400, f"The layer is already {em.FORMATS[req.to]['title']}")
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "embedding"
-
-    def run(job):
-        r = em.convert(str(src), str(job.dir / f"{stem}.tif"), req.to, req.normalise)
-        r["path"] = ws.rel(r["path"])
-        r["outputs"] = [r["path"]]
-        return r
-
-    return jobs.submit("embconvert", f"Convert embeddings · {em.FORMATS[req.to]['title']} · {req.name}", {"to": req.to}, run).to_dict()
-
-
-@app.post("/api/emb/colour")
-def emb_colour(req: EmbLayerRequest):
-    import re
-
-    from lulc_fetch import embeddings as em
-    src = _raster_path(req.path)
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", src.stem).strip("_")[:60] or "embedding"
-
-    def run(job):
-        r = em.colour_view(str(src), str(job.dir / f"{stem}_colour.tif"))
-        r["path"] = ws.rel(r["path"])
-        r["outputs"] = [r["path"]]
-        return r
-
-    return jobs.submit("embcolour", f"Colour view · {src.stem}", {}, run).to_dict()
-
-
-# ------------------------------------------------------------------ Agri: crop disease diagnosis and the crop disease guide
-
-# where a copy of the disease repository (with its model weights) is often kept, tried when no models folder is chosen yet
-_AGRI_GUESSES = ("Desktop/Farmer_ai", "Farmer_ai", "Desktop/multicrop-disease-decision-support", "multicrop-disease-decision-support",
-                 "Documents/Farmer_ai", "Documents/multicrop-disease-decision-support")
-
-
-def _agri_settings() -> dict:
-    import json as _json
-    try:
-        return _json.loads((ws.CONFIG_DIR / "agri.json").read_text())
-    except (OSError, ValueError):
-        return {}
-
-
-AGRI_HUB_DIR = ws.APP_DIR / "agri_models"   # models downloaded from Hugging Face (shared by all projects)
-
-
-def _agri_models() -> dict:
-    """Where the models come from: a chosen local folder, one found in a usual place, or else Hugging Face (downloaded into
-    AGRI_HUB_DIR when first needed)."""
-    from lulc_fetch.agri.disease import find_models, hub_models
-
-    st = _agri_settings()
-    saved = st.get("models")
-    if st.get("source") != "hub":
-        if saved and Path(saved).is_dir():
-            return {**find_models(saved), "chosen": True, "source": "folder"}
-        if not saved:
-            for g in _AGRI_GUESSES:
-                f = find_models(Path.home() / g)
-                if f["crops"] or f["detectors"]:
-                    return {**f, "chosen": False, "source": "folder"}
-    return {**hub_models(AGRI_HUB_DIR), "chosen": st.get("source") == "hub", "source": "hub"}
-
-
-def _agri_status() -> dict:
-    from lulc_fetch.agri.disease import HUB_REPO, find_models
-    m = _agri_models()
-    out = {"source": m["source"], "folder": m["folder"], "chosen": m["chosen"], "crops": sorted(m["crops"]), "detectors": sorted(m["detectors"])}
-    if m["source"] == "hub":
-        have = find_models(AGRI_HUB_DIR)
-        out.update(repo=HUB_REPO, url=f"https://huggingface.co/{HUB_REPO}", downloaded=sorted(have["crops"]) + [f"detector:{k}" for k in have["detectors"]],
-                   downloaded_mb=round(sum(Path(p).stat().st_size for p in [*have["crops"].values(), *have["detectors"].values()]) / 1e6))
-    return out
-
-
-@app.get("/api/agri/schema")
-def agri_schema():
-    from lulc_fetch.agri import knowledge
-    return {**knowledge.schema(), "models": _agri_status()}
-
-
-class AgriModelsRequest(BaseModel):
-    folder: str | None = Field(None, max_length=2000)   # a local models folder…
-    source: str | None = Field(None, pattern="^hub$")    # …or "hub": download from Hugging Face
-
-
-@app.post("/api/agri/models")
-def agri_set_models(req: AgriModelsRequest):
-    import json as _json
-
-    from lulc_fetch.agri.disease import find_models
-    if req.source == "hub":
-        settings = {**_agri_settings(), "source": "hub"}
-    elif req.folder:
-        folder = _abs_user_folder(req.folder)
-        f = find_models(folder)
-        if not f["crops"] and not f["detectors"]:
-            raise HTTPException(400, f"No disease models in {folder}: choose the disease app's folder (with data/<Crop>/convnext_best.pth "
-                                     "and master_model/)")
-        settings = {**_agri_settings(), "models": str(folder), "source": "folder"}
-    else:
-        raise HTTPException(400, "Give a models folder, or source = hub")
-    try:
-        ws.CONFIG_DIR.mkdir(exist_ok=True)
-        (ws.CONFIG_DIR / "agri.json").write_text(_json.dumps(settings, indent=1))
-    except OSError as e:
-        raise HTTPException(500, f"Couldn't save the setting: {e}")
-    return _agri_status()
-
-
-def _agri_photo(path: str) -> Path:
-    from lulc_fetch.agri.disease import PHOTO_EXTS
-    p = Path(path)
-    p = (p if p.is_absolute() else ws.root() / p).resolve()
-    if p.suffix.lower() not in PHOTO_EXTS or not p.is_file():
-        raise HTTPException(404, f"No such photo: {path}")
-    return p
-
-
-@app.post("/api/agri/photos/upload")
-async def agri_upload_photos(files: list[UploadFile] = File(...)):
-    """Photos added from the computer: kept in the workspace's uploads/photos/<batch>/."""
-    import shutil
-    import uuid
-
-    from lulc_fetch.agri.disease import PHOTO_EXTS
-    dest = ws.root() / "uploads" / "photos" / uuid.uuid4().hex[:8]
-    out, skipped = [], []
-    for f in files:
-        name = Path(f.filename or "").name
-        if Path(name).suffix.lower() not in PHOTO_EXTS:
-            skipped.append(name)
-            continue
-        dest.mkdir(parents=True, exist_ok=True)
-        p = _unique(dest, name)
-        with open(p, "wb") as fh:
-            shutil.copyfileobj(f.file, fh, length=8 << 20)
-        out.append({"path": str(p), "name": p.name})
-    return {"photos": out, "skipped": skipped}
-
-
-@app.get("/api/agri/photos/folder")
-def agri_folder_photos(path: str, recursive: bool = False):
-    """The photos in a folder (and its sub-folders when recursive), up to 5,000."""
-    from lulc_fetch.agri.disease import PHOTO_EXTS
-    folder = _abs_user_folder(path)
-    it = folder.rglob("*") if recursive else folder.iterdir()
-    out = []
-    for p in it:
-        if p.suffix.lower() in PHOTO_EXTS and p.is_file() and not p.name.startswith("."):
-            out.append({"path": str(p), "name": str(p.relative_to(folder))})
-            if len(out) >= 5000:
-                break
-    out.sort(key=lambda x: x["name"].lower())
-    return {"folder": str(folder), "photos": out, "truncated": len(out) >= 5000}
-
-
-@app.get("/api/agri/photo")
-def agri_photo(path: str, size: int = 256):
-    """A photo as a JPEG, upright and at most size pixels (thumbnails in the tool, the full photo with size=0)."""
-    import io
-
-    from fastapi.responses import Response
-
-    from lulc_fetch.agri.disease import open_photo
-    p = _agri_photo(path)
-    try:
-        img, _ = open_photo(p)
-    except Exception as e:
-        raise HTTPException(400, f"Couldn't read {p.name}: {e}")
-    if size > 0:
-        img.thumbnail((min(size, 2048), min(size, 2048)))
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=85)
-    return Response(buf.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
-
-
-class DiagnoseRequest(BaseModel):
-    photos: list[str] = Field(min_length=1, max_length=5000)
-    crop: str = Field("auto", max_length=40)
-    strict: bool = True                        # refuse unclear photos (the disease app's photo check)
-    device: str = Field("auto", pattern="^(auto|cpu|cuda|mps)$")
-    name: str = Field("diagnosis", max_length=80)
-
-
-@app.post("/api/agri/diagnose")
-def agri_diagnose(req: DiagnoseRequest):
-    import json as _json
-    import re
-    import shutil
-
-    from lulc_fetch import dlrunner
-    from lulc_fetch.agri import knowledge
-    if not _dl_status()["available"]:
-        raise HTTPException(400, "The deep-learning add-on isn't installed yet")
-    m = _agri_models()
-    if not (m["crops"] or m["detectors"]):
-        raise HTTPException(400, "Choose the disease models folder first")
-    if req.crop != "auto":
-        if req.crop not in knowledge.crops():
-            raise HTTPException(400, f"Unknown crop {req.crop}")
-        if req.crop not in m["crops"]:
-            raise HTTPException(400, f"The models folder has no {knowledge.crops()[req.crop]['name']} model")
-    elif not m["detectors"]:
-        raise HTTPException(400, "The models folder has no crop detector (master_model/): choose the crop")
-    from lulc_fetch.agri.disease import PHOTO_EXTS
-    photos = [str(Path(p) if Path(p).is_absolute() else ws.root() / p) for p in req.photos]
-    if any(Path(p).suffix.lower() not in PHOTO_EXTS for p in photos):
-        raise HTTPException(400, "Only photos (JPG, PNG, WebP, BMP, TIFF, HEIC) can be diagnosed")
-    if not any(Path(p).is_file() for p in photos):   # a missing photo among others is reported in its row
-        raise HTTPException(404, "None of the photos exist any more: add them again")
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "diagnosis"
-
-    def run(job):
-        res = dlrunner.run("diagnose", photos=photos, models_dir=m["folder"], out_dir=str(job.dir), name=stem, crop=req.crop,
-                           strict=req.strict, device=req.device, hub=m["source"] == "hub")
-        res["geojson"] = _json.loads(Path(res["geojson_path"]).read_text(encoding="utf-8")) if res["geojson_path"] else None
-        TABLE_DIR.mkdir(exist_ok=True)   # the data viewer opens tables from tables/ (never overwrite an earlier one)
-        table = _unique(TABLE_DIR.path, Path(res["csv"]).name)
-        shutil.copyfile(res["csv"], table)
-        res["outputs"] = [ws.rel(res["csv"])] + ([ws.rel(res["geojson_path"])] if res["geojson_path"] else [])
-        res["csv"] = ws.rel(table)
-        res["geojson_path"] = ws.rel(res["geojson_path"]) if res["geojson_path"] else None
-        return res
-
-    crop = "crop detected" if req.crop == "auto" else knowledge.crops()[req.crop]["name"]
-    return jobs.submit("diagnose", f"Crop disease · {len(photos)} photo{'s' if len(photos) > 1 else ''} · {req.name}",
-                       {"crop": crop}, run).to_dict()
-
-
-@app.get("/api/agri/guide/diseases")
-def agri_guide_diseases(crop: str):
-    from lulc_fetch.agri import knowledge
-    if crop not in knowledge.crops():
-        raise HTTPException(404, f"Unknown crop {crop}")
-    return {"crop": crop, "diseases": knowledge.diseases(crop)}
-
-
-@app.get("/api/agri/guide/search")
-def agri_guide_search(crop: str, disease: str | None = None, q: str | None = None, section: str | None = None, limit: int = 200):
-    from lulc_fetch.agri import knowledge
-    if crop not in knowledge.crops():
-        raise HTTPException(404, f"Unknown crop {crop}")
-    return knowledge.search(crop, disease=disease or None, q=(q or "")[:200], section=section or None, limit=max(1, min(limit, 1000)))
+app.include_router(_emb_routes.router)    # Embeddings menu
+app.include_router(_agri_routes.router)   # Agri menu
 
 
 # ------------------------------------------------------------------ Classical ML: unsupervised (clustering, t-SNE)
@@ -3509,16 +2967,6 @@ def fs_mkdir(req: MkdirRequest):
     except OSError as e:
         raise HTTPException(400, f"Can't create the folder: {e.strerror or e}")
     return {"path": str(d)}
-
-
-def _unique(folder: Path, name: str) -> Path:
-    dest, i, stem, suf = folder / name, 2, Path(name).stem, Path(name).suffix
-    if name.endswith(".evaluation.html"):
-        stem, suf = name[: -len(".evaluation.html")], ".evaluation.html"
-    while dest.exists():
-        dest = folder / f"{stem}_{i}{suf}"
-        i += 1
-    return dest
 
 
 def _companions(src: Path) -> list[Path]:

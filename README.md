@@ -110,6 +110,8 @@ Deep-learning tools: `.venv/bin/pip install -e ".[web,dl]"` (or click *Install t
 
 No account is needed to search and download imagery. Accounts are only needed for original Copernicus or USGS product downloads.
 
+Code layout: shared helpers are in `webapp/core.py` (server) and `webapp/static/tools/lf.js` (browser). Each menu with its own tools keeps them in its own folders: `lulc_fetch/<menu>/`, `webapp/routes/<menu>.py` and `webapp/static/tools/<menu>/` (one file per tool). See the [User Guide, section 33](docs/USER_GUIDE.md#33-for-developers-adding-a-tool) to add a tool.
+
 ## Tests
 
 `tests/` checks every tool end to end on small synthetic data (about 2 minutes; 30 seconds without deep learning):

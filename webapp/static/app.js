@@ -11,6 +11,9 @@
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (n, d = 1) => (n == null || isNaN(n) ? "–" : Number(n).toFixed(d));
+  // tools in their own files (webapp/static/tools/<menu>/<tool>.js, registered with LF.tool): their panels go in first
+  const PLUGINS = Object.fromEntries(LF.tools.map((t) => [t.id, t]));
+  LF.tools.forEach((t) => $("#tab-jobs").insertAdjacentHTML("beforebegin", `<section id="tab-${t.id}" class="tabpanel hidden">${t.panel || ""}</section>`));
   const fmtv = (v) => v == null || isNaN(v) ? "–" : Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(3);
 
   const state = {
@@ -229,8 +232,8 @@
   // ------------------------------------------------------------------ History: every tool run (logs/history.jsonl)
   const KIND_TOOL = { table: "raster2table", train: "ml", predict: "ml", cluster: "ml", tsne: "ml", compare: "ml", python: "ml", pca: "pca",
     stack: "stack", rasterml: "rasterml", patches: "patches", dltrain: "dltrain", dlinstall: "dltrain", dlpredict: "dlpredict", detect: "detect",
-    dettrain: "traindet", diagnose: "agridisease", embfetch: "embed", embcheck: "embed", embconvert: "embconvert", embsimilar: "embexplore",
-    embcolour: "embexplore", embtrain: "embtrain", export: "export", product: "search" };
+    dettrain: "traindet", export: "export", product: "search" };
+  LF.tools.forEach((t) => (t.kinds || []).forEach((k) => KIND_TOOL[k] = t.id));
   const toolOfKind = (k) => TOOLS.find((t) => t.id === (KIND_TOOL[k] || "search"));
   const HIST_STATUS = { done: ["Finished", "c0"], error: ["Failed", "c2"], cancelled: ["Cancelled", "c1"], running: ["Running", "c1"], queued: ["Waiting", "c1"] };
   const ago = (t) => { const s = Date.now() / 1000 - t; return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago`
@@ -553,16 +556,8 @@
     { id: "patches", title: "Make training data", icon: "patches", subtitle: "Cut large images and their ground truth into image / label patches for deep-learning training" },
     { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
-    // the Embeddings menu
-    { id: "embed", menu: "embed", title: "Download embeddings", icon: "embed", subtitle: "Free, open AI embeddings for any area: Google AlphaEarth (64-D) and TESSERA (128-D), 10 m, 2017–2025. See which years exist for your area and download them as a GeoTIFF, with a colour view" },
-    { id: "embtrain", menu: "embed", title: "Train embedding model", icon: "dl", subtitle: "Train one of ten light segmentation models (ENet, DABNet, LEDNet… 0.15–0.95 M parameters) on an embedding layer and your labelled polygons, points or class raster: all bands used, 256 × 256 patches, early stopping, a report, and the class map" },
-    { id: "embpredict", menu: "embed", title: "Classify with embedding model", icon: "dlmap", subtitle: "Map any embedding layer (another area or year) with a model from Train embedding model, with a confidence band" },
-    { id: "embconvert", menu: "embed", title: "Convert embeddings", icon: "convert", subtitle: "Change how an embedding is stored: 8-bit (AlphaEarth coding or scaled per band) ↔ 16 / 32-bit float. Small files to keep, floats to train on; shows how much the values change" },
-    { id: "embexplore", menu: "embed", title: "Explore embeddings", icon: "similar", subtitle: "Find places similar to the ones you click (cosine similarity), make a colour view, or classify any embedding layer" },
-    // the Agri menu
-    { id: "agridisease", menu: "agri", title: "Diagnose crop disease", icon: "leaf", subtitle: "Find the disease on leaf photos of 42 crops (apple, mango, rice, tomato, maize…): the crop is recognised, then its ConvNeXt model gives the top 3 diseases. Unclear photos are refused; photos with GPS become a disease map" },
-    { id: "agriguide", menu: "agri", title: "Crop disease guide", icon: "book", subtitle: "Symptoms, treatment and pests for each crop and disease, from a knowledge base of about 9,000 expert questions and answers; searchable" },
   ];
+  LF.tools.forEach(({ id, menu, title, icon, subtitle }) => TOOLS.push({ id, menu, title, icon, subtitle }));
   // menus of their own (besides Tools): their tools have menu: "<key>"; shortcuts list tools of other menus there too
   const MENUS = {
     agri: { el: "#agri-menu", label: "Also useful for crops", shortcuts: ["analyze", "embed", "search"],
@@ -617,7 +612,7 @@
   $("#tool-eye").onclick = () => { prefs.set("tool-sub", !prefs.get("tool-sub", false)); syncToolSub(); };
   syncToolSub();
 
-  function switchTool(id) {
+  function switchTool(id, arg) {
     const tool = TOOLS.find((t) => t.id === id) || { id: "home", title: "Start", subtitle: "Choose a tool" };
     currentTool = tool.id;
     $$(".tabpanel").forEach((p) => p.classList.toggle("hidden", p.id !== "tab-" + tool.id));
@@ -643,13 +638,7 @@
     if (tool.id === "dlpredict") refreshDp();
     if (tool.id === "detect") refreshOd();
     if (tool.id === "traindet") refreshTd();
-    if (tool.id === "agridisease") refreshAd();
-    if (tool.id === "agriguide") refreshAg();
-    if (tool.id === "embed") refreshEm();
-    if (tool.id === "embexplore") refreshEmExplore();
-    if (tool.id === "embconvert") refreshEc();
-    if (tool.id === "embtrain") refreshEt();
-    if (tool.id === "embpredict") refreshEp();
+    PLUGINS[tool.id]?.hooks?.open?.(arg);
     if (tool.id === "samples") renderSamples();
     if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
@@ -1033,10 +1022,7 @@
     if (currentTool === "patches") refreshPt();
     if (currentTool === "dlpredict" && dlx.schema) renderDpLayers();
     if (currentTool === "detect" && od.schema) renderOdLayers();
-    if (currentTool === "embexplore") renderEmLayers();
-    if (currentTool === "embconvert") renderEcLayers();
-    if (currentTool === "embtrain" && et.schema) renderEtLayers();
-    if (currentTool === "embpredict" && ep.ready) renderEpLayers();
+    PLUGINS[currentTool]?.hooks?.layersChanged?.();
     if (currentTool === "traindet" && td.schema) { renderTdLayers(); renderTdGt(); }
     if (currentTool === "samples") renderSamples();
     if (currentTool === "stack") refreshStack();
@@ -2360,9 +2346,7 @@
     ["search", "#dl-go", "the downloaded files"], ["analyze", "#ex-go", "the exported GeoTIFF"], ["pca", "#pca-run", "the result GeoTIFF"],
     ["stack", "#st-run", "the stacked GeoTIFF"], ["raster2table", "#rt-run", "the table"], ["train", "#mt-run", "the model and its evaluation report"],
     ["predict", "#mp-run", "the map"], ["rasterml", "#rm-run", "the classified map and the model (with its evaluation report)"], ["dlpredict", "#dp-run", "the classified map"], ["detect", "#od-run", "the detected objects (GeoJSON)"], ["cluster", "#uc-run", "the table with clusters (and the model)"], ["tsne", "#ut-run", "the table with map coordinates"],
-    ["embfetch", "#em-run", "the embedding GeoTIFF (and its colour view)"], ["embconvert", "#ec-run", "the converted GeoTIFF"],
-    ["embexplore", "#em-save-anchor", "the similarity maps and colour views"],
-    ["embtrain", "#et-run", "the class map (the model stays in the project's models folder)"], ["embpredict", "#ep-run", "the class map"],
+    ...LF.tools.flatMap((t) => t.save || []),
   ];
   function saveToHtml(key, what, label = "Also save to a folder on my computer") {
     const dir = prefs.get(`save-dir:${key}`, key === "train" ? prefs.get("report-dir", "") : "") || prefs.get("save-dir:last", "");
@@ -2897,10 +2881,8 @@
     "od-area": { what: "image is searched", onChange: () => odEstimate() },
     "td-area": { what: "image is used for training", onChange: () => {} },
     "st-area": { what: "reference extent is used", onChange: () => {} },
-    "em-area": { what: "area is downloaded", onChange: () => emEstimate(), required: true },
-    "et-area": { what: "layer is used for training and mapped", onChange: () => etEstimate() },
-    "ep-area": { what: "layer is classified", onChange: () => {} },
   };
+  LF.tools.forEach((t) => Object.entries(t.clip || {}).forEach(([id, c]) => clipPickers[id] = { ...c, onChange: () => PLUGINS[t.id].hooks?.clipChanged?.(id) }));
   const polygonLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
   function refreshClipPicker(id) {
     const sel = $("#" + id), cfg = clipPickers[id];
@@ -3294,8 +3276,7 @@
   $("#aoi-embed").onclick = () => {
     if (!getLayer("aoi")) return toast("Choose an area first", true);
     const y = +(($("#end").value || $("#start").value || "").slice(0, 4)) || new Date().getFullYear() - 1;
-    em.pending = { area: "layer:aoi", year: String(Math.min(2025, Math.max(2017, y))) };
-    switchTool("embed");
+    switchTool("embed", { area: "layer:aoi", year: String(Math.min(2025, Math.max(2017, y))) });
   };
 
   // AOI method tabs
@@ -6062,7 +6043,8 @@
         await trackJob(job, { title: "Installing the deep-learning add-on" });
         await dlStatus(true);
         toast("Deep-learning add-on installed");
-        renderAddon(panel).then((ok) => ok && ({ "tab-dltrain": refreshDt, "tab-detect": refreshOd, "tab-traindet": refreshTd, "tab-agridisease": refreshAd, "tab-embtrain": refreshEt, "tab-embpredict": refreshEp }[panel.id] || refreshDp)());
+        renderAddon(panel).then((ok) => ok && ({ "tab-dltrain": refreshDt, "tab-detect": refreshOd, "tab-traindet": refreshTd }[panel.id]
+          || PLUGINS[panel.id.slice(4)]?.hooks?.open || refreshDp)());
       } catch (err) { if (notCancelled(err)) toast(err.message, true); }
       finally { btn.disabled = false; }
     };
@@ -6556,367 +6538,6 @@
     } finally { btn.disabled = false; }
   };
 
-  // ------------------------------------------------------------------ Satellite embeddings (AlphaEarth, TESSERA): explore, download, similar places
-  const em = { meta: null, source: prefs.get("em-source", "aef"), points: [], markers: L.featureGroup().addTo(map), estSeq: 0 };
-  const emRasters = () => layers.filter((l) => l.type === "raster" && l.path && (l.info?.count || 0) >= 16);
-  async function refreshEm() {
-    if (!em.meta) {
-      try { em.meta = await api("/api/emb/sources"); } catch (e) { toast(e.message, true); return; }
-      $("#em-other").innerHTML = em.meta.other.map((o) => `<p class="hint"><a href="${esc(o.url)}" target="_blank" rel="noopener"><b>${esc(o.title)}</b></a>: ${esc(o.what)}. Not per-pixel maps, so not downloadable here yet.</p>`).join("");
-      $("#em-year").innerHTML = em.meta.years.slice().reverse().map((y) => `<option>${y}</option>`).join("");
-      $("#em-year").value = prefs.get("em-year", "2024");
-    }
-    renderEmSources();
-    refreshClipPicker("em-area");
-    if (em.pending) {   // opened from Find imagery: its area and year
-      const sel = $("#em-area");
-      if ([...sel.options].some((o) => o.value === em.pending.area)) { sel.value = em.pending.area; updateClipHint("em-area"); }
-      if ([...$("#em-year").options].some((o) => o.value === em.pending.year)) { $("#em-year").value = em.pending.year; prefs.set("em-year", em.pending.year); }
-      toast(`Area and year (${em.pending.year}) taken from Find imagery`);
-      em.pending = null;
-    }
-    emEstimate();
-  }
-  function refreshEmExplore() { renderEmLayers(); }
-  function renderEmSources() {
-    const box = $("#em-sources");
-    box.innerHTML = Object.entries(em.meta.sources).map(([k, s]) => `<label class="em-src ${em.source === k ? "on" : ""}">
-        <input type="radio" name="em-src" value="${k}" ${em.source === k ? "checked" : ""}>
-        <span><b>${esc(s.title)}</b> <span class="em-dims">${s.dims}-D · ${s.res} m · ${s.years[0]}–${s.years[1]} · ${esc(s.licence)}</span>
-        ${tipBtn(`${s.about} ${s.coverage}. By ${s.by}. Licence ${s.licence}.`)}</span></label>`).join("");
-    $$("input[name=em-src]", box).forEach((r) => r.onchange = () => { em.source = r.value; prefs.set("em-source", r.value); renderEmSources(); emEstimate(); });
-    const s = em.meta.sources[em.source], cur = +($("#em-res").value || 10);
-    $("#em-res").innerHTML = s.resolutions.map((r) => `<option value="${r}">${r} m${r === 10 ? " (full detail)" : ""}</option>`).join("");
-    $("#em-res").value = s.resolutions.includes(cur) ? cur : 10;
-  }
-  async function emEstimate() {
-    const g = getClip("em-area"), seq = ++em.estSeq, out = $("#em-est");
-    if (!g || !em.meta) { out.textContent = "Choose an area to see the size."; return; }
-    try {
-      const r = await api("/api/emb/estimate", { method: "POST", json: { clip: g, source: em.source, res: +$("#em-res").value } });
-      if (seq !== em.estSeq) return;
-      const big = r.width * r.height > 25e6;
-      out.innerHTML = `${fmt(r.area_km2, r.area_km2 < 10 ? 2 : 0)} km² → ${r.width.toLocaleString()} × ${r.height.toLocaleString()} pixels in ${esc(r.crs)}, a ${fmt(r.output_mb, 0)} MB GeoTIFF; about ${fmt(r.download_mb, 0)} MB to download.` +
-        (big ? ` <span style="color:var(--err)">Too large: choose a smaller area${em.source === "aef" ? " or a coarser resolution" : ""}.</span>`
-             : r.download_mb > 1500 ? ` <span style="color:var(--warn)">That's a big download: it can take a while.</span>` : "");
-    } catch (e) { if (seq === em.estSeq) out.innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; }
-  }
-  $("#em-res").onchange = emEstimate;
-  $("#em-year").onchange = () => prefs.set("em-year", $("#em-year").value);
-  $("#em-check").onclick = async () => {
-    const g = getClip("em-area");
-    if (!g) return toast("Choose an area first", true);
-    const btn = $("#em-check"); btn.disabled = true;
-    try {
-      const job = await api("/api/emb/available", { method: "POST", json: { clip: g } });
-      const r = (await trackJob(job, { tool: "embed", title: "Checking what's available here" })).result;
-      const yrs = em.meta.years, S = em.meta.sources;
-      const cell = (n, of) => n ? `<td class="ok">✓${of > 1 ? ` <small>${n}/${of}</small>` : ""}</td>` : `<td class="no">–</td>`;
-      $("#em-avail").innerHTML = `<table class="em-table"><thead><tr><th>Year</th><th>${esc(S.aef.short)}</th><th>${esc(S.tessera.short)}</th></tr></thead><tbody>` +
-        yrs.slice().reverse().map((y) => `<tr data-y="${y}"><td><a href="#" data-em-year="${y}">${y}</a></td>${cell(r.aef[y] ? 1 : 0, 1)}${cell(r.tessera[y], r.tessera_tiles)}</tr>`).join("") +
-        `</tbody></table><p class="hint">${r.tessera_tiles > 1 ? `TESSERA: tiles with data out of ${r.tessera_tiles} covering the area${r.tessera_sampled ? " (estimated from a sample)" : ""}. ` : ""}Click a year to use it.</p>`;
-      $("#em-avail").classList.remove("hidden");
-      $$("[data-em-year]").forEach((a) => a.onclick = (e) => { e.preventDefault(); $("#em-year").value = a.dataset.emYear; prefs.set("em-year", a.dataset.emYear); });
-    } catch (e) { if (notCancelled(e)) toast(e.message, true); }
-    finally { btn.disabled = false; }
-  };
-  $("#em-name").addEventListener("input", () => $("#em-name").dataset.touched = "1");
-  $("#em-run").onclick = async () => {
-    const err = $("#em-error"); err.classList.add("hidden");
-    const g = getClip("em-area");
-    if (!g) return toast("Choose an area first", true);
-    const year = +$("#em-year").value, S = em.meta.sources[em.source];
-    const name = $("#em-name").dataset.touched ? ($("#em-name").value.trim() || "embedding") : `${S.short}_${year}`;
-    const btn = $("#em-run"); btn.disabled = true; $("#em-result").classList.add("hidden");
-    try {
-      const job = await api("/api/emb/fetch", { method: "POST", json: { clip: g, source: em.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked } });
-      const r = (await trackJob(job, { tool: "embed", title: `Downloading ${S.short} ${year}`, save: "embfetch" })).result;
-      const lyr = await addRasterFromPath(r.path, { name, render: { pca: true, stretch: "auto" } });   // all bands, shown in colour
-      if (r.colour) await addRasterFromPath(r.colour.path, { name: `${name} colour view`, render: { rgb: [1, 2, 3], stretch: "none" } });
-      em.lastLayer = lyr.id;
-      const box = $("#em-result");
-      box.innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(S.short)} ${year} downloaded</h2>
-        <div class="pca-sum">${r.width.toLocaleString()} × ${r.height.toLocaleString()} pixels at ${r.res} m · ${r.dims} dimensions (${esc(S.band_prefix)}${"0".repeat(r.dims < 100 ? 2 : 3)}…) · ${esc(r.crs)} · ${r.valid_pct} % of the area has data · ${r.size_mb} MB · ${r.seconds} s</div>
-        <p class="hint">The layer keeps all ${r.dims} bands (see its Metadata) and is <b>shown</b> in colour from them: their three main directions of variation (PCA) as red, green and blue, so alike places get alike colours. Change it in the layer's Properties (any 3 bands, or one band).${r.colour ? ` The colour view was also saved as its own 3-band GeoTIFF.` : ""}</p>
-        <div class="row tight" style="margin-top:8px;flex-wrap:wrap;gap:6px"><button class="btn small primary" data-em-explore>Explore it: find similar places…</button></div>
-        <p class="hint">Or use the layer in <a href="#" data-go="rasterml">Classical ML for raster</a> (it is recognised as an embedding: k-NN, SVM, logistic regression and SAM with cosine distance are suggested), or cluster it. ${esc(r.attribution)} Licence ${esc(r.licence)}.</p></div>`;
-      box.classList.remove("hidden");
-      $("[data-go]", box).onclick = (e) => { e.preventDefault(); switchTool("rasterml"); };
-      $("[data-em-explore]", box).onclick = () => { switchTool("embexplore"); renderEmLayers(em.lastLayer); };
-    } catch (e) {
-      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
-    } finally { btn.disabled = false; }
-  };
-  function renderEmLayers(pick) {
-    const rs = emRasters(), sel = $("#em-layer"), cur = pick || sel.value;
-    sel.innerHTML = rs.length ? rs.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info.count} bands</option>`).join("")
-      : `<option value="">No embedding layer yet: download one above, or add a GeoTIFF</option>`;
-    if (rs.some((l) => l.id === cur)) sel.value = cur;
-    const l = getLayer(sel.value);
-    $("#em-layer-hint").textContent = l ? `${l.info.count} dimensions${l.info.res ? ` · ${fmt(l.info.res[0], 0)} m pixels` : ""}. Any embedding GeoTIFF works, also your own AlphaEarth or TESSERA exports.` : "";
-    ["#em-similar", "#em-colour-btn", "#em-classify", "#em-pick"].forEach((s) => $(s).disabled = !l);
-  }
-  $("#em-layer").onchange = () => renderEmLayers();
-  function syncEmPoints() {
-    $("#em-pick-n").textContent = em.points.length ? `${em.points.length} place${em.points.length > 1 ? "s" : ""}` : "";
-    $("#em-pick-clear").classList.toggle("hidden", !em.points.length);
-  }
-  $("#em-pick").onclick = () => startDraw(L.Draw.CircleMarker, (g) => {
-    em.points.push(g.coordinates);
-    L.circleMarker([g.coordinates[1], g.coordinates[0]], { radius: 6, color: "#fff", weight: 2, fillColor: "#7c3aed", fillOpacity: 1, interactive: false }).addTo(em.markers);
-    syncEmPoints();
-  }, "#7c3aed");
-  $("#em-pick-clear").onclick = () => { em.points = []; em.markers.clearLayers(); syncEmPoints(); };
-  const emLayerPath = () => getLayer($("#em-layer").value)?.path;
-  $("#em-similar").onclick = async () => {
-    const err = $("#em-explore-error"); err.classList.add("hidden");
-    if (!emLayerPath()) return toast("Choose an embedding layer", true);
-    if (!em.points.length) return toast("Click at least one place on the map first", true);
-    const src = getLayer($("#em-layer").value), btn = $("#em-similar"); btn.disabled = true;
-    try {
-      const job = await api("/api/emb/similar", { method: "POST", json: { path: src.path, points: em.points, name: `${src.name}_similar` } });
-      const r = (await trackJob(job, { tool: "embexplore", title: "Finding similar places", save: "embexplore" })).result;
-      await addRasterFromPath(r.path, { name: `Similar to ${em.points.length} place${em.points.length > 1 ? "s" : ""} · ${src.name}`, zoom: false,
-                                        render: { band: 1, stretch: "auto", cmap: "Magma" } });
-      toast(`Similarity map added: median ${fmt(r.p50, 2)}, top 5 % above ${fmt(r.p95, 2)}${r.points < em.points.length ? ` (${em.points.length - r.points} place(s) outside the layer were ignored)` : ""}`);
-    } catch (e) { if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); } }
-    finally { btn.disabled = false; }
-  };
-  $("#em-colour-btn").onclick = async () => {
-    const src = getLayer($("#em-layer").value);
-    if (!src) return;
-    try {
-      const job = await api("/api/emb/colour", { method: "POST", json: { path: src.path } });
-      const r = (await trackJob(job, { tool: "embexplore", title: "Making a colour view", save: "embexplore" })).result;
-      await addRasterFromPath(r.path, { name: `${src.name} colour view`, zoom: false, render: { rgb: [1, 2, 3], stretch: "none" } });
-    } catch (e) { if (notCancelled(e)) toast(e.message, true); }
-  };
-  $("#em-classify").onclick = () => switchTool("rasterml");
-
-  // ------------------------------------------------------------------ Convert embeddings: 8-bit ↔ 16 / 32-bit float
-  const ec = { info: null, to: prefs.get("ec-to", "float32"), seq: 0 };
-  async function refreshEc() {
-    if (!em.meta) {
-      try { em.meta = await api("/api/emb/sources"); } catch (e) { toast(e.message, true); return; }
-    }
-    renderEcLayers();
-  }
-  function renderEcLayers() {
-    const rs = emRasters(), sel = $("#ec-layer"), cur = sel.value;
-    sel.innerHTML = rs.length ? rs.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info.count} bands</option>`).join("")
-      : `<option value="">No embedding layer yet: download one (Embeddings ▸ Download embeddings) or add a GeoTIFF</option>`;
-    if (rs.some((l) => l.id === cur)) sel.value = cur;
-    ecLayerChanged();
-  }
-  async function ecLayerChanged() {
-    const l = getLayer($("#ec-layer").value), seq = ++ec.seq;
-    $("#ec-run").disabled = !l;
-    if (!l) { ec.info = null; $("#ec-info").textContent = ""; $("#ec-formats").innerHTML = ""; return; }
-    let info;
-    try { info = await api(`/api/emb/format?path=${encodeURIComponent(l.path)}`); } catch (e) { $("#ec-info").innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; return; }
-    if (seq !== ec.seq) return;
-    ec.info = info;
-    const F = em.meta.formats;
-    $("#ec-info").innerHTML = info.format
-      ? `Now: <b>${esc(F[info.format].title)}</b>${info.embedding ? ` · ${esc(info.embedding)}` : ""} · ${info.bands} dimensions · ${info.width.toLocaleString()} × ${info.height.toLocaleString()} pixels · ${fmt(info.size_mb, 1)} MB on disk${info.north_up ? "" : " · stored upside down (as Google's AlphaEarth tiles): written north-up"}`
-      : `<span style="color:var(--err)">${esc(info.error)}</span>`;
-    if (!info.targets.includes(ec.to)) ec.to = info.targets.includes("float32") ? "float32" : info.targets[0];
-    renderEcFormats();
-    if (!$("#ec-name").dataset.touched) $("#ec-name").value = `${l.name.replace(/\.(tiff?|vrt)$/i, "")}_${ec.to.replace("-", "_")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 70);
-  }
-  function renderEcFormats() {
-    const F = em.meta.formats, info = ec.info, box = $("#ec-formats");
-    if (!info?.format) { box.innerHTML = ""; return; }
-    box.innerHTML = info.targets.map((k) => `<label class="em-src ${ec.to === k ? "on" : ""}"><input type="radio" name="ec-to" value="${k}" ${ec.to === k ? "checked" : ""}>
-        <span><b>${esc(F[k].title)}</b> <span class="em-dims">${F[k].bytes} byte${F[k].bytes > 1 ? "s" : ""} · ~${fmt(info.estimates[k], info.estimates[k] < 10 ? 1 : 0)} MB</span>
-        ${tipBtn(F[k].about)}</span></label>`).join("");
-    $$("input[name=ec-to]", box).forEach((r) => r.onchange = () => {
-      ec.to = r.value; prefs.set("ec-to", r.value); renderEcFormats();
-      const l = getLayer($("#ec-layer").value);
-      if (l && !$("#ec-name").dataset.touched) $("#ec-name").value = `${l.name.replace(/\.(tiff?|vrt)$/i, "")}_${ec.to.replace("-", "_")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 70);
-    });
-  }
-  $("#ec-layer").onchange = () => ecLayerChanged();
-  $("#ec-name").addEventListener("input", () => $("#ec-name").dataset.touched = "1");
-  $("#ec-run").onclick = async () => {
-    const err = $("#ec-error"); err.classList.add("hidden");
-    const l = getLayer($("#ec-layer").value);
-    if (!l || !ec.info?.format) return toast("Choose an embedding layer", true);
-    const F = em.meta.formats, name = $("#ec-name").value.trim() || "embedding";
-    const btn = $("#ec-run"); btn.disabled = true; $("#ec-result").classList.add("hidden");
-    try {
-      const job = await api("/api/emb/convert", { method: "POST", json: { path: l.path, to: ec.to, normalise: $("#ec-unit").checked, name } });
-      const r = (await trackJob(job, { tool: "embconvert", title: `Converting to ${F[ec.to].title}`, save: "embconvert" })).result;
-      await addRasterFromPath(r.path, { name, zoom: false, render: { pca: true, stretch: "auto" } });
-      const change = r.size_in_mb ? Math.round(100 * (r.size_out_mb / r.size_in_mb - 1)) : 0;
-      const exact = r.max_error === 0;
-      $("#ec-result").innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(F[r.from].title)} → ${esc(F[r.to].title)}</h2>
-        <div class="pca-sum">${fmt(r.size_in_mb, 1)} MB → <b>${fmt(r.size_out_mb, 1)} MB</b> on disk (${change > 0 ? "+" : ""}${change} %) · ${r.width.toLocaleString()} × ${r.height.toLocaleString()} × ${r.bands} · ${r.seconds} s${r.normalised ? " · unit length" : ""}${r.flipped ? " · turned north-up" : ""}</div>
-        <p class="hint">${exact ? "<b>Exact</b>: every value is the same as before." :
-          `Largest change of a value: <b>${r.max_error.toPrecision(2)}</b> (mean ${r.mean_error.toPrecision(2)}). Each pixel's vector still points the same way: cosine similarity to the original ≥ <b>${r.cosine_min.toFixed(5)}</b> (1 = identical)${r.normalised ? ", measured after making the vectors unit length" : ""}.`}
-        ${r.to === "float16" ? " To open this file in other software, it needs GDAL 3.11 or newer (QGIS 3.42+)." : ""}${r.to === "int8-scaled" ? " The scale of each band is stored in the file, so the real values are read back." : ""}</p></div>`;
-      $("#ec-result").classList.remove("hidden");
-    } catch (e) {
-      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
-    } finally { btn.disabled = false; }
-  };
-
-  // ------------------------------------------------------------------ Train embedding model: light segmentation on an embedding layer
-  const et = { schema: null, arch: prefs.get("et-arch", "light_dabnet") };
-  const etLabelLayers = () => layers.filter((l) => (l.type === "vector" && l.geojson?.features?.length && l.id !== "aoi" && !l.ptFootprints)
-    || (l.type === "raster" && l.path && (l.info?.count || 0) === 1));
-  async function refreshEt() {
-    if (!(await renderAddon($("#tab-embtrain")))) return;
-    if (!et.schema) {
-      try { et.schema = await api("/api/dl/schema"); } catch (e) { toast(e.message, true); return; }
-      [...$("#et-device").options].forEach((o) => { if (o.value !== "auto" && !dlx.status.devices.includes(o.value)) o.disabled = true; });
-    }
-    if (!et.schema.archs[et.arch]) et.arch = "light_dabnet";
-    renderEtModels();
-    renderEtLayers();
-    refreshClipPicker("et-area");
-  }
-  function renderEtModels() {
-    const archs = Object.entries(et.schema.archs).filter(([, a]) => a.lib === "light");
-    modelPicker($("#et-models"), { value: et.arch, onChange: (k) => { et.arch = k; prefs.set("et-arch", k); renderEtModels(); etName(); },
-      items: archs.map(([k, a]) => ({ id: k, title: a.title, group: "Light segmentation models (lulc_fetch/lightseg)",
-        badge: k === "light_dabnet" ? "recommended" : k === "light_efsnet" ? "smallest" : k === "light_enet" ? "fastest" : "",
-        meta: `${starMeta(a.accuracy, a.speed, 5)}<span title="Parameters">${a.params_m} M</span>`, tip: a.desc })) });
-    $("#et-model-info").textContent = et.schema.archs[et.arch]?.desc || "";
-  }
-  function etName() {
-    const l = getLayer($("#et-layer").value);
-    if (!$("#et-name").dataset.touched) $("#et-name").value = `${(l?.name || "embedding").replace(/\.(tiff?|vrt)$/i, "")}_${et.arch.replace("light_", "")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 70);
-  }
-  function renderEtLayers() {
-    const rs = emRasters(), sel = $("#et-layer"), cur = sel.value;
-    sel.innerHTML = rs.length ? rs.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info.count} bands</option>`).join("")
-      : `<option value="">No embedding layer yet: Embeddings ▸ Download embeddings, or add a GeoTIFF</option>`;
-    if (rs.some((l) => l.id === cur)) sel.value = cur;
-    const l = getLayer(sel.value);
-    $("#et-layer-info").textContent = l ? `${l.info.count} bands, all used · ${l.info.width?.toLocaleString()} × ${l.info.height?.toLocaleString()} px${l.info.res ? ` · ${fmt(l.info.res[0], 0)} m pixels` : ""}` : "";
-    const gts = etLabelLayers(), g = $("#et-gt"), gcur = g.value;
-    g.innerHTML = gts.length ? gts.slice().reverse().map((x) => `<option value="${esc(x.id)}">${esc(x.name)} · ${x.type === "vector" ? `${x.geojson.features.length} shapes` : "class raster"}</option>`).join("")
-      : `<option value="">No labels yet: draw them with Tools ▸ Training samples, or add a shapefile / GeoJSON / class raster</option>`;
-    if (gts.some((x) => x.id === gcur)) g.value = gcur;
-    etGtChanged();
-    etName();
-  }
-  function etGtChanged() {
-    const g = getLayer($("#et-gt").value), wrap = $("#et-field-wrap"), f = $("#et-field");
-    wrap.classList.toggle("hidden", !g || g.type !== "vector");
-    if (g?.type === "vector") {
-      const keys = [...new Set(g.geojson.features.flatMap((x) => Object.keys(x.properties || {})))].filter((k) => !k.startsWith("_"));
-      const cur = f.value;
-      f.innerHTML = keys.map((k) => `<option>${esc(k)}</option>`).join("");
-      f.value = keys.includes(cur) ? cur : keys.find((k) => /^(class|label|name|lulc|landcover|type)$/i.test(k)) || keys[0] || "";
-      const vals = new Set(g.geojson.features.map((x) => x.properties?.[f.value]).filter((v) => v !== undefined && v !== null && v !== ""));
-      $("#et-gt-info").textContent = `${g.geojson.features.length} shapes · ${vals.size} class${vals.size === 1 ? "" : "es"}${vals.size ? `: ${[...vals].slice(0, 8).join(", ")}${vals.size > 8 ? " …" : ""}` : ""}`;
-    } else $("#et-gt-info").textContent = g ? "Band 1 holds the class numbers (0 = no label)." : "";
-    etEstimate();
-  }
-  function etEstimate() {
-    const l = getLayer($("#et-layer").value), px = +$("#et-patch").value;
-    if (!l?.info?.res) { $("#et-est").textContent = ""; return; }
-    const km = px * l.info.res[0] / 1000;
-    $("#et-est").textContent = `A ${px} × ${px} patch covers ${fmt(km, km < 1 ? 2 : 1)} × ${fmt(km, km < 1 ? 2 : 1)} km here, with all ${l.info.count} bands. Small labelled areas: choose 128 or 64 and 50 % overlap for more patches.`;
-  }
-  $("#et-layer").onchange = () => { renderEtLayers(); };
-  $("#et-gt").onchange = etGtChanged;
-  $("#et-field").onchange = etGtChanged;
-  $("#et-patch").onchange = etEstimate;
-  $("#et-name").addEventListener("input", () => $("#et-name").dataset.touched = "1");
-  $("#et-run").onclick = async () => {
-    const err = $("#et-error"); err.classList.add("hidden");
-    const l = getLayer($("#et-layer").value), g = getLayer($("#et-gt").value);
-    if (!l) return toast("Choose the embedding layer", true);
-    if (!g) return toast("Choose the labels", true);
-    const gt = g.type === "vector" ? { type: "vector", geojson: g.geojson, field: $("#et-field").value } : { type: "raster", path: g.path, band: 1 };
-    const name = $("#et-name").value.trim() || "embedding_model";
-    const body = { path: l.path, ground_truth: gt, clip: getClip("et-area"), arch: et.arch, patch_px: +$("#et-patch").value, overlap: +$("#et-overlap").value,
-      params: { epochs: +$("#et-epochs").value || 60, batch_size: +$("#et-batch").value || 8, lr: +$("#et-lr").value || 0.003, val_share: +$("#et-val").value || 20,
-                patience: +$("#et-patience").value || 12, early_stop: true, class_weights: $("#et-weights").checked ? "auto" : "none",
-                augment: $("#et-augment").checked ? ["flip", "rot90"] : [], device: $("#et-device").value },
-      name, map: $("#et-map").checked, class_colors: g.classColors || null };
-    const btn = $("#et-run"); btn.disabled = true; $("#et-result").classList.add("hidden");
-    try {
-      const job = await api("/api/emb/train", { method: "POST", json: body });
-      const r = (await trackJob(job, { tool: "embtrain", title: `Training ${et.schema.archs[et.arch].title} · ${name}`, save: "embtrain" })).result;
-      if (r.map) await addRasterFromPath(r.map, { name: `${name} map`, zoom: false });
-      const c = r.config || {}, v = c.test || c.val || {}, cls = c.classes || [];
-      const pct = (x) => x == null ? "–" : `${fmt(100 * x, 1)} %`;
-      $("#et-result").innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(c.arch_title || "Model")} trained</h2>
-        <div class="pca-sum">${r.patches} patches of ${r.patch_px} × ${r.patch_px} px × ${r.bands} bands · ${c.epochs_run ?? "?"} epochs (best ${c.best_epoch ?? "?"}) · ${c.test ? "test" : "validation"} scores below</div>
-        <div class="metric-tiles" style="margin-top:8px;grid-template-columns:repeat(3,1fr)"><div class="metric"><b>${pct(v.accuracy)}</b><span>Accuracy</span></div><div class="metric"><b>${pct(v.miou)}</b><span>mIoU</span></div>
-          <div class="metric"><b>${v.kappa == null ? "–" : fmt(v.kappa, 2)}</b><span>Kappa</span></div></div>
-        ${(v.iou || []).length ? `<div class="dist" style="margin-top:8px">${v.iou.map((x, i) => `<div style="grid-template-columns:minmax(0,1.6fr) 2fr auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(cls[i]?.color || "#999")}"></i> ${esc(cls[i]?.name ?? i)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(1, 100 * x)}%;background:${esc(cls[i]?.color || "")}"></span></span><b>IoU ${fmt(100 * x, 0)}</b></div>`).join("")}</div>` : ""}
-        <div class="row tight" style="margin-top:10px;flex-wrap:wrap;gap:6px">${r.report ? `<a class="btn small" href="/api/dl/report?folder=${encodeURIComponent(r.model_folder)}" target="_blank" rel="noopener">Open the report</a>` : ""}
-          <button class="btn small" data-et-use>Classify another layer with it…</button></div>
-        <p class="hint">${r.map ? "The class map was added to Contents (band 2 = confidence). " : ""}The model is in <code>${esc(r.model_folder)}</code>; the patches in <code>${esc(r.dataset)}</code>.</p></div>`;
-      $("#et-result").classList.remove("hidden");
-      $("[data-et-use]", $("#et-result")).onclick = () => { ep.pick = r.model_folder; switchTool("embpredict"); };
-    } catch (e) {
-      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
-    } finally { btn.disabled = false; }
-  };
-
-  // ------------------------------------------------------------------ Classify with embedding model
-  const ep = { models: [], ready: false, pick: null };
-  async function refreshEp() {
-    if (!(await renderAddon($("#tab-embpredict")))) return;
-    [...$("#ep-device").options].forEach((o) => { if (o.value !== "auto" && !dlx.status.devices.includes(o.value)) o.disabled = true; });
-    try { ep.models = (await api("/api/dl/models")).filter((m) => (m.arch_key || "").startsWith("light_")); } catch (e) { toast(e.message, true); return; }
-    ep.ready = true;
-    const sel = $("#ep-model"), cur = ep.pick || sel.value;
-    ep.pick = null;
-    sel.innerHTML = ep.models.length ? ep.models.map((m) => `<option value="${esc(m.folder)}">${esc(m.name)} · ${esc(m.arch)} · ${m.in_channels} bands${m.miou != null ? ` · mIoU ${fmt(100 * m.miou, 0)} %` : ""}</option>`).join("")
-      : `<option value="">No embedding model yet: train one with Embeddings ▸ Train embedding model</option>`;
-    if (ep.models.some((m) => m.folder === cur)) sel.value = cur;
-    refreshClipPicker("ep-area");
-    renderEpLayers();
-  }
-  const epModel = () => ep.models.find((m) => m.folder === $("#ep-model").value);
-  function renderEpLayers() {
-    const m = epModel(), rs = emRasters(), sel = $("#ep-layer"), cur = sel.value;
-    sel.innerHTML = rs.length ? rs.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info.count} bands${m && l.info.count !== m.in_channels ? " (doesn't match the model)" : ""}</option>`).join("")
-      : `<option value="">No embedding layer yet</option>`;
-    if (rs.some((l) => l.id === cur)) sel.value = cur;
-    else { const ok = rs.slice().reverse().find((l) => m && l.info.count === m.in_channels); if (ok) sel.value = ok.id; }
-    const l = getLayer(sel.value);
-    $("#ep-model-info").innerHTML = m ? `${esc(m.arch)} · ${m.in_channels} bands · classes: ${(m.classes || []).map((c) => esc(c.name)).join(", ")}${m.has_report ? ` · <a href="/api/dl/report?folder=${encodeURIComponent(m.folder)}" target="_blank" rel="noopener">report</a>` : ""}` : "";
-    $("#ep-check").innerHTML = m && l && l.info.count !== m.in_channels ? `<span style="color:var(--err)">The model needs ${m.in_channels} bands; this layer has ${l.info.count}. Use the same kind of embedding it was trained on.</span>` : "";
-    if (m && !$("#ep-name").dataset.touched) $("#ep-name").value = `${m.name}_map`.slice(0, 70);
-    $("#ep-run").disabled = !m || !l || l.info.count !== m.in_channels;
-  }
-  $("#ep-model").onchange = renderEpLayers;
-  $("#ep-layer").onchange = renderEpLayers;
-  $("#ep-name").addEventListener("input", () => $("#ep-name").dataset.touched = "1");
-  $("#ep-add").onclick = async () => {
-    const f = await pickFolder({ title: "Choose a model folder (made with Train embedding model)", okLabel: "Use this model" });
-    if (!f) return;
-    try { await api("/api/dl/models/add", { method: "POST", json: { folder: f } }); ep.pick = f; refreshEp(); } catch (e) { toast(e.message, true); }
-  };
-  $("#ep-run").onclick = async () => {
-    const err = $("#ep-error"); err.classList.add("hidden");
-    const m = epModel(), l = getLayer($("#ep-layer").value);
-    if (!m || !l) return toast("Choose the model and the embedding layer", true);
-    const body = { model: m.folder, inputs: [{ path: l.path, name: l.name }], clip: getClip("ep-area"), overlap: +$("#ep-overlap").value, batch_size: 8,
-                   device: $("#ep-device").value, confidence: $("#ep-conf").checked, name: $("#ep-name").value.trim() || "embedding_map" };
-    const btn = $("#ep-run"); btn.disabled = true; $("#ep-result").classList.add("hidden");
-    try {
-      const job = await api("/api/dl/predict", { method: "POST", json: body });
-      const r = (await trackJob(job, { tool: "embpredict", title: `Classifying with ${m.name}`, save: "embpredict" })).result;
-      await addRasterFromPath(r.path, { name: body.name, zoom: false });
-      $("#ep-result").innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ Map ready</h2>
-        <div class="pca-sum">${r.width.toLocaleString()} × ${r.height.toLocaleString()} px · ${esc(r.device)} · ${r.seconds} s</div>
-        <div class="dist" style="margin-top:8px">${r.classes.map((c) => `<div style="grid-template-columns:minmax(0,1.6fr) 2fr auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(c.color || "#999")}"></i> ${esc(c.name)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(1, c.pct)}%;background:${esc(c.color || "")}"></span></span><b>${fmt(c.pct, 1)}%</b></div>`).join("")}</div>
-        <p class="hint">Added to Contents${body.confidence ? " (band 2 = confidence %)" : ""}.</p></div>`;
-      $("#ep-result").classList.remove("hidden");
-    } catch (e) {
-      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
-    } finally { btn.disabled = false; }
-  };
-
   // ------------------------------------------------------------------ searchable picker: type letters, the matching items are listed
   // items: { id, title, aliases?, keywords?, sub?, group?, disabled? }. Matches the title, the aliases (e.g. local crop names) and,
   // for 3+ letters, the keywords (e.g. disease names); names that start with the letters come first.
@@ -6996,292 +6617,6 @@
     };
     $(".cc-caret", el).onmousedown = (e) => { e.preventDefault(); if (isOpen()) { open(false); inp.blur(); } else inp.focus(); };
     return { set: (id) => { cur = id; inp.value = title(); }, get: () => cur };
-  }
-
-  // ------------------------------------------------------------------ Agri: Diagnose crop disease (leaf photos → crop → disease)
-  const ad = { schema: null, photos: prefs.get("ad-photos", []), result: null, showAll: false, crop: prefs.get("ad-crop", "auto") };
-  const AD_STATUS = { disease: ["Disease", "c2"], healthy: ["Healthy", "c0"], variety: ["Variety", "c0"], retake: ["Retake photo", "c1"], no_model: ["No model", "c1"], error: ["Error", "c2"] };
-  const AD_REASON = { too_small: "Photo too small (under 96 pixels): take it closer", too_dark: "Too dark: take it in daylight", too_bright: "Too bright: avoid direct sun glare",
-    no_detail: "No leaf to see (blank or plain surface)", blurry: "Blurry: hold still and tap the leaf to focus", not_leaf: "Not confidently a leaf of a supported crop: one leaf, filling the photo",
-    low_confidence: "The disease model is unsure: try a closer, sharper photo of the affected part", unreadable: "Couldn't read the photo" };
-  const AD_POINT_COLORS = { disease: "#dc2626", healthy: "#16a34a", variety: "#16a34a", retake: "#d97706", no_model: "#64748b", error: "#64748b" };
-  const adThumb = (path, size = 160) => `/api/agri/photo?path=${encodeURIComponent(path)}&size=${size}`;
-  const pct0 = (v) => v == null ? "–" : `${fmt(100 * v, v >= 0.995 || v < 0.1 ? 1 : 0)} %`;
-  const cropName = (c) => ad.schema?.crops[c]?.name || ag.schema?.crops[c]?.name || c;
-
-  async function refreshAd() {
-    if (!(await renderAddon($("#tab-agridisease")))) return;
-    try { ad.schema = await api("/api/agri/schema"); } catch (e) { toast(e.message, true); return; }
-    [...$("#ad-device").options].forEach((o) => { if (o.value !== "auto" && !dlx.status.devices.includes(o.value)) o.disabled = true; });
-    renderAdModels();
-    renderAdCrops();
-    renderAdPhotos();
-  }
-  function renderAdModels() {
-    const m = ad.schema.models, n = m.crops.length, total = Object.keys(ad.schema.crops).length, d = ad.schema.detectors;
-    const box = $("#ad-models");
-    if (m.source === "hub") {
-      const got = m.downloaded.filter((x) => !x.startsWith("detector:")).length;
-      box.innerHTML = `<div class="ad-models-ok"><b>✓ All ${total} crops</b> · from <a href="${esc(m.url)}" target="_blank" rel="noopener">Hugging Face</a> ${tipBtn("Each model downloads the first time it's needed (about 95 MB per crop, 190 MB for the two crop detectors) and is kept for next time.")}</div>
-        <p class="hint" style="margin-top:4px">${got || m.downloaded.length ? `Downloaded so far: ${got} crop model${got === 1 ? "" : "s"}${m.downloaded.some((x) => x.startsWith("detector:")) ? " and the crop detectors" : ""} (${m.downloaded_mb.toLocaleString()} MB), kept for next time.` : "Nothing downloaded yet: the first diagnosis needs the internet."}
-          · <a href="#" data-ad-pick style="white-space:nowrap">use a local models folder…</a></p>`;
-    } else if (!m.folder) {
-      box.innerHTML = `<div class="warn" style="margin-top:0">Choose the folder that holds the disease models: your copy of the disease app
-          (<code>multicrop-disease-decision-support</code>) with <code>data/&lt;Crop&gt;/convnext_best.pth</code> and <code>master_model/</code>.
-          Or download them from Hugging Face instead (about 95 MB per crop, each the first time it's needed).</div>
-        <div class="row tight" style="margin-top:8px;gap:6px;flex-wrap:wrap"><button class="btn primary" data-ad-hub>Download from Hugging Face</button><button class="btn" data-ad-pick>Choose the models folder…</button></div>`;
-    } else {
-      const missing = Object.keys(ad.schema.crops).filter((c) => !m.crops.includes(c));
-      const dets = [m.detectors.includes("original") && `crop detector (${d.original.crops} crops, ${pct0(d.original.accuracy)} on test photos)`,
-                    m.detectors.includes("new") && `added-crops detector (${d.new.crops} crops, ${pct0(d.new.accuracy)})`].filter(Boolean);
-      box.innerHTML = `<div class="ad-models-ok"><b>${n === total ? "✓" : "⚠"} ${n} of ${total} crop models</b> · ${dets.length ? `${dets.length} crop detector${dets.length > 1 ? "s" : ""} ${tipBtn(dets.join(" + "))}` : `<span style="color:var(--warn)">no crop detector: choose the crop below</span>`}</div>
-        <p class="hint" style="margin-top:4px"><span style="overflow-wrap:anywhere">${esc(m.folder)}</span>${m.chosen ? "" : " (found automatically)"} · <a href="#" data-ad-pick style="white-space:nowrap">change…</a> · <a href="#" data-ad-hub style="white-space:nowrap">download from Hugging Face instead</a></p>
-        ${missing.length && n ? `<p class="hint">No model yet for: ${missing.map((c) => esc(cropName(c))).join(", ")}.</p>` : ""}`;
-    }
-    $$("[data-ad-pick]", box).forEach((b) => b.onclick = async (e) => {
-      e.preventDefault();
-      const f = await pickFolder({ title: "Choose the disease models folder (the disease app's folder)", start: m.folder || "", okLabel: "Use this folder" });
-      if (!f) return;
-      try { ad.schema.models = await api("/api/agri/models", { method: "POST", json: { folder: f } }); renderAdModels(); renderAdCrops(); toast("Models folder set"); }
-      catch (err) { toast(err.message, true); }
-    });
-    $("[data-ad-hub]", box)?.addEventListener("click", async (e) => {
-      e.preventDefault();
-      try { ad.schema.models = await api("/api/agri/models", { method: "POST", json: { source: "hub" } }); renderAdModels(); renderAdCrops(); toast("Models will download from Hugging Face when needed"); }
-      catch (err) { toast(err.message, true); }
-    });
-  }
-  function renderAdCrops() {
-    const sc = ad.schema, have = new Set(sc.models.crops);
-    const crops = Object.entries(sc.crops).sort((a, b) => a[1].name.localeCompare(b[1].name));
-    const canDetect = sc.models.detectors.length > 0;
-    const items = [{ id: "auto", title: "Detect the crop in each photo", sub: canDetect ? "recommended when photos are of several crops" : "the models folder has no crop detector",
-                     group: "Automatic", disabled: !canDetect },
-      ...crops.map(([k, c]) => ({ id: k, title: c.name, aliases: c.aliases, keywords: c.labels, group: "Or every photo is of one crop",
-                                  sub: !have.has(k) ? "no model in the models folder"
-                                    : sc.models.source === "hub" && !sc.models.downloaded.includes(k) ? [c.aliases.slice(0, 2).join(", "), "downloads 95 MB once"].filter(Boolean).join(" · ")
-                                    : [c.aliases.slice(0, 3).join(", "), `${c.labels.length} classes`].filter(Boolean).join(" · "),
-                                  disabled: !have.has(k) }))];
-    if (!items.some((it) => it.id === ad.crop && !it.disabled)) ad.crop = canDetect ? "auto" : (items.find((it) => !it.disabled) || {}).id || "";
-    searchPicker($("#ad-crop"), { items, value: ad.crop, placeholder: "Type a crop: e.g. tom, paddy, aloo…", empty: "No crop matches",
-                                  onChange: (k) => { ad.crop = k; adCropInfo(); } });
-    adCropInfo();
-  }
-  function adCropInfo() {
-    const sc = ad.schema, c = ad.crop, info = $("#ad-crop-info");
-    if (c === "auto") {
-      const d = sc.detectors;
-      info.innerHTML = `The crop detectors recognise ${d.original.crops} crops (${pct0(d.original.accuracy)} correct on ${d.original.test_images?.toLocaleString()} test photos) and ${d.new.crops} more (${pct0(d.new.accuracy)}). ` +
-        `${esc(sc.recognised_only.join(", "))} leaves are recognised but not diagnosed. Choose the crop if all photos are of one crop: it's faster and avoids crop mix-ups.`;
-    } else if (!sc.crops[c]) {
-      info.textContent = "Choose the models folder first.";
-    } else {
-      const k = sc.crops[c];
-      info.innerHTML = `${k.kind === "variety" ? "This model tells <b>varieties</b>, not diseases. " : ""}${k.labels.length} classes: ${k.labels.map(esc).join(", ")}. ` +
-        `Test accuracy ${pct0(k.accuracy)} on ${k.test_images?.toLocaleString() || "?"} photos.`;
-    }
-    prefs.set("ad-crop", c);
-  }
-
-  function saveAdPhotos() { prefs.set("ad-photos", ad.photos.slice(0, 3000)); }
-  function addAdPhotos(list) {
-    const seen = new Set(ad.photos.map((p) => p.path));
-    const fresh = list.filter((p) => !seen.has(p.path));
-    ad.photos.push(...fresh);
-    saveAdPhotos();
-    renderAdPhotos();
-    return fresh.length;
-  }
-  function renderAdPhotos() {
-    const grid = $("#ad-photos"), n = ad.photos.length, SHOW = 48;
-    const status = Object.fromEntries((ad.result?.photos || []).map((r) => [r.path, r.status]));
-    grid.innerHTML = ad.photos.slice(0, SHOW).map((p, i) => `<figure class="ad-thumb" title="${esc(p.name)}">
-        <img loading="lazy" src="${adThumb(p.path)}" alt="${esc(p.name)}">
-        ${status[p.path] ? `<i class="ad-dot" style="background:${AD_POINT_COLORS[status[p.path]]}"></i>` : ""}
-        <button type="button" class="ad-x" data-ad-rm="${i}" title="Remove from the list" aria-label="Remove ${esc(p.name)}">×</button></figure>`).join("") +
-      (n > SHOW ? `<div class="ad-more">+${(n - SHOW).toLocaleString()} more</div>` : "");
-    $$("[data-ad-rm]", grid).forEach((b) => b.onclick = () => { ad.photos.splice(+b.dataset.adRm, 1); saveAdPhotos(); renderAdPhotos(); });
-    $("#ad-drop").classList.toggle("small", n > 0);
-    $("#ad-clear").classList.toggle("hidden", !n);
-    $("#ad-photos-hint").textContent = n ? `${n.toLocaleString()} photo${n > 1 ? "s" : ""}` : "";
-    $("#ad-run").textContent = n > 1 ? `Diagnose ${n.toLocaleString()} photos` : "Diagnose photo";
-  }
-  async function uploadAdPhotos(files) {
-    files = [...files].filter((f) => /\.(jpe?g|png|bmp|webp|tiff?|heic|heif)$/i.test(f.name));
-    if (!files.length) return toast("Choose photos (JPG, PNG, WebP, BMP or TIFF)", true);
-    let added = 0;
-    for (let i = 0; i < files.length; i += 20) {
-      status(`Adding photos… ${i} of ${files.length}`, true);
-      const fd = new FormData();
-      files.slice(i, i + 20).forEach((f) => fd.append("files", f));
-      try { added += addAdPhotos((await api("/api/agri/photos/upload", { method: "POST", body: fd })).photos); }
-      catch (e) { toast(e.message, true); break; }
-    }
-    status(`Added ${added} photo${added === 1 ? "" : "s"}`);
-  }
-  $("#ad-add").onclick = () => $("#ad-file").click();
-  $("#ad-file").onchange = (e) => { uploadAdPhotos(e.target.files); e.target.value = ""; };
-  $("#ad-folder").onclick = async () => {
-    const f = await pickFolder({ title: "Choose a folder of leaf photos", start: prefs.get("ad-last-folder", ""), okLabel: "Add its photos" });
-    if (!f) return;
-    prefs.set("ad-last-folder", f);
-    try {
-      const r = await api(`/api/agri/photos/folder?path=${encodeURIComponent(f)}&recursive=${$("#ad-recursive").checked}`);
-      if (!r.photos.length) return toast(`No photos in ${r.folder}${$("#ad-recursive").checked ? "" : " (tick “with sub-folders” to look deeper)"}`, true);
-      const n = addAdPhotos(r.photos);
-      toast(`Added ${n} photo${n === 1 ? "" : "s"}${r.truncated ? " (the first 5,000)" : ""}`);
-    } catch (e) { toast(e.message, true); }
-  };
-  $("#ad-clear").onclick = () => { ad.photos = []; saveAdPhotos(); renderAdPhotos(); };
-  const adDrop = $("#ad-drop");
-  adDrop.onclick = () => $("#ad-file").click();
-  adDrop.addEventListener("dragover", (e) => { e.preventDefault(); adDrop.classList.add("over"); });
-  adDrop.addEventListener("dragleave", () => adDrop.classList.remove("over"));
-  adDrop.addEventListener("drop", (e) => { e.preventDefault(); adDrop.classList.remove("over"); uploadAdPhotos(e.dataTransfer.files); });
-  $("#ad-name").addEventListener("input", () => $("#ad-name").dataset.touched = "1");
-
-  $("#ad-run").onclick = async () => {
-    const err = $("#ad-error"); err.classList.add("hidden");
-    if (!ad.photos.length) return toast("Add leaf photos first", true);
-    if (!ad.schema?.models.folder) return toast("Choose the disease models folder first", true);
-    const name = $("#ad-name").value.trim() || "diagnosis";
-    if (!ad.crop) return toast("Choose the crop", true);
-    const body = { photos: ad.photos.map((p) => p.path), crop: ad.crop, strict: $("#ad-strict").checked, device: $("#ad-device").value, name };
-    const btn = $("#ad-run"); btn.disabled = true; $("#ad-result").classList.add("hidden");
-    try {
-      const job = await api("/api/agri/diagnose", { method: "POST", json: body });
-      const done = await trackJob(job, { tool: "agridisease", title: `Diagnosing ${body.photos.length} photo${body.photos.length > 1 ? "s" : ""}` });
-      ad.result = { ...done.result, name };
-      ad.showAll = false;
-      if (ad.result.geojson) {
-        const fc = ad.result.geojson;
-        fc.features.forEach((f) => f.properties.class = AD_STATUS[f.properties.status]?.[0] || f.properties.status);
-        const classes = [...new Set(fc.features.map((f) => f.properties.status))].map((s) => ({ name: AD_STATUS[s]?.[0] || s, color: AD_POINT_COLORS[s] || "#64748b" }));
-        addVectorLayer(fc, name, { color: classes[0].color, weight: 1.5, fillOpacity: 0.85, path: ad.result.geojson_path, classes,
-                                   classColors: Object.fromEntries(classes.map((c) => [c.name, c.color])) });
-        saveLayers();
-      }
-      addItem({ kind: "table", name: `${name}.csv`, path: ad.result.csv });
-      renderAdResult();
-      renderAdPhotos();
-    } catch (e) {
-      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
-    } finally { btn.disabled = false; }
-  };
-  function renderAdResult() {
-    const r = ad.result, box = $("#ad-result"), c = r.counts, n = r.photos.length;
-    const parts = [c.disease && `<b>${c.disease}</b> diseased`, c.healthy && `<b>${c.healthy}</b> healthy`, c.variety && `<b>${c.variety}</b> variety`,
-                   c.retake && `<b>${c.retake}</b> to retake`, c.no_model && `<b>${c.no_model}</b> without a model`, c.error && `<b>${c.error}</b> unreadable`].filter(Boolean);
-    const max = Math.max(1, ...r.summary.map((s) => s.count));
-    const LIMIT = 30, list = ad.showAll ? r.photos : r.photos.slice(0, LIMIT);
-    box.innerHTML = `<div class="card rm-head-card">
-        <h2 style="margin:0">✓ ${n.toLocaleString()} photo${n > 1 ? "s" : ""} checked</h2>
-        <div class="pca-sum">${parts.join(" · ")} · ${esc(r.device)} · ${r.seconds} s</div>
-        ${r.summary.length ? `<div class="home-label" style="margin-top:10px">Diagnoses</div><div class="dist">${r.summary.map((s) => `<div style="grid-template-columns:minmax(0,2fr) minmax(0,1.3fr) auto">
-            <span>${esc(s.crop)} · <b>${esc(s.diagnosis)}</b></span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * s.count / max)}%;background:${AD_POINT_COLORS[s.status]}"></span></span><b>${s.count}</b></div>`).join("")}</div>` : ""}
-        <div class="row tight" style="margin-top:10px;flex-wrap:wrap;gap:6px">
-          <button class="btn small" data-ad-table>Open results table</button>
-          ${r.located ? `<button class="btn small" data-ad-zoom>Zoom to the ${r.located} photo${r.located > 1 ? "s" : ""} on the map</button>` : ""}
-          <button class="btn small" data-ad-reveal>Show in folder</button>
-        </div>
-        <p class="hint">${r.located ? `${r.located} of ${n} photos had a GPS position and are on the map (red diseased, green healthy, orange retake). ` : "No photo had a GPS position, so nothing was put on the map. "}The table (${esc(r.csv.split("/").pop())}) has one row per photo with the top 3 diagnoses and confidences.</p>
-      </div>
-      ${list.map(adCard).join("")}
-      ${!ad.showAll && n > LIMIT ? `<button class="btn" style="width:100%" data-ad-all>Show all ${n.toLocaleString()} photos</button>` : ""}`;
-    box.classList.remove("hidden");
-    $("[data-ad-table]", box).onclick = () => { const it = dataItems.find((d) => d.path === r.csv); it ? openItem(it) : addItem({ kind: "table", name: `${r.name}.csv`, path: r.csv }, { open: true }); };
-    $("[data-ad-zoom]", box)?.addEventListener("click", () => { const l = layers.find((x) => x.path === r.geojson_path); if (l?.leaflet) map.fitBounds(l.leaflet.getBounds(), { maxZoom: 17, padding: [30, 30] }); });
-    $("[data-ad-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: (r.outputs?.[0] || r.csv).replace(/[\\/][^\\/]+$/, "") } }).catch((e) => toast(e.message, true));
-    $("[data-ad-all]", box)?.addEventListener("click", () => { ad.showAll = true; renderAdResult(); });
-    $$("[data-ad-guide]", box).forEach((a) => a.onclick = (e) => { e.preventDefault(); openGuide(a.dataset.crop, a.dataset.adGuide); });
-    $$("[data-ad-big]", box).forEach((im) => im.onclick = () => window.open(adThumb(im.dataset.adBig, 0), "_blank", "noopener"));
-    box.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-  function adCard(p) {
-    const [stText, stCls] = AD_STATUS[p.status] || [p.status, "c1"];
-    const diag = ["disease", "healthy", "variety"].includes(p.status);
-    const reasons = [p.reason, ...(p.warnings || [])].filter(Boolean).map((x) => AD_REASON[x] || x);
-    const top = (p.top || []).map((t, i) => `<div class="ad-bar"><span>${i ? esc(t.name) : `<b>${esc(t.name)}</b>`}</span><span class="rb-track"><span class="rb-fill" style="width:${Math.max(1, 100 * t.conf)}%;${i ? "opacity:.45" : ""}"></span></span><span>${pct0(t.conf)}</span></div>`).join("");
-    const crop = p.crop_name ? `${esc(p.crop_name)}${p.crop_conf != null ? ` <small>(${pct0(p.crop_conf)} sure${p.crop_top?.[1] && p.crop_top[1].conf > 0.1 ? `; or ${esc(p.crop_top[1].name)} ${pct0(p.crop_top[1].conf)}` : ""})</small>` : ""}` : "";
-    return `<div class="card ad-card">
-      <img class="ad-photo" src="${adThumb(p.path, 240)}" alt="" data-ad-big="${esc(p.path)}" title="Open the full photo">
-      <div class="ad-body">
-        <div class="ad-file"><span class="pill ${stCls}">${stText}</span> <span title="${esc(p.path)}">${esc(p.file)}</span>${p.lat != null ? ` <span class="ad-gps" title="${p.lat}, ${p.lon}${p.taken ? ` · ${esc(p.taken)}` : ""}">📍</span>` : ""}</div>
-        ${crop ? `<div class="ad-crop">${crop}</div>` : ""}
-        ${diag ? `<div class="ad-diag">${esc(p.diagnosis)}</div>` : ""}
-        ${top ? `<div class="ad-bars">${top}</div>` : ""}
-        ${reasons.length ? `<div class="hint" style="color:var(--warn)">${reasons.map(esc).join(" · ")}</div>` : ""}
-        ${p.note && !reasons.length ? `<div class="hint">${esc(p.note)}</div>` : ""}
-        ${diag && p.status !== "variety" ? `<a href="#" class="small" data-ad-guide="${esc(p.diagnosis)}" data-crop="${esc(p.crop)}">${p.status === "healthy" ? `About ${esc(p.crop_name)} in the guide →` : `Symptoms &amp; treatment of ${esc(p.diagnosis)} →`}</a>` : ""}
-      </div></div>`;
-  }
-
-  // ------------------------------------------------------------------ Agri: Crop disease guide (the knowledge base)
-  const ag = { schema: null, crop: prefs.get("ag-crop", "Mango"), disease: null, section: null, diseases: [], seq: 0, picker: null };
-  async function refreshAg() {
-    if (!ag.schema) {
-      try { ag.schema = await api("/api/agri/schema"); } catch (e) { toast(e.message, true); return; }
-      const crops = Object.entries(ag.schema.crops).sort((a, b) => (a[1].limited_kb - b[1].limited_kb) || a[1].name.localeCompare(b[1].name));
-      ag.picker = searchPicker($("#ag-crop"), { value: ag.crop, placeholder: "Type a crop: e.g. man, paddy, bhindi…", empty: "No crop matches",
-        items: crops.map(([k, c]) => ({ id: k, title: c.name, aliases: c.aliases, keywords: c.labels,
-          group: c.limited_kb ? "Symptoms only" : "Full guide: symptoms, treatment, pests",
-          sub: [c.aliases.slice(0, 3).join(", "), `${c.kb_records.toLocaleString()} answers`].filter(Boolean).join(" · ") })),
-        onChange: (k) => { ag.crop = k; ag.disease = null; ag.section = null; prefs.set("ag-crop", k); loadAgCrop(); } });
-      let t = 0;
-      $("#ag-q").oninput = () => { clearTimeout(t); t = setTimeout(renderAgRecords, 250); };
-    }
-    if (!ag.schema.crops[ag.crop]) ag.crop = "Mango";
-    ag.picker.set(ag.crop);
-    await loadAgCrop();
-  }
-  function openGuide(crop, disease) {
-    ag.crop = crop; ag.disease = disease === "Healthy" ? null : disease; ag.section = null; prefs.set("ag-crop", crop);
-    $("#ag-q").value = "";
-    switchTool("agriguide");
-  }
-  async function loadAgCrop() {
-    const c = ag.schema.crops[ag.crop];
-    $("#ag-crop-info").innerHTML = `${c.kb_records.toLocaleString()} questions &amp; answers · photo model: ${c.labels.length} classes, ${pct0(c.accuracy)} on test photos.` +
-      (c.limited_kb ? ` <span style="color:var(--warn)">Symptom descriptions only (from LeafNet): for treatment, ask your local agriculture office.</span>` : "");
-    try { ag.diseases = (await api(`/api/agri/guide/diseases?crop=${encodeURIComponent(ag.crop)}`)).diseases; } catch (e) { toast(e.message, true); return; }
-    renderAgDiseases();
-    renderAgRecords();
-  }
-  function renderAgDiseases() {
-    const box = $("#ag-diseases"), inModel = ag.diseases.filter((d) => d.in_model), other = ag.diseases.filter((d) => !d.in_model && d.records);
-    const item = (d) => `<button class="ag-item ${ag.disease === d.name ? "on" : ""}" data-ag-d="${esc(d.name)}" title="${d.in_model ? `The photo model detects this${d.f1 != null ? ` (F1 ${fmt(d.f1, 2)} on test photos)` : ""}` : "In the knowledge base only (not detected from photos)"}">
-        <span>${d.healthy ? "🌿 " : ""}${esc(d.name)}</span><small>${d.records || ""}</small></button>`;
-    box.innerHTML = `<div class="home-label" style="margin-top:0">Detected from photos</div><div class="ag-grid">${inModel.map(item).join("")}</div>
-      ${other.length ? `<details ${ag.disease && !inModel.some((d) => d.name === ag.disease) ? "open" : ""}><summary class="small" style="margin-top:8px">${other.length} more in the knowledge base (pests, disorders, practices)</summary><div class="ag-grid" style="margin-top:6px">${other.map(item).join("")}</div></details>` : ""}
-      ${ag.disease ? `<div class="row tight" style="margin-top:8px"><button class="btn small ghost" data-ag-all>← All of ${esc(ag.schema.crops[ag.crop].name)}</button></div>` : ""}`;
-    $$("[data-ag-d]", box).forEach((b) => b.onclick = () => { ag.disease = ag.disease === b.dataset.agD ? null : b.dataset.agD; ag.section = null; renderAgDiseases(); renderAgRecords(); });
-    $("[data-ag-all]", box)?.addEventListener("click", () => { ag.disease = null; ag.section = null; renderAgDiseases(); renderAgRecords(); });
-  }
-  async function renderAgRecords() {
-    const q = $("#ag-q").value.trim(), box = $("#ag-records"), seq = ++ag.seq;
-    if (!ag.disease && !q) {
-      box.innerHTML = `<p class="hint">Pick a disease or pest above, or search, to read its symptoms and how to manage it.</p>`;
-      return;
-    }
-    const params = new URLSearchParams({ crop: ag.crop, limit: "300" });
-    if (ag.disease) params.set("disease", ag.disease);
-    if (q) params.set("q", q);
-    let r;
-    try { r = await api(`/api/agri/guide/search?${params}`); } catch (e) { toast(e.message, true); return; }
-    if (seq !== ag.seq) return;   // a newer search is on its way
-    const S = ag.schema.sections, order = ["symptoms", "management", "pests", "growing"].filter((k) => r.sections[k]);
-    const sec = order.includes(ag.section) ? ag.section : null;
-    const recs = r.records.filter((x) => !sec || x.section === sec);
-    const title = ag.disease ? `${esc(ag.disease)}${q ? ` · “${esc(q)}”` : ""}` : `“${esc(q)}” in ${esc(ag.schema.crops[ag.crop].name)}`;
-    box.innerHTML = `<div class="card">
-        <h2 style="margin-bottom:6px">${title}</h2>
-        ${r.total ? `<div class="row tight" style="flex-wrap:wrap;gap:4px;margin-bottom:6px"><button class="chip ${sec ? "" : "active"}" data-ag-s="">All ${r.total}</button>${order.map((k) => `<button class="chip ${sec === k ? "active" : ""}" data-ag-s="${k}">${esc(S[k])} ${r.sections[k]}</button>`).join("")}</div>` : ""}
-        ${recs.length ? recs.map((x, i) => `<details class="ag-qa" ${i < 3 ? "open" : ""}><summary>${esc(x.question)}</summary>
-            <p>${esc(x.answer)}</p><div class="ag-meta">${[!ag.disease && x.disease, x.growth_stage && x.growth_stage.replace(/_/g, " "), x.source].filter(Boolean).map(esc).join(" · ")}</div></details>`).join("")
-          : `<p class="hint">Nothing found${q ? `: try other words, or clear the search` : ""}.${ag.schema.crops[ag.crop].limited_kb ? " This crop's guide only describes symptoms." : ""}</p>`}
-        ${r.total > r.records.length ? `<p class="hint">Showing the first ${r.records.length} of ${r.total}: search to narrow down.</p>` : ""}
-      </div>`;
-    $$("[data-ag-s]", box).forEach((b) => b.onclick = () => { ag.section = b.dataset.agS || null; renderAgRecords(); });
   }
 
   // ------------------------------------------------------------------ Train detection model (YOLO on labelled polygons / points)
@@ -7655,6 +6990,62 @@
       an.catalog.indices.map((i) => `<option value="${i.name}">${i.name}: ${esc(i.formula)}</option>`).join("");
     renderIndexButtons();
   }
+
+  // ------------------------------------------------------------------ universe: helpers every tool can use (window.LF, see tools/lf.js)
+  /** POST a tool's request, follow its job (progress, ⓘ details, History) and return its result */
+  async function runJob(endpoint, body, opts = {}) {
+    const job = await api(endpoint, { method: "POST", json: body });
+    return (await trackJob(job, opts)).result;
+  }
+  /** the usual Run button #<p>-run: hides the last error (#<p>-error) and result (#<p>-result), is disabled while fn runs,
+   *  and shows why it failed (a cancelled run says so instead) */
+  function runButton(p, fn) {
+    const btn = $(`#${p}-run`);
+    btn.onclick = async () => {
+      const err = $(`#${p}-error`);
+      err?.classList.add("hidden");
+      $(`#${p}-result`)?.classList.add("hidden");
+      btn.disabled = true;
+      try { await fn(); }
+      catch (e) { if (notCancelled(e)) { if (err) { err.textContent = e.message; err.classList.remove("hidden"); } else toast(e.message, true); } }
+      finally { btn.disabled = false; }
+    };
+  }
+  /** put html in #<p>-result and show it; returns the box */
+  function showResult(p, html) {
+    const box = $(`#${p}-result`);
+    box.innerHTML = html;
+    box.classList.remove("hidden");
+    return box;
+  }
+  /** fill a <select> with layers (in the order they were added), keeping the choice when it's still there; returns the chosen layer */
+  function fillLayers(sel, list, { label = (l) => l.name, empty = "No layer yet", pick } = {}) {
+    const cur = pick || sel.value;
+    sel.innerHTML = list.length ? list.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(label(l))}</option>`).join("")
+      : `<option value="">${esc(empty)}</option>`;
+    if (list.some((l) => l.id === cur)) sel.value = cur;
+    return getLayer(sel.value);
+  }
+  /** name fields: the tool suggests a name (autoName) until the user types one (touched) */
+  const touched = (input) => input.addEventListener("input", () => input.dataset.touched = "1");
+  const autoName = (input, name) => { if (!input.dataset.touched) input.value = String(name).replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 70); };
+  /** Device selects: only the devices this computer has (known once the deep-learning add-on is checked) */
+  function limitDevices(sel) {
+    const have = dlx.status?.devices || ["cpu"];
+    [...sel.options].forEach((o) => { if (o.value !== "auto" && !have.includes(o.value)) o.disabled = true; });
+  }
+  /** open a tool and hand its open hook an argument (e.g. a layer or a model to start with) */
+  const openTool = (id, arg) => switchTool(id, arg);
+
+  Object.assign(LF, {
+    $, $$, esc, fmt, prefs, api, toast, status, map, layers, getLayer, addRasterFromPath, addVectorLayer, saveLayers,
+    dataItems, addItem, openItem, trackJob, notCancelled, runJob, runButton, showResult, switchTool, openTool,
+    getClip, refreshClipPicker, updateClipHint, startDraw, fillLayers, touched, autoName, limitDevices,
+    renderAddon, tipBtn, starMeta, modelPicker, searchPicker, pickFolder, floatWin,
+  });
+  LF.tools.forEach((t) => {   // each tool wires its panel once; a broken tool doesn't stop the others
+    try { t.hooks = t.setup?.(LF) || {}; } catch (e) { t.hooks = {}; console.error(`Tool ${t.id}:`, e); toast(`The ${t.title} tool couldn't start: ${e.message}`, true); }
+  });
 
   // ------------------------------------------------------------------ init
   (async () => {
