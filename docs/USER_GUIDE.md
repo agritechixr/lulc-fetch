@@ -27,7 +27,7 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 21. [Train detection model](#21-train-detection-model)
 22. [Agri: Diagnose crop disease](#22-agri-diagnose-crop-disease)
 23. [Agri: Crop disease guide](#23-agri-crop-disease-guide)
-24. [Satellite embeddings](#24-satellite-embeddings)
+24. [Embeddings: Download and Explore](#24-embeddings-download-and-explore)
 25. [Export data](#25-export-data)
 26. [Downloads & jobs](#26-downloads--jobs)
 27. [Credentials](#27-credentials)
@@ -107,8 +107,9 @@ The window is laid out like a desktop GIS (QGIS / ArcGIS):
 | Menu | What's in it |
 |---|---|
 | **File** | New project · Open project · Close project · Show project folder · Add data from computer · Add GeoTIFF from workspace · Open Sentinel product (.SAFE) · Export / Properties / Remove the selected layer · Remove all layers · Clean up working files · Credentials |
-| **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (supervised: ↳ Train a model, ↳ Classify an image · unsupervised: ↳ Clustering, ↳ t-SNE map) · Export data · Downloads & jobs · Satellite embeddings |
-| **Agri ▾** | Diagnose crop disease · Crop disease guide · shortcuts to Index analysis (crop health: NDVI, EVI…), Satellite embeddings and Find imagery |
+| **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (supervised: ↳ Train a model, ↳ Classify an image · unsupervised: ↳ Clustering, ↳ t-SNE map) · Export data · Downloads & jobs |
+| **Agri ▾** | Diagnose crop disease · Crop disease guide · shortcuts to Index analysis (crop health: NDVI, EVI…), Download embeddings and Find imagery |
+| **Embeddings ▾** | Download embeddings · Explore embeddings · shortcuts to Classical ML for raster, Classical ML (tabular data) and PCA |
 | **View** | Show/hide Contents, Tool panel and Data viewer · Reset panel sizes · Basemap (Streets, Satellite, Topographic, None) · Place labels on top · Zoom to all layers · Theme (system / light / dark) |
 | **Help** | Getting started (start page, incl. your Sentinel products) · Quick guide · Keyboard shortcuts |
 
@@ -1053,9 +1054,9 @@ The CSV and GeoJSON are in the job's folder (**Show in folder**). Photo diagnosi
 
 Answers are grouped as **Symptoms & identification**, **Management & treatment**, **Pests** and **Growing the crop**; the chips filter them. Each answer shows the growth stage it applies to. **Symptoms & treatment of …** on a Diagnose crop disease result opens the guide at that disease.
 
-## 24. Satellite embeddings
+## 24. Embeddings: Download and Explore
 
-**Tools ▸ Satellite embeddings** finds, downloads and explores free **AI embeddings** of the Earth. An embedding gives every
+The **Embeddings** menu finds, downloads and explores free **AI embeddings** of the Earth: **Download embeddings** (steps 1–4 below) and **Explore embeddings** (step 5). An embedding gives every
 10 m pixel a list of numbers (64 or 128) that sums up a whole year of satellite observations: places that look and behave
 alike over the year (the same crop, forest type, water, built-up) get alike numbers. So a handful of labelled points is enough
 to map crops or land cover, you can search for places like one you click, and clustering works well. No account is needed.
@@ -1078,7 +1079,7 @@ Clay); they can't be downloaded as maps here.
 4. **Download.** The result is a GeoTIFF layer (float32, one band per dimension named `A00`–`A63` or `E000`–`E127`) in the
    area's UTM zone. **Also make a colour view** adds a second layer where the three main directions of variation (PCA) are
    shown as red, green and blue: alike places get alike colours.
-5. **Explore an embedding layer** (any embedding GeoTIFF in Contents, also your own AlphaEarth or TESSERA exports):
+5. **Embeddings ▸ Explore embeddings** works on any embedding GeoTIFF in Contents, also your own AlphaEarth or TESSERA exports (the download's result card has an **Explore it** button):
    - **Find similar places:** click one or more places on the map (e.g. fields of the crop you're looking for), then
      **Find similar places**: a new layer scores every pixel by cosine similarity to the average of the clicked places
      (1 = the same; above about 0.9 is usually the same kind of place).
@@ -1202,7 +1203,7 @@ With a project open, these folders are inside the project folder (next to `lulc_
 | `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports; deep-learning models as folders (`best_model.pt`, `model_config.json`, `report.html`…) |
 | `addons/` | (desktop app) the deep-learning add-on (PyTorch) and the YOLO & SAM add-on (ultralytics), if installed |
 | `training_data/` | Datasets made with Make training data when no folder is chosen (images/, labels/, classes.txt, dataset.json…) |
-| `embeddings_cache/` | The AlphaEarth file index used by Satellite embeddings (downloaded once) |
+| `embeddings_cache/` | The AlphaEarth file index used by Download embeddings (downloaded once) |
 | `agri_models/` | Crop disease models downloaded from Hugging Face (shared by all projects) |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files (photos added to Diagnose crop disease go to `uploads/photos/`), index exports, other exports |
 
@@ -1252,7 +1253,7 @@ All of these are excluded from git.
 The web app is a FastAPI backend (`webapp/server.py`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package.
 
 1. Add a panel to `webapp/static/index.html`: `<section id="tab-mytool" class="tabpanel hidden">…</section>`.
-2. Add an entry to `TOOLS` in `webapp/static/app.js`: `{ id: "mytool", title, icon, subtitle }`. The Tools-menu item and start-page card are generated from it. Add `menu: "agri"` to list it in the Agri menu instead.
+2. Add an entry to `TOOLS` in `webapp/static/app.js`: `{ id: "mytool", title, icon, subtitle }`. The Tools-menu item and start-page card are generated from it. Add `menu: "agri"` or `menu: "embed"` to list it in the Agri or Embeddings menu instead (menus and their shortcuts are set in `MENUS`); its code goes in that menu's folder, `lulc_fetch/agri/` or `lulc_fetch/embeddings/`.
 3. Add server endpoints in `webapp/server.py` and processing code in `lulc_fetch/`. Long tasks should run as jobs (`jobs.submit(...)`) and call `lulc_fetch.progress.update(fraction, message)` at checkpoints, so the progress bar and Cancel work.
 4. Add results to Contents with `addRasterFromPath(path)` or `addVectorLayer(geojson, name)`, so they get layer styling, identify and export for free. Track jobs in the UI with `trackJob(job, { tool })`.
 5. **Classical ML sub-tools:** add `{ id, title, icon, subtitle }` to `ML_SUBTOOLS` in `app.js` and a `<div id="ml-sub-<id>" class="ml-sub hidden">` inside the ML panel. `/api/tables` and `/api/models` list the available tables and models.
@@ -1265,4 +1266,5 @@ The web app is a FastAPI backend (`webapp/server.py`) with a single-page fronten
 | `pca.py`, `ml.py` | PCA family; model catalogue, training, evaluation, classification |
 | `tabular.py`, `stack.py` | Raster → table; layer stacking |
 | `vector_io.py`, `progress.py`, `extras.py` | Vector writers; progress and cancellation; reference maps and other collections |
+| `embeddings/` | Embeddings menu: `sources.py` (the datasets), `alphaearth.py` and `tessera.py` (readers), `download.py` (grid, availability, download), `explore.py` (colour view, similar places) |
 | `agri/` | Agri menu: `disease.py` (leaf photo → crop → disease, run in the deep-learning helper process), `knowledge.py` (crop list and the guide's search), `labels.py` (crop and disease names), `data/` (each crop's labels, test results and knowledge base). `python -m lulc_fetch.agri.import_data <disease repo folder>` refreshes `data/` after the disease models are retrained, and `python -m lulc_fetch.agri.publish <disease repo folder> <out>` converts the models for Hugging Face (then upload `<out>`), and `python -m lulc_fetch.agri.publish --repos <out> <folder> --upload` updates the 44 one-model repositories and the collection |

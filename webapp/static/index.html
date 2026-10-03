@@ -40,6 +40,9 @@
     <div class="menu"><button class="menu-btn">Agri</button>
       <div class="menu-pop wide" id="agri-menu"></div>
     </div>
+    <div class="menu"><button class="menu-btn">Embeddings</button>
+      <div class="menu-pop wide" id="embed-menu"></div>
+    </div>
     <div class="menu"><button class="menu-btn">View</button>
       <div class="menu-pop">
         <button data-cmd="toggle-contents" class="check" id="mi-contents">Contents panel<kbd>Ctrl+1</kbd></button>
@@ -1086,11 +1089,16 @@
         <div id="em-error" class="warn err hidden"></div>
       </div>
       <div id="em-result" class="hidden"></div>
+    </section>
+
+    <section id="tab-embexplore" class="tabpanel hidden">
       <div class="card">
-        <h2><span class="step">5</span>Explore an embedding layer</h2>
+        <h2><span class="step">1</span>Embedding layer</h2>
         <label>Layer<select id="em-layer"></select></label>
         <p class="hint" id="em-layer-hint"></p>
-        <div class="home-label" style="margin-top:12px">Find similar places</div>
+        </div>
+      <div class="card">
+        <h2><span class="step">2</span>Find similar places</h2>
         <p class="hint" style="margin-top:0">Click one or more places on the map (e.g. a field of the crop you look for): every pixel is scored by how alike it is (cosine similarity, 1 = the same).</p>
         <div class="row tight" style="flex-wrap:wrap;gap:6px;margin-top:6px">
           <button class="btn small" id="em-pick">Click a place on the map…</button>
@@ -1098,7 +1106,10 @@
           <span class="hint" id="em-pick-n" style="margin:0"></span>
         </div>
         <button class="btn primary" id="em-similar" style="margin-top:8px;width:100%">Find similar places</button>
-        <div class="row tight" style="flex-wrap:wrap;gap:6px;margin-top:12px">
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>More</h2>
+        <div class="row tight" style="flex-wrap:wrap;gap:6px">
           <button class="btn small" id="em-colour-btn">Colour view of this layer</button>
           <button class="btn small" id="em-classify">Classify it (Classical ML for raster)…</button>
         </div>
