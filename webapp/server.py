@@ -2382,23 +2382,36 @@ def _agri_settings() -> dict:
         return {}
 
 
-def _agri_models() -> dict:
-    """The chosen models folder (or one found in a usual place) and what it holds."""
-    from lulc_fetch.agri.disease import find_models
+AGRI_HUB_DIR = ws.APP_DIR / "agri_models"   # models downloaded from Hugging Face (shared by all projects)
 
-    saved = _agri_settings().get("models")
-    if saved and Path(saved).is_dir():
-        return {**find_models(saved), "chosen": True}
-    for g in _AGRI_GUESSES:
-        f = find_models(Path.home() / g)
-        if f["crops"] or f["detectors"]:
-            return {**f, "chosen": False}
-    return {"folder": None, "crops": {}, "detectors": {}, "chosen": False}
+
+def _agri_models() -> dict:
+    """Where the models come from: a chosen local folder, one found in a usual place, or else Hugging Face (downloaded into
+    AGRI_HUB_DIR when first needed)."""
+    from lulc_fetch.agri.disease import find_models, hub_models
+
+    st = _agri_settings()
+    saved = st.get("models")
+    if st.get("source") != "hub":
+        if saved and Path(saved).is_dir():
+            return {**find_models(saved), "chosen": True, "source": "folder"}
+        if not saved:
+            for g in _AGRI_GUESSES:
+                f = find_models(Path.home() / g)
+                if f["crops"] or f["detectors"]:
+                    return {**f, "chosen": False, "source": "folder"}
+    return {**hub_models(AGRI_HUB_DIR), "chosen": st.get("source") == "hub", "source": "hub"}
 
 
 def _agri_status() -> dict:
+    from lulc_fetch.agri.disease import HUB_REPO, find_models
     m = _agri_models()
-    return {"folder": m["folder"], "chosen": m["chosen"], "crops": sorted(m["crops"]), "detectors": sorted(m["detectors"])}
+    out = {"source": m["source"], "folder": m["folder"], "chosen": m["chosen"], "crops": sorted(m["crops"]), "detectors": sorted(m["detectors"])}
+    if m["source"] == "hub":
+        have = find_models(AGRI_HUB_DIR)
+        out.update(repo=HUB_REPO, url=f"https://huggingface.co/{HUB_REPO}", downloaded=sorted(have["crops"]) + [f"detector:{k}" for k in have["detectors"]],
+                   downloaded_mb=round(sum(Path(p).stat().st_size for p in [*have["crops"].values(), *have["detectors"].values()]) / 1e6))
+    return out
 
 
 @app.get("/api/agri/schema")
@@ -2408,7 +2421,8 @@ def agri_schema():
 
 
 class AgriModelsRequest(BaseModel):
-    folder: str = Field(max_length=2000)
+    folder: str | None = Field(None, max_length=2000)   # a local models folder…
+    source: str | None = Field(None, pattern="^hub$")    # …or "hub": download from Hugging Face
 
 
 @app.post("/api/agri/models")
@@ -2416,14 +2430,20 @@ def agri_set_models(req: AgriModelsRequest):
     import json as _json
 
     from lulc_fetch.agri.disease import find_models
-    folder = _abs_user_folder(req.folder)
-    f = find_models(folder)
-    if not f["crops"] and not f["detectors"]:
-        raise HTTPException(400, f"No disease models in {folder}: choose the disease app's folder (with data/<Crop>/convnext_best.pth "
-                                 "and master_model/)")
+    if req.source == "hub":
+        settings = {**_agri_settings(), "source": "hub"}
+    elif req.folder:
+        folder = _abs_user_folder(req.folder)
+        f = find_models(folder)
+        if not f["crops"] and not f["detectors"]:
+            raise HTTPException(400, f"No disease models in {folder}: choose the disease app's folder (with data/<Crop>/convnext_best.pth "
+                                     "and master_model/)")
+        settings = {**_agri_settings(), "models": str(folder), "source": "folder"}
+    else:
+        raise HTTPException(400, "Give a models folder, or source = hub")
     try:
         ws.CONFIG_DIR.mkdir(exist_ok=True)
-        (ws.CONFIG_DIR / "agri.json").write_text(_json.dumps({**_agri_settings(), "models": str(folder)}, indent=1))
+        (ws.CONFIG_DIR / "agri.json").write_text(_json.dumps(settings, indent=1))
     except OSError as e:
         raise HTTPException(500, f"Couldn't save the setting: {e}")
     return _agri_status()
@@ -2515,7 +2535,7 @@ def agri_diagnose(req: DiagnoseRequest):
     if not _dl_status()["available"]:
         raise HTTPException(400, "The deep-learning add-on isn't installed yet")
     m = _agri_models()
-    if not m["folder"] or not (m["crops"] or m["detectors"]):
+    if not (m["crops"] or m["detectors"]):
         raise HTTPException(400, "Choose the disease models folder first")
     if req.crop != "auto":
         if req.crop not in knowledge.crops():
@@ -2534,7 +2554,7 @@ def agri_diagnose(req: DiagnoseRequest):
 
     def run(job):
         res = dlrunner.run("diagnose", photos=photos, models_dir=m["folder"], out_dir=str(job.dir), name=stem, crop=req.crop,
-                           strict=req.strict, device=req.device)
+                           strict=req.strict, device=req.device, hub=m["source"] == "hub")
         res["geojson"] = _json.loads(Path(res["geojson_path"]).read_text(encoding="utf-8")) if res["geojson_path"] else None
         TABLE_DIR.mkdir(exist_ok=True)   # the data viewer opens tables from tables/ (never overwrite an earlier one)
         table = _unique(TABLE_DIR.path, Path(res["csv"]).name)

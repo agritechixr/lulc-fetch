@@ -1026,7 +1026,7 @@ run/, val/           everything ultralytics wrote
 
 Test accuracy is 91–100 % per crop (shown in the panel for the crop you choose). These are test photos from the same datasets the models learned from: real field photos score lower.
 
-1. **Disease models.** The model files (about 190 MB per crop, 8 GB in all) aren't part of LULC Fetch or its GitHub repository. Choose the folder that holds them: your copy of the disease app, with `data/<Crop>/convnext_best.pth` and `master_model/` (the crop detectors). A copy in `~/Desktop/Farmer_ai` or `~/multicrop-disease-decision-support` is found automatically. The panel shows how many crop models the folder has.
+1. **Disease models.** The models are on Hugging Face ([ixrbhii/multicrop-disease-models](https://huggingface.co/ixrbhii/multicrop-disease-models)). Each one downloads the first time it's needed (about 95 MB per crop, 190 MB for the two crop detectors) into `agri_models/` in the app's folder, is checked against its published checksum, and is kept for next time; after that no internet is needed. **Use a local models folder…** uses your own copy instead (a copy of the disease app with `data/<Crop>/convnext_best.pth` and `master_model/`, e.g. after retraining); one in `~/Desktop/Farmer_ai` or `~/multicrop-disease-decision-support` is found automatically. **Download from Hugging Face instead** switches back.
 2. **Leaf photos.** **Add photos…** (or drop them on the box), or **Add a folder…** for a whole field survey (tick *with sub-folders* to look deeper; up to 5,000 photos). JPG, PNG, WebP, BMP or TIFF. iPhone HEIC photos need the `pillow-heif` package: save them as JPG instead. The best photos show **one leaf filling most of the picture**, in daylight and in focus.
 3. **Crop.** Click the box and type a few letters: the list shows the matching crops, also by local name (*paddy*, *aloo*, *bhindi*) or by disease (*rust*, *blight* lists the crops that have it). ↑ ↓ and Enter choose, Esc keeps the current crop.
    - **Detect the crop in each photo** (default): the original detector (16 crops, 99.8 % on test photos) decides, unless the added-crops detector (36 crops, 98 %) is at least 80 % sure of one of the added crops. Pepper, Raspberry, Sorghum and Squash leaves are recognised (so they aren't taken for another crop) but have no disease model.
@@ -1044,7 +1044,7 @@ The CSV and GeoJSON are in the job's folder (**Show in folder**). Photo diagnosi
 
 ## 23. Agri: Crop disease guide
 
-**Agri ▸ Crop disease guide** is the disease app's knowledge base: about **9,000 questions and answers** by agriculture experts, from extension booklets and datasets. It needs no add-on and no internet.
+**Agri ▸ Crop disease guide** is the disease app's knowledge base: about **9,000 questions and answers** (also published as the dataset [ixrbhii/crop-disease-qa](https://huggingface.co/datasets/ixrbhii/crop-disease-qa)) by agriculture experts, from extension booklets and datasets. It needs no add-on and no internet.
 
 1. **Crop.** Type a few letters of the crop, its local name (e.g. *paddy*, *dhan* for Rice) or a disease, and pick it from the list. Crops with the full guide (symptoms, treatment, spray schedules, pests) are listed first; the LeafNet crops only describe symptoms.
 2. **Diseases & pests.** First the diseases the photo model detects (with their number of answers), then everything else in the knowledge base for that crop (pests, disorders, practices). Click one to read about it.
@@ -1159,6 +1159,7 @@ With a project open, these folders are inside the project folder (next to `lulc_
 | `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports; deep-learning models as folders (`best_model.pt`, `model_config.json`, `report.html`…) |
 | `addons/` | (desktop app) the deep-learning add-on (PyTorch) and the YOLO & SAM add-on (ultralytics), if installed |
 | `training_data/` | Datasets made with Make training data when no folder is chosen (images/, labels/, classes.txt, dataset.json…) |
+| `agri_models/` | Crop disease models downloaded from Hugging Face (shared by all projects) |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files (photos added to Diagnose crop disease go to `uploads/photos/`), index exports, other exports |
 
 All of these are excluded from git.
@@ -1180,7 +1181,7 @@ All of these are excluded from git.
 - **Saved models** (`.joblib`) may not load after a major scikit-learn / XGBoost / LightGBM upgrade. Retrain them if so.
 - **Untested downloads:** the USGS EarthExplorer bundle download and the Copernicus S3 source follow the providers' APIs but need real credentials to verify.
 - **Job history** is kept in memory: restarting the server clears the job list (files stay on disk).
-- **Crop disease models** aren't included (8 GB): Diagnose crop disease needs a copy of the disease app's models folder. Mulberry's model tells varieties, not diseases. Coffee's *Cercospora brown eye spot* is usually missed (few training photos). Leaves of crops the detectors don't know can still be taken for a known crop; the photo check catches only part of them.
+- **Crop disease models** aren't in the installer: Diagnose crop disease downloads each crop's model from Hugging Face the first time (internet needed once per crop). Mulberry's model tells varieties, not diseases. Coffee's *Cercospora brown eye spot* is usually missed (few training photos). Leaves of crops the detectors don't know can still be taken for a known crop; the photo check catches only part of them.
 
 ---
 
@@ -1217,4 +1218,4 @@ The web app is a FastAPI backend (`webapp/server.py`) with a single-page fronten
 | `pca.py`, `ml.py` | PCA family; model catalogue, training, evaluation, classification |
 | `tabular.py`, `stack.py` | Raster → table; layer stacking |
 | `vector_io.py`, `progress.py`, `extras.py` | Vector writers; progress and cancellation; reference maps and other collections |
-| `agri/` | Agri menu: `disease.py` (leaf photo → crop → disease, run in the deep-learning helper process), `knowledge.py` (crop list and the guide's search), `labels.py` (crop and disease names), `data/` (each crop's labels, test results and knowledge base). `python -m lulc_fetch.agri.import_data <disease repo folder>` refreshes `data/` after the disease models are retrained |
+| `agri/` | Agri menu: `disease.py` (leaf photo → crop → disease, run in the deep-learning helper process), `knowledge.py` (crop list and the guide's search), `labels.py` (crop and disease names), `data/` (each crop's labels, test results and knowledge base). `python -m lulc_fetch.agri.import_data <disease repo folder>` refreshes `data/` after the disease models are retrained, and `python -m lulc_fetch.agri.publish <disease repo folder> <out>` converts the models for Hugging Face (then upload `<out>`) |
