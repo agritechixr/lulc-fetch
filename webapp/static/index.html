@@ -1077,7 +1077,7 @@
       </div>
       <div class="card">
         <h2><span class="step">3</span>Crop</h2>
-        <select id="ad-crop"></select>
+        <div id="ad-crop"></div>
         <p class="hint" id="ad-crop-info"></p>
         <label class="inline" style="margin-top:8px"><input type="checkbox" id="ad-strict" checked> Refuse unclear photos <button type="button" class="tip" data-tip="As in the disease app: photos that are too dark, blank, too small, or not confidently a leaf of a supported crop get 'retake' instead of a guess. Blurry or very bright photos are refused only when the models are unsure. Untick to diagnose every photo anyway (doubtful results are marked)." aria-label="Help">i</button></label>
         <div class="grid2"><label>Device<select id="ad-device"><option value="auto">Auto</option><option value="mps">Apple GPU (MPS)</option><option value="cuda">NVIDIA GPU (CUDA)</option><option value="cpu">CPU</option></select></label></div>
@@ -1095,7 +1095,8 @@
 
     <section id="tab-agriguide" class="tabpanel hidden">
       <div class="card">
-        <label style="margin-top:0">Crop<select id="ag-crop"></select></label>
+        <label style="margin-top:0">Crop</label>
+        <div id="ag-crop"></div>
         <p class="hint" id="ag-crop-info"></p>
         <label>Search this crop <input type="search" id="ag-q" placeholder="e.g. yellow leaves, spray schedule, fruit drop" autocomplete="off"></label>
       </div>

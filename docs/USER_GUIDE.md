@@ -1028,7 +1028,7 @@ Test accuracy is 91–100 % per crop (shown in the panel for the crop you choose
 
 1. **Disease models.** The model files (about 190 MB per crop, 8 GB in all) aren't part of LULC Fetch or its GitHub repository. Choose the folder that holds them: your copy of the disease app, with `data/<Crop>/convnext_best.pth` and `master_model/` (the crop detectors). A copy in `~/Desktop/Farmer_ai` or `~/multicrop-disease-decision-support` is found automatically. The panel shows how many crop models the folder has.
 2. **Leaf photos.** **Add photos…** (or drop them on the box), or **Add a folder…** for a whole field survey (tick *with sub-folders* to look deeper; up to 5,000 photos). JPG, PNG, WebP, BMP or TIFF. iPhone HEIC photos need the `pillow-heif` package: save them as JPG instead. The best photos show **one leaf filling most of the picture**, in daylight and in focus.
-3. **Crop.**
+3. **Crop.** Click the box and type a few letters: the list shows the matching crops, also by local name (*paddy*, *aloo*, *bhindi*) or by disease (*rust*, *blight* lists the crops that have it). ↑ ↓ and Enter choose, Esc keeps the current crop.
    - **Detect the crop in each photo** (default): the original detector (16 crops, 99.8 % on test photos) decides, unless the added-crops detector (36 crops, 98 %) is at least 80 % sure of one of the added crops. Pepper, Raspberry, Sorghum and Squash leaves are recognised (so they aren't taken for another crop) but have no disease model.
    - **Or choose the crop** when all photos are of one crop: faster, and no crop mix-ups.
    - **Refuse unclear photos** (on): the disease app's photo check. Photos that are too small (under 96 pixels), too dark or blank get **Retake photo** instead of a guess, and so do photos the crop detector is less than 60 % sure about (probably not a leaf of a supported crop) or the disease model less than 45 % sure about. Blurry or very bright photos are refused only when the models are also unsure. Untick it to diagnose every photo anyway; doubtful results are then marked.
@@ -1046,7 +1046,7 @@ The CSV and GeoJSON are in the job's folder (**Show in folder**). Photo diagnosi
 
 **Agri ▸ Crop disease guide** is the disease app's knowledge base: about **9,000 questions and answers** by agriculture experts, from extension booklets and datasets. It needs no add-on and no internet.
 
-1. **Crop.** Crops with the full guide (symptoms, treatment, spray schedules, pests) are listed first; the LeafNet crops only describe symptoms. Local names are shown too (e.g. Rice: paddy, dhan).
+1. **Crop.** Type a few letters of the crop, its local name (e.g. *paddy*, *dhan* for Rice) or a disease, and pick it from the list. Crops with the full guide (symptoms, treatment, spray schedules, pests) are listed first; the LeafNet crops only describe symptoms.
 2. **Diseases & pests.** First the diseases the photo model detects (with their number of answers), then everything else in the knowledge base for that crop (pests, disorders, practices). Click one to read about it.
 3. **Search** the crop's answers with any words, e.g. *yellow leaves*, *spray schedule*, *fruit drop*. All words must appear; the best matches come first. Search and a chosen disease work together.
 
