@@ -192,3 +192,38 @@ def test_diagnose(client, tmp_path, report):
     assert by["blank.jpg"]["status"] == "retake" and by["blank.jpg"]["reason"] == "no_detail" and "crop_top" not in by["blank.jpg"]
     assert all(len(p.get("crop_top", [])) == 3 for f, p in by.items() if f not in ("blank.jpg", "moved.jpg"))
     report.metric("seconds for 3 photos (crop detected)", r["seconds"])
+
+
+def test_hub_download(tmp_path, monkeypatch):
+    """Published models are downloaded once, checked against index.json, and found in the download folder afterwards."""
+    import hashlib
+    import http.server
+    import json as _json
+    import threading
+    from functools import partial
+
+    pub = tmp_path / "published"
+    files = {"Tomato/config.json": b'{"classes": ["a", "b"]}', "Tomato/model.safetensors": os.urandom(300_000)}
+    for rel, data in files.items():
+        (pub / rel).parent.mkdir(parents=True, exist_ok=True)
+        (pub / rel).write_bytes(data)
+    index = {rel: {"bytes": len(d), "sha256": hashlib.sha256(d).hexdigest()} for rel, d in files.items()}
+    (pub / "index.json").write_text(_json.dumps({"files": index}))
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), partial(http.server.SimpleHTTPRequestHandler, directory=str(pub)))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setattr(disease, "HUB_URL", f"http://127.0.0.1:{srv.server_address[1]}/")
+    try:
+        root = tmp_path / "cache"
+        target = Path(disease.hub_models(root)["crops"]["Tomato"])
+        disease.download(target, root, "Tomato", disease._hub_index(root))
+        assert target.read_bytes() == files["Tomato/model.safetensors"]
+        assert disease.find_models(root)["crops"] == {"Tomato": str(target)}
+        assert disease._classes("Tomato", target) == ["a", "b"]   # labels from the published config.json
+        disease.download(target, root, "Tomato", index)            # already there: nothing to do
+        target.unlink()
+        bad = {**index, "Tomato/model.safetensors": {**index["Tomato/model.safetensors"], "sha256": "0" * 64}}
+        with pytest.raises(RuntimeError, match="damaged"):
+            disease.download(target, root, "Tomato", bad)
+        assert not target.exists() and not list(root.rglob("*.part"))
+    finally:
+        srv.shutdown()

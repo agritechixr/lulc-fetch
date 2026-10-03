@@ -29,6 +29,10 @@ from .labels import RECOGNISED_ONLY, VARIETY_MODELS, label_display, match_crop
 
 log = logging.getLogger(__name__)
 
+# the published models (half-precision .safetensors, see publish.py): downloaded per model the first time it is needed
+HUB_REPO = "ixrbhii/multicrop-disease-models"
+HUB_URL = f"https://huggingface.co/{HUB_REPO}/resolve/main/"
+HUB_FILE = "model.safetensors"
 PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff", ".heic", ".heif"}
 WEIGHTS = "convnext_best.pth"
 HARD_ISSUES = {"too_small", "too_dark", "no_detail"}
@@ -47,25 +51,89 @@ ISSUE_TEXT = {
 # ------------------------------------------------------------------ models folder
 
 def find_models(folder: str | Path) -> dict:
-    """Which model files a folder holds. Accepts the repository folder or its data/ folder."""
+    """Which model files a folder holds: a copy of the disease repository (or its data/ folder), or the published layout
+    (<Crop>/model.safetensors, detectors/{original,new}/model.safetensors, as downloaded from Hugging Face)."""
     root = Path(folder).expanduser()
     data = root / "data" if (root / "data").is_dir() else root
     master = next((p for p in (root / "master_model", root.parent / "master_model") if p.is_dir()), None)
     crops = {}
     for name in knowledge.crops():
-        if (data / name / WEIGHTS).is_file():
-            crops[name] = str(data / name / WEIGHTS)
+        for f in (data / name / WEIGHTS, root / name / HUB_FILE):
+            if f.is_file():
+                crops[name] = str(f)
+                break
     det = {}
-    if master and (master / "crop_classifier_best.pth").is_file():
-        det["original"] = str(master / "crop_classifier_best.pth")
-    if master and (master / "new_crop_detector" / WEIGHTS).is_file():
-        det["new"] = str(master / "new_crop_detector" / WEIGHTS)
+    for key, pth in (("original", "crop_classifier_best.pth"), ("new", f"new_crop_detector/{WEIGHTS}")):
+        for f in ([master / pth] if master else []) + [root / "detectors" / key / HUB_FILE]:
+            if f.is_file():
+                det[key] = str(f)
+                break
     return {"folder": str(root), "crops": crops, "detectors": det}
+
+
+def hub_models(folder: str | Path) -> dict:
+    """Every published model, at the place in the download folder where it is (or will be) kept."""
+    root = Path(folder).expanduser()
+    return {"folder": str(root), "hub": True, "crops": {k: str(root / k / HUB_FILE) for k in knowledge.crops()},
+            "detectors": {k: str(root / "detectors" / k / HUB_FILE) for k in ("original", "new")}}
+
+
+def _hub_index(root: Path) -> dict:
+    """The published file list with sizes and SHA-256 (index.json), fetched once per run."""
+    import requests
+    f = root / "index.json"
+    try:
+        r = requests.get(HUB_URL + "index.json", timeout=30)
+        r.raise_for_status()
+        root.mkdir(parents=True, exist_ok=True)
+        f.write_text(r.text, encoding="utf-8")
+    except Exception:
+        if not f.is_file():
+            raise RuntimeError(f"Couldn't reach Hugging Face ({HUB_REPO}) to download the disease models: check the internet connection")
+    return json.loads(f.read_text(encoding="utf-8"))["files"]
+
+
+def download(path: Path, root: Path, name: str, index: dict):
+    """Download one published model (config.json + model.safetensors) into root, checking its size and SHA-256."""
+    import hashlib
+
+    import requests
+    rel_dir = path.parent.relative_to(root).as_posix()
+    for fname in ("config.json", HUB_FILE):
+        rel = f"{rel_dir}/{fname}"
+        want = index.get(rel)
+        if not want:
+            raise RuntimeError(f"{rel} isn't in the published models ({HUB_REPO})")
+        dest = root / rel
+        if dest.is_file() and dest.stat().st_size == want["bytes"]:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        part = dest.with_name(dest.name + ".part")
+        h, done, mb = hashlib.sha256(), 0, want["bytes"] / 1e6
+        if fname == HUB_FILE:
+            log.info("Downloading the %s model from Hugging Face (%.0f MB, once)", name, mb)
+        with requests.get(HUB_URL + rel, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            with open(part, "wb") as out:
+                for chunk in r.iter_content(1 << 20):
+                    out.write(chunk)
+                    h.update(chunk)
+                    done += len(chunk)
+                    if fname == HUB_FILE:
+                        progress.update(None, f"Downloading the {name} model: {done / 1e6:.0f} of {mb:.0f} MB")
+        if done != want["bytes"] or h.hexdigest() != want["sha256"]:
+            part.unlink(missing_ok=True)
+            raise RuntimeError(f"The {name} model download was damaged (size or checksum): try again")
+        part.replace(dest)
 
 
 def _classes(kind: str, weights: Path) -> list[str]:
     """Labels in model output order: the ones next to the weights (in case the model was retrained), else the app's copy."""
     folder = weights.parent
+    if (folder / "config.json").is_file():   # a published model
+        names = json.loads((folder / "config.json").read_text(encoding="utf-8")).get("classes")
+        if names:
+            return names
     if kind == "original":
         names = class_names(folder, ("class_names.txt", "crop_names.txt"), ("class_mapping.csv", "master_class_mapping.csv", "crop_mapping.csv"))
     else:
@@ -159,7 +227,11 @@ class _Model:
         import torch
 
         try:
-            state = torch.load(weights, map_location="cpu", weights_only=True)   # weights only: no code in the file runs
+            if str(weights).endswith(".safetensors"):   # the published models: half precision, computed in full precision
+                from safetensors.torch import load_file
+                state = {k: v.float() if v.is_floating_point() else v for k, v in load_file(weights).items()}
+            else:
+                state = torch.load(weights, map_location="cpu", weights_only=True)   # weights only: no code in the file runs
         except Exception as e:
             raise RuntimeError(f"Couldn't read {weights}: {e}")
         if isinstance(state, dict):
@@ -201,8 +273,12 @@ class Models:
 
     def __init__(self, found: dict, device: str = "auto", keep: int = 4):
         from .. import dl
-        self.found, self.keep, self.cache = found, keep, OrderedDict()
+        self.found, self.keep, self.cache, self.index = found, keep, OrderedDict(), None
         self.device = dl._device(device)
+
+    @staticmethod
+    def _title(key: str) -> str:
+        return "crop detector" if key == "original" else "added-crops detector" if key == "new" else knowledge.crops()[key]["name"]
 
     def get(self, key: str) -> _Model:
         if key in self.cache:
@@ -211,7 +287,12 @@ class Models:
         path = self.found["detectors"].get(key) if key in ("original", "new") else self.found["crops"].get(key)
         if not path:
             raise KeyError(key)
-        log.info("Loading the %s model", "crop detector" if key == "original" else "added-crops detector" if key == "new" else knowledge.crops()[key]["name"])
+        if self.found.get("hub") and not Path(path).is_file():
+            root = Path(self.found["folder"])
+            if self.index is None:
+                self.index = _hub_index(root)
+            download(Path(path), root, self._title(key), self.index)
+        log.info("Loading the %s model", self._title(key))
         m = _Model(path, _classes(key, Path(path)), self.device)
         self.cache[key] = m
         crop_keys = [k for k in self.cache if k not in ("original", "new")]
@@ -311,11 +392,12 @@ def _row(r: dict) -> dict:
 
 
 def diagnose(photos: list[str], models_dir: str, out_dir: str, name: str = "diagnosis", crop: str = "auto", strict: bool = True,
-             device: str = "auto", thresholds: dict | None = None) -> dict:
-    """Diagnose each photo; writes <name>.csv (one row per photo) and <name>.geojson (photos with a GPS position)."""
+             device: str = "auto", thresholds: dict | None = None, hub: bool = False) -> dict:
+    """Diagnose each photo; writes <name>.csv (one row per photo) and <name>.geojson (photos with a GPS position).
+    hub=True: models_dir is the download folder, and models missing there are downloaded from Hugging Face when needed."""
     t0 = time.time()
     th = {**knowledge.meta()["thresholds"], **(thresholds or {})}
-    found = find_models(models_dir)
+    found = hub_models(models_dir) if hub else find_models(models_dir)
     if crop != "auto" and crop not in knowledge.crops():
         raise ValueError(f"Unknown crop {crop}")
     if crop == "auto" and not found["detectors"]:

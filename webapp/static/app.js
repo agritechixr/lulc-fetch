@@ -6242,7 +6242,12 @@
   function renderAdModels() {
     const m = ad.schema.models, n = m.crops.length, total = Object.keys(ad.schema.crops).length, d = ad.schema.detectors;
     const box = $("#ad-models");
-    if (!m.folder) {
+    if (m.source === "hub") {
+      const got = m.downloaded.filter((x) => !x.startsWith("detector:")).length;
+      box.innerHTML = `<div class="ad-models-ok"><b>✓ All ${total} crops</b> · models from <a href="${esc(m.url)}" target="_blank" rel="noopener">Hugging Face</a>, each downloaded the first time it's needed (about 95 MB per crop, 190 MB for the two crop detectors)</div>
+        <p class="hint" style="margin-top:4px">${got || m.downloaded.length ? `Downloaded so far: ${got} crop model${got === 1 ? "" : "s"}${m.downloaded.some((x) => x.startsWith("detector:")) ? " and the crop detectors" : ""} (${m.downloaded_mb.toLocaleString()} MB), kept for next time.` : "Nothing downloaded yet: the first diagnosis needs the internet."}
+          · <a href="#" data-ad-pick style="white-space:nowrap">use a local models folder…</a></p>`;
+    } else if (!m.folder) {
       box.innerHTML = `<div class="warn" style="margin-top:0">Choose the folder that holds the disease models: your copy of the disease app
           (<code>multicrop-disease-decision-support</code>) with <code>data/&lt;Crop&gt;/convnext_best.pth</code> and <code>master_model/</code>.
           The model files aren't on GitHub (about 190 MB per crop).</div>
@@ -6252,7 +6257,7 @@
       const dets = [m.detectors.includes("original") && `crop detector (${d.original.crops} crops, ${pct0(d.original.accuracy)} on test photos)`,
                     m.detectors.includes("new") && `added-crops detector (${d.new.crops} crops, ${pct0(d.new.accuracy)})`].filter(Boolean);
       box.innerHTML = `<div class="ad-models-ok"><b>${n === total ? "✓" : "⚠"} ${n} of ${total} crop models</b> · ${dets.length ? dets.join(" + ") : `<span style="color:var(--warn)">no crop detector: choose the crop below</span>`}</div>
-        <p class="hint" style="margin-top:4px"><span style="overflow-wrap:anywhere">${esc(m.folder)}</span>${m.chosen ? "" : " (found automatically)"} · <a href="#" data-ad-pick style="white-space:nowrap">change…</a></p>
+        <p class="hint" style="margin-top:4px"><span style="overflow-wrap:anywhere">${esc(m.folder)}</span>${m.chosen ? "" : " (found automatically)"} · <a href="#" data-ad-pick style="white-space:nowrap">change…</a> · <a href="#" data-ad-hub style="white-space:nowrap">download from Hugging Face instead</a></p>
         ${missing.length && n ? `<p class="hint">No model yet for: ${missing.map((c) => esc(cropName(c))).join(", ")}.</p>` : ""}`;
     }
     $$("[data-ad-pick]", box).forEach((b) => b.onclick = async (e) => {
@@ -6260,6 +6265,11 @@
       const f = await pickFolder({ title: "Choose the disease models folder (the disease app's folder)", start: m.folder || "", okLabel: "Use this folder" });
       if (!f) return;
       try { ad.schema.models = await api("/api/agri/models", { method: "POST", json: { folder: f } }); renderAdModels(); renderAdCrops(); toast("Models folder set"); }
+      catch (err) { toast(err.message, true); }
+    });
+    $("[data-ad-hub]", box)?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try { ad.schema.models = await api("/api/agri/models", { method: "POST", json: { source: "hub" } }); renderAdModels(); renderAdCrops(); toast("Models will download from Hugging Face when needed"); }
       catch (err) { toast(err.message, true); }
     });
   }
@@ -6270,7 +6280,9 @@
     const items = [{ id: "auto", title: "Detect the crop in each photo", sub: canDetect ? "recommended when photos are of several crops" : "the models folder has no crop detector",
                      group: "Automatic", disabled: !canDetect },
       ...crops.map(([k, c]) => ({ id: k, title: c.name, aliases: c.aliases, keywords: c.labels, group: "Or every photo is of one crop",
-                                  sub: have.has(k) ? [c.aliases.slice(0, 3).join(", "), `${c.labels.length} classes`].filter(Boolean).join(" · ") : "no model in the models folder",
+                                  sub: !have.has(k) ? "no model in the models folder"
+                                    : sc.models.source === "hub" && !sc.models.downloaded.includes(k) ? [c.aliases.slice(0, 2).join(", "), "downloads 95 MB once"].filter(Boolean).join(" · ")
+                                    : [c.aliases.slice(0, 3).join(", "), `${c.labels.length} classes`].filter(Boolean).join(" · "),
                                   disabled: !have.has(k) }))];
     if (!items.some((it) => it.id === ad.crop && !it.disabled)) ad.crop = canDetect ? "auto" : (items.find((it) => !it.disabled) || {}).id || "";
     searchPicker($("#ad-crop"), { items, value: ad.crop, placeholder: "Type a crop: e.g. tom, paddy, aloo…", empty: "No crop matches",
