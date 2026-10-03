@@ -75,7 +75,7 @@
   function renderRunBar() {
     const r = runs[currentTool], bar = $("#run-bar");
     bar.classList.toggle("hidden", !r);
-    if (!r) return;
+    if (!r) { showRunFloat(false); return; }
     const st = r.state || "running";
     bar.classList.toggle("failed", st === "failed");
     bar.classList.toggle("done", st === "done");
@@ -94,10 +94,52 @@
     btn.disabled = st === "running" && !!r.cancelling;
     btn.textContent = st !== "running" ? "Close" : r.cancelling ? "Cancelling…" : "Cancel";
     btn.classList.toggle("danger", st === "running");
-    const open = prefs.get("rb-open", false) || st === "failed";
-    $("#rb-details").classList.toggle("hidden", !open);
+    // the details window: open when you chose so (ⓘ), and once by itself when a run fails, unless you closed it for that run
+    if (st === "failed" && !r.autoOpened) { r.autoOpened = true; if (!r.userClosed) prefs.set("rb-open", true); }
+    const open = prefs.get("rb-open", false) && !r.userClosed;
+    showRunFloat(open);
     $("#rb-more").setAttribute("aria-expanded", open);
-    if (open) renderRunDetails(r, st, secs, eta, pct);
+    if (open) {
+      const f = $("#rb-float");
+      f.classList.toggle("failed", st === "failed"); f.classList.toggle("done", st === "done");
+      $("#rb-float-title").textContent = $("#rb-title").textContent;
+      renderRunDetails(r, st, secs, eta, pct);
+    }
+  }
+  // floating window: position and size are remembered; it always stays (partly) on screen
+  function showRunFloat(on) {
+    const f = $("#rb-float");
+    if (!on) { f.classList.add("hidden"); return; }
+    if (f.classList.contains("hidden")) {
+      f.classList.remove("hidden");
+      const box = prefs.get("rb-float", null);
+      const map = $("#map").getBoundingClientRect();
+      const w = box?.w || 440, h = box?.h || 340;
+      f.style.width = `${w}px`; f.style.height = `${h}px`;
+      placeRunFloat(box ? box.x : map.right - w - 16, box ? box.y : map.top + 16);
+    }
+  }
+  function placeRunFloat(x, y) {
+    const f = $("#rb-float"), w = f.offsetWidth, h = f.offsetHeight;
+    x = Math.min(Math.max(x, 8 - w + 120), innerWidth - 120);   // at least 120 px stay visible
+    y = Math.min(Math.max(y, 8), innerHeight - 40);
+    f.style.left = `${x}px`; f.style.top = `${y}px`;
+  }
+  const saveRunFloat = () => { const f = $("#rb-float"); if (!f.classList.contains("hidden")) prefs.set("rb-float", { x: f.offsetLeft, y: f.offsetTop, w: f.offsetWidth, h: f.offsetHeight }); };
+  { const head = $("#rb-float-head"), f = $("#rb-float");
+    head.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button")) return;
+      e.preventDefault();
+      const dx = e.clientX - f.offsetLeft, dy = e.clientY - f.offsetTop;
+      head.setPointerCapture(e.pointerId);
+      const move = (ev) => placeRunFloat(ev.clientX - dx, ev.clientY - dy);
+      const up = () => { head.removeEventListener("pointermove", move); head.removeEventListener("pointerup", up); saveRunFloat(); };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", up);
+    });
+    new ResizeObserver(() => saveRunFloat()).observe(f);
+    addEventListener("resize", () => { if (!f.classList.contains("hidden")) placeRunFloat(f.offsetLeft, f.offsetTop); });
+    $("#rb-float-x").onclick = () => { prefs.set("rb-open", false); const r = runs[currentTool]; if (r) r.userClosed = true; renderRunBar(); };
   }
   function renderRunDetails(r, st, secs, eta, pct) {
     const clock = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -143,11 +185,12 @@
     if (r.state) { delete runs[currentTool]; renderRunBar(); return; }   // finished or failed: Close
     if (!r.cancelling) { r.cancelling = true; r.message = "Cancelling…"; renderRunBar(); r.cancel(); }
   };
-  $("#rb-more").onclick = () => { prefs.set("rb-open", !prefs.get("rb-open", false)); const r = runs[currentTool]; if (r?.state === "failed") prefs.set("rb-open", true); renderRunBar(); };
-  // the step log keeps the height you drag it to
-  { const log = $("#rb-log"), h = prefs.get("rb-log-h", 0);
-    if (h) log.style.height = `${h}px`;
-    new ResizeObserver(() => { if (log.offsetParent && log.offsetHeight > 40) prefs.set("rb-log-h", log.offsetHeight); }).observe(log); }
+  $("#rb-more").onclick = () => {   // ⓘ opens / closes the details window
+    const r = runs[currentTool], open = prefs.get("rb-open", false) && !r?.userClosed;
+    prefs.set("rb-open", !open);
+    if (r) r.userClosed = open;
+    renderRunBar();
+  };
   setInterval(() => { const r = runs[currentTool]; if (r && !r.state) renderRunBar(); }, 1000);  // keep the time ticking
   function finishRun(tool, run, state, error) {
     run.state = state; run.error = error || null; run.finished = Date.now();
@@ -692,6 +735,7 @@
   }
 
   function defaultRender(info) {
+    if (info.embedding) return { pca: true, stretch: "auto" };   // all bands kept, shown in colour (their 3 main directions)
     if (info.rgb) return { rgb: [1, 2, 3], stretch: "none" };
     const has = (bs) => bs.every((b) => b in info.band_map);
     if (has(["B04", "B03", "B02"])) return { composite: "true" };
@@ -722,6 +766,7 @@
     if (l.type === "image") return "preview image";
     const r = l.render || {};
     if (r.composite) return state.catalog?.composites[r.composite]?.title || r.composite;
+    if (r.pca) return `${l.info?.count || ""} bands · colour view`;
     if (r.rgb) return l.legend?.bands ? "RGB " + l.legend.bands.join("/") : "RGB";
     if (r.index) return r.index;
     if (r.formula) return "formula";
@@ -2836,7 +2881,7 @@
             ["File size", m.driver === "VRT" ? "" : `${num(m.size_mb, 2)} MB`], ["Compression", m.compression], ["Interleave", m.interleave],
             ["Tiles / blocks", m.block_size && `${m.block_size[1]} × ${m.block_size[0]} px${m.tiled ? " (tiled)" : " (strips)"}`], ["Overviews", m.overviews?.length ? m.overviews.map((o) => o + "×").join(", ") : "none"]]) +
           `<h4>Image</h4>` + kvTable([["Size", `${m.width.toLocaleString()} × ${m.height.toLocaleString()} px · ${m.count} band${m.count > 1 ? "s" : ""}`], ["Data type", m.dtype], ["No-data value", m.nodata ?? "none"],
-            ["Band names", m.band_map_source], ["Scale / offset used", (l.scale ?? 1) !== 1 || (l.offset ?? 0) !== 0 ? `× ${l.scale} + ${l.offset}` : "none (values as stored)"]]) +
+            ["Band names", l.info?.embedding ? `Embedding: ${l.info.embedding.dims} dimensions (${l.info.embedding.first} … ${l.info.embedding.last}), all kept${l.render?.pca ? "; shown as a colour view (PCA of all bands)" : ""}` : m.band_map_source], ["Scale / offset used", (l.scale ?? 1) !== 1 || (l.offset ?? 0) !== 0 ? `× ${l.scale} + ${l.offset}` : "none (values as stored)"]]) +
           `<h4>Coordinate system &amp; extent</h4>` + kvTable([["CRS", `${m.crs_name || ""}${m.epsg ? ` (EPSG:${m.epsg})` : m.crs ? ` (${m.crs})` : ""}`], ["Units", m.units],
             ["Pixel size", `${crd(m.pixel_size[0], 6)} × ${crd(m.pixel_size[1], 6)}${u}`], ["Area covered", m.units === "metre" ? `${num((bb.right - bb.left) / 1000, 2)} × ${num((bb.top - bb.bottom) / 1000, 2)} km` : ""],
             ["Upper-left corner", `${crd(m.origin[0])}, ${crd(m.origin[1])}`], ["Extent (left, bottom, right, top)", [bb.left, bb.bottom, bb.right, bb.top].map((v) => crd(v)).join(", ")],
@@ -2892,6 +2937,7 @@
       let opts = "";
       if (r.index || r.formula) opts += `<optgroup label="Index"><option value="keep">${esc(r.index || "Formula: " + r.formula)}</option></optgroup>`;
       const nb = l.info?.count || 0;
+      if (nb >= 3) opts += `<optgroup label="Colour view"><option value="p:">Colour view: PCA of all ${nb} bands${l.info?.embedding ? " (embedding)" : ""}</option></optgroup>`;
       if (nb >= 3) {
         const combos = [[1, 2, 3], [2, 3, 1], [1, 3, 2], [3, 2, 1]].filter((c) => c.every((b) => b <= nb));
         if (r.rgb && !combos.some((c) => c.join() === r.rgb.join())) combos.unshift(r.rgb);
@@ -2901,7 +2947,7 @@
       if (comps.length) opts += `<optgroup label="Band combination">${comps.map(([k, v]) => `<option value="c:${k}">${esc(v.title)}</option>`).join("")}</optgroup>`;
       opts += `<optgroup label="Single band">${(l.info?.bands || []).map((b) => `<option value="b:${b.index}">Band ${b.index}${b.description !== "Band " + b.index ? " · " + esc(b.description) : ""}</option>`).join("")}</optgroup>`;
       $("#lp-display").innerHTML = opts;
-      $("#lp-display").value = r.index || r.formula ? "keep" : r.composite ? `c:${r.composite}` : r.rgb ? `r:${r.rgb.join(",")}` : `b:${r.band}`;
+      $("#lp-display").value = r.index || r.formula ? "keep" : r.pca ? "p:" : r.composite ? `c:${r.composite}` : r.rgb ? `r:${r.rgb.join(",")}` : `b:${r.band}`;
       $("#lp-cmap").innerHTML = `<option value="">Default</option>` + Object.keys(c.colormaps).map((k) => `<option ${r.cmap === k ? "selected" : ""}>${k}</option>`).join("");
       $("#lp-stretch").value = r.stretch || "fixed";
       $("#lp-vmin").value = l.legend?.vmin != null ? +l.legend.vmin.toFixed(4) : "";
@@ -2918,7 +2964,7 @@
   }
   function syncPropsUi() {
     const v = $("#lp-display").value;
-    const rgbLike = v.startsWith("c:") || v.startsWith("r:");
+    const rgbLike = v.startsWith("c:") || v.startsWith("r:") || v === "p:";
     $("#lp-style").classList.toggle("hidden", rgbLike);
     $("#lp-range").classList.toggle("hidden", rgbLike || $("#lp-stretch").value !== "custom");
   }
@@ -2934,7 +2980,8 @@
     if (l.type === "raster") {
       const v = $("#lp-display").value, style = { stretch: $("#lp-stretch").value, cmap: $("#lp-cmap").value || null };
       if (style.stretch === "custom") { style.vmin = parseFloat($("#lp-vmin").value); style.vmax = parseFloat($("#lp-vmax").value); }
-      if (v.startsWith("c:")) l.render = { composite: v.slice(2) };
+      if (v === "p:") l.render = { pca: true, stretch: "auto" };
+      else if (v.startsWith("c:")) l.render = { composite: v.slice(2) };
       else if (v.startsWith("r:")) l.render = { rgb: v.slice(2).split(",").map(Number) };
       else if (v.startsWith("b:")) l.render = { band: +v.slice(2), ...style };
       else l.render = { index: l.render.index, formula: l.render.formula, ...style };
@@ -6356,13 +6403,13 @@
     try {
       const job = await api("/api/emb/fetch", { method: "POST", json: { clip: g, source: em.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked } });
       const r = (await trackJob(job, { tool: "embed", title: `Downloading ${S.short} ${year}`, save: "embfetch" })).result;
-      const lyr = await addRasterFromPath(r.path, { name, render: { rgb: [1, 2, 3], stretch: "auto" } });
+      const lyr = await addRasterFromPath(r.path, { name, render: { pca: true, stretch: "auto" } });   // all bands, shown in colour
       if (r.colour) await addRasterFromPath(r.colour.path, { name: `${name} colour view`, render: { rgb: [1, 2, 3], stretch: "none" } });
       em.lastLayer = lyr.id;
       const box = $("#em-result");
       box.innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(S.short)} ${year} downloaded</h2>
         <div class="pca-sum">${r.width.toLocaleString()} × ${r.height.toLocaleString()} pixels at ${r.res} m · ${r.dims} dimensions (${esc(S.band_prefix)}${"0".repeat(r.dims < 100 ? 2 : 3)}…) · ${esc(r.crs)} · ${r.valid_pct} % of the area has data · ${r.size_mb} MB · ${r.seconds} s</div>
-        ${r.colour ? `<p class="hint">The colour view shows the three main directions of variation (${r.colour.explained.map((v) => fmt(100 * v, 0) + " %").join(", ")} of it) as red, green and blue: alike places, alike colours.</p>` : ""}
+        <p class="hint">The layer keeps all ${r.dims} bands (see its Metadata) and is <b>shown</b> in colour from them: their three main directions of variation (PCA) as red, green and blue, so alike places get alike colours. Change it in the layer's Properties (any 3 bands, or one band).${r.colour ? ` The colour view was also saved as its own 3-band GeoTIFF.` : ""}</p>
         <div class="row tight" style="margin-top:8px;flex-wrap:wrap;gap:6px"><button class="btn small primary" data-em-explore>Explore it: find similar places…</button></div>
         <p class="hint">Or use the layer in <a href="#" data-go="rasterml">Classical ML for raster</a> (it is recognised as an embedding: k-NN, SVM, logistic regression and SAM with cosine distance are suggested), or cluster it. ${esc(r.attribution)} Licence ${esc(r.licence)}.</p></div>`;
       box.classList.remove("hidden");
@@ -6472,7 +6519,7 @@
     try {
       const job = await api("/api/emb/convert", { method: "POST", json: { path: l.path, to: ec.to, normalise: $("#ec-unit").checked, name } });
       const r = (await trackJob(job, { tool: "embconvert", title: `Converting to ${F[ec.to].title}`, save: "embconvert" })).result;
-      await addRasterFromPath(r.path, { name, zoom: false, render: { rgb: [1, 2, 3], stretch: "auto" } });
+      await addRasterFromPath(r.path, { name, zoom: false, render: { pca: true, stretch: "auto" } });
       const change = r.size_in_mb ? Math.round(100 * (r.size_out_mb / r.size_in_mb - 1)) : 0;
       const exact = r.max_error === 0;
       $("#ec-result").innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(F[r.from].title)} → ${esc(F[r.to].title)}</h2>

@@ -123,6 +123,42 @@ def _read(src, indexes: list[int], max_px: int | None = None, window: Window | N
     return data.astype("float32").filled(np.nan)
 
 
+def _pca3(data: np.ndarray, sample: int = 20000) -> list[np.ndarray]:
+    """The three main directions of variation of a (bands, rows, cols) stack: for showing an embedding (or any many-band
+    image) in colour. Signs are fixed (largest loading positive) so the colours don't flip between redraws."""
+    n, h, w = data.shape
+    flat = data.reshape(n, -1)
+    ok = np.isfinite(flat).all(axis=0)
+    out = [np.full(h * w, np.nan, np.float32) for _ in range(3)]
+    if ok.sum() >= 3:
+        x = flat[:, ok].T.astype(np.float64)
+        rng = np.random.default_rng(0)
+        fit = x[rng.choice(len(x), min(sample, len(x)), replace=False)]
+        mean = fit.mean(axis=0)
+        _, _, vt = np.linalg.svd(fit - mean, full_matrices=False)
+        comps = vt[:3]
+        for i in range(len(comps)):
+            if comps[i][np.abs(comps[i]).argmax()] < 0:
+                comps[i] = -comps[i]
+        proj = (x - mean) @ comps.T
+        for i in range(proj.shape[1]):
+            out[i][ok] = proj[:, i]
+    return [o.reshape(h, w) for o in out]
+
+
+def is_embedding(src) -> dict | None:
+    """Is this raster a pixel embedding (AlphaEarth, TESSERA or similar)? Cheap: tags, band names, band count."""
+    import re as _re
+    tags = src.tags()
+    names = [(d or "").upper() for d in src.descriptions]
+    named = sum(bool(_re.fullmatch(r"(A\d{2}|E\d{2,3}|EMB.*|DIM.*)", nm)) for nm in names)
+    if tags.get("embedding") or tags.get("embedding_quantization") or (src.count >= 16 and named > src.count / 2) \
+            or (src.count in (64, 128) and src.dtypes[0] in ("int8", "float16", "float32")):
+        return {"dims": src.count, "title": tags.get("embedding_title") or ("AlphaEarth" if src.count == 64 else "TESSERA" if src.count == 128 else "Embedding"),
+                "first": src.descriptions[0] or "1", "last": src.descriptions[-1] or str(src.count)}
+    return None
+
+
 def inspect(path: str | Path) -> dict:
     with rasterio.open(path) as src:
         if src.crs is None:
@@ -141,6 +177,7 @@ def inspect(path: str | Path) -> dict:
             "scale_preset": preset, "scale": scale, "offset": offset, "scale_reason": reason,
             "tags": {k: v for k, v in src.tags().items() if len(v) < 300},
             "rgb": _is_rgb(src),
+            "embedding": is_embedding(src),
         }
 
 
@@ -377,9 +414,16 @@ def _render_native(src, spec: dict, max_px: int | None):
 
     Returns (rgba uint8 [4, h, w], affine transform of that grid, metadata for legends).
     """
-    if spec.get("composite") or spec.get("rgb"):
+    if spec.get("composite") or spec.get("rgb") or spec.get("pca"):
         win, geom = clip_region(src, spec.get("clip"))
-        if spec.get("rgb"):  # any three file bands, e.g. PC1 / PC2 / PC3
+        if spec.get("pca"):   # all bands → their three main directions of variation as red, green, blue (embeddings)
+            if src.count < 3:
+                raise ValueError("A colour view (PCA) needs at least 3 bands")
+            data = _read(src, list(range(1, src.count + 1)), max_px=min(max_px, 900 if src.count <= 64 else 640), window=win)
+            arrays = _pca3(data)
+            names = ["PC1", "PC2", "PC3"]
+            title = f"Colour view: PCA of {src.count} bands"
+        elif spec.get("rgb"):  # any three file bands, e.g. PC1 / PC2 / PC3
             idx = [int(b) for b in spec["rgb"]][:3]
             if len(idx) != 3 or not all(1 <= b <= src.count for b in idx):
                 raise ValueError("RGB display needs three valid band numbers")
@@ -486,11 +530,11 @@ def _spec(band_map, scale, offset, **kw) -> dict:
 def render(path: str | Path, *, band_map: dict[str, int], scale: float, offset: float,
            index: str | None = None, formula: str | None = None, composite: str | None = None,
            band: int | None = None, rgb: list[int] | None = None, stretch: str = "fixed", vmin: float | None = None,
-           vmax: float | None = None, cmap: str | None = None, clip: dict | None = None, max_px: int = 1400) -> dict:
+           vmax: float | None = None, cmap: str | None = None, clip: dict | None = None, max_px: int = 1400, pca: bool = False) -> dict:
     """Map-ready RGBA image (Web Mercator) of a composite / index / formula / single band, plus legend data.
     With `clip` (GeoJSON polygon, EPSG:4326) only that area is read, shown and counted in the stats."""
     spec = _spec(band_map, scale, offset, index=index, formula=formula, composite=composite, band=band, rgb=rgb,
-                 stretch=stretch, vmin=vmin, vmax=vmax, cmap=cmap, clip=clip)
+                 stretch=stretch, vmin=vmin, vmax=vmax, cmap=cmap, clip=clip, pca=pca)
     with rasterio.open(path) as src:
         rgba, transform, meta = _render_native(src, spec, max_px)
         merc, bounds = _rgba_to_web_mercator(rgba, src.crs, transform, max_px)
@@ -565,7 +609,7 @@ def export_layer_tif(path: str | Path, out: str | Path, *, rows_per_chunk: int =
                     dst.write_colormap(1, src.colormap(b))
                 dst.update_tags(**src.tags())
             return out
-        if spec.get("rgb"):
+        if spec.get("rgb") or spec.get("pca"):   # shown from 3 bands (or their PCA), exported with all of them
             profile = {"driver": "GTiff", **grid, "count": src.count, "dtype": "float32",
                        "crs": src.crs, "nodata": np.nan, "compress": "deflate", "predictor": 3, "BIGTIFF": "IF_SAFER"}
             with rasterio.open(out, "w", **profile) as dst:

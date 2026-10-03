@@ -336,11 +336,11 @@ Anything that takes time (searching, previews, downloads, composites, indices, P
 
 - **Time taken** is shown next to the % (minutes:seconds). When the run ends, the bar says **✓ … Finished in …** for a few
   seconds.
-- **ⓘ** opens the details: when it started, how long it has run (or took), the time left, the full current message, and
-  **every step** the tool has done so far, with its time. Drag the bottom-right corner of the step box to make it bigger or
-  smaller (the size is remembered); ⓘ again hides the details.
-- **If a run fails**, the bar stays, in red, with **why it failed**, the steps before it, and **Copy details**, **Open error
-  log** and **Show error log file**. **Close** hides it.
+- **ⓘ** opens the details in a **window over the map**: when it started, how long it has run (or took), the time left,
+  the full current message, and **every step** the tool has done so far, with its time. Move the window by dragging its title
+  bar, resize it from its bottom-right corner, and close it with **×** (or ⓘ again); it reopens where you left it.
+- **If a run fails**, the bar stays, in red, and the details window opens by itself with **why it failed**, the steps before
+  it, and **Copy details**, **Open error log** and **Show error log file**. **Close** on the bar hides it.
 - **Error log:** every failed run is also written to `logs/errors.log` in the app's folder (whichever project is open): the
   time, the tool and its settings, the error, the last steps and the technical traceback (also from the deep-learning helper
   process). Open it any time with **Help ▸ Error log**, or show the file with **Help ▸ Show the error log file**; send it
@@ -1088,9 +1088,13 @@ Clay); they can't be downloaded as maps here.
 3. **Year & resolution.** 10 m is full detail. AlphaEarth also comes at 20, 40, 80 or 160 m (averaged vectors from its
    overviews): far less to download, good for large areas. The panel shows the size of the result and roughly how much is
    downloaded. Up to 25 million pixels per download (e.g. 50 × 50 km at 10 m, or a whole district at 40 m).
-4. **Download.** The result is a GeoTIFF layer (float32, one band per dimension named `A00`–`A63` or `E000`–`E127`) in the
-   area's UTM zone. **Also make a colour view** adds a second layer where the three main directions of variation (PCA) are
-   shown as red, green and blue: alike places get alike colours.
+4. **Download.** The result is **one layer with all the bands** (float32, one band per dimension named `A00`–`A63` or
+   `E000`–`E127`) in the area's UTM zone; its Metadata lists them all. It is **shown in colour from them**: their three main
+   directions of variation (PCA) as red, green and blue, so alike places get alike colours. **Also save the colour view as a
+   3-band GeoTIFF** additionally writes that picture as its own small file.
+   Every embedding layer is shown this way, also one added with + Add data. To show it differently, open the layer's
+   **Properties**: *Colour view: PCA of all bands*, any three bands as RGB, or a single band. Export data always writes all
+   the bands.
 5. **Embeddings ▸ Explore embeddings** works on any embedding GeoTIFF in Contents, also your own AlphaEarth or TESSERA exports (the download's result card has an **Explore it** button):
    - **Find similar places:** click one or more places on the map (e.g. fields of the crop you're looking for), then
      **Find similar places**: a new layer scores every pixel by cosine similarity to the average of the clicked places

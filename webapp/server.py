@@ -582,6 +582,7 @@ class RenderRequest(AnalyzeBase):
     composite: str | None = None
     band: int | None = None
     rgb: list[int] | None = None
+    pca: bool = False        # colour view: the three main directions of variation of all bands (embeddings)
     clip: dict | None = None
     stretch: str = "fixed"  # fixed | auto | custom
     vmin: float | None = None
@@ -596,7 +597,7 @@ def analyze_render(req: RenderRequest):
     res = render(_raster_path(req.path), band_map=req.band_map, scale=req.scale, offset=req.offset,
                  index=req.index, formula=req.formula, composite=req.composite, band=req.band, rgb=req.rgb, clip=_clip(req.clip),
                  stretch=req.stretch,
-                 vmin=req.vmin, vmax=req.vmax, cmap=req.cmap)
+                 vmin=req.vmin, vmax=req.vmax, cmap=req.cmap, pca=req.pca)
     res["image"] = _png_data_url(res.pop("rgba"))
     return res
 
@@ -3059,6 +3060,7 @@ class LayerExportRequest(BaseModel):
     composite: str | None = None
     band: int | None = None
     rgb: list[int] | None = None
+    pca: bool = False
     stretch: str = "fixed"
     vmin: float | None = None
     vmax: float | None = None
@@ -3105,7 +3107,7 @@ def _export_layer_now(req: "LayerExportRequest", job) -> dict:
 
     src = _raster_path(req.path)
     spec = {"band_map": req.band_map, "scale": req.scale, "offset": req.offset, "index": req.index,
-            "formula": req.formula, "composite": req.composite, "band": req.band, "rgb": req.rgb, "stretch": req.stretch,
+            "formula": req.formula, "composite": req.composite, "band": req.band, "rgb": req.rgb, "pca": req.pca, "stretch": req.stretch,
             "vmin": req.vmin, "vmax": req.vmax, "cmap": req.cmap, "clip": _clip(req.clip)}
     plain = not (req.index or req.formula or req.composite or req.band or req.rgb) and not req.clip
     if req.rgb and not req.clip and req.format == "tif":

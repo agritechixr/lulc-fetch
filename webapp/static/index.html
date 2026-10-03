@@ -1087,7 +1087,7 @@
       <div class="card">
         <h2><span class="step">4</span>Download</h2>
         <label>Layer name<input id="em-name" maxlength="80" value="embedding"></label>
-        <label class="inline" style="margin-top:8px"><input type="checkbox" id="em-colour" checked> Also make a colour view <button type="button" class="tip" data-tip="The three main directions of variation (PCA) of the embedding shown as red, green and blue: places that are alike get alike colours, which shows fields, crops, water and built-up areas at a glance." aria-label="Help">i</button></label>
+        <label class="inline" style="margin-top:8px"><input type="checkbox" id="em-colour"> Also save the colour view as a 3-band GeoTIFF <button type="button" class="tip" data-tip="The downloaded layer always keeps all its bands and is shown in colour on the map from them (their three main directions of variation, PCA, as red, green and blue). Tick this to also save that picture as its own small 3-band file, e.g. for other software or a report." aria-label="Help">i</button></label>
         <button class="btn primary big-btn" id="em-run">Download embeddings</button>
         <div id="em-error" class="warn err hidden"></div>
       </div>
@@ -1133,7 +1133,7 @@
       <div class="card">
         <h2><span class="step">3</span>More</h2>
         <div class="row tight" style="flex-wrap:wrap;gap:6px">
-          <button class="btn small" id="em-colour-btn">Colour view of this layer</button>
+          <button class="btn small" id="em-colour-btn" title="The layer is already shown in colour; this saves that picture as its own 3-band GeoTIFF">Save the colour view as a 3-band GeoTIFF</button>
           <button class="btn small" id="em-classify">Classify it (Classical ML for raster)…</button>
         </div>
         <div id="em-explore-error" class="warn err hidden"></div>
@@ -1208,15 +1208,23 @@
         <button type="button" class="rb-info" id="rb-more" title="Show every step, the times and the full message" aria-label="Show details" aria-expanded="false">i</button></div>
       <div class="rb-track"><div class="rb-fill" id="rb-fill"></div></div>
       <div class="rb-foot"><span id="rb-msg"></span><button class="btn small danger" id="rb-cancel">Cancel</button></div>
-      <div class="rb-details hidden" id="rb-details">
-        <div class="rb-times" id="rb-times"></div>
-        <div class="rb-full" id="rb-full"></div>
-        <pre class="rb-log" id="rb-log" title="Every step of this run. Drag the bottom-right corner to make it bigger or smaller."></pre>
-        <div class="rb-actions" id="rb-actions"></div>
-      </div>
     </div>
   </aside>
 </main>
+
+<!-- run details (ⓘ on the run bar): a floating window over the map, moved by its title bar and resized from its corner -->
+<div class="rb-float hidden" id="rb-float" role="dialog" aria-labelledby="rb-float-title">
+  <div class="rb-float-head" id="rb-float-head" title="Drag to move">
+    <span class="spinner" id="rb-float-spin"></span><b id="rb-float-title">Run details</b>
+    <button type="button" class="rb-float-x" id="rb-float-x" title="Close (ⓘ on the run bar opens it again)" aria-label="Close">×</button>
+  </div>
+  <div class="rb-float-body">
+    <div class="rb-times" id="rb-times"></div>
+    <div class="rb-full" id="rb-full"></div>
+    <pre class="rb-log" id="rb-log" title="Every step of this run"></pre>
+    <div class="rb-actions" id="rb-actions"></div>
+  </div>
+</div>
 
 <!-- ================= status bar ================= -->
 <footer class="statusbar">
