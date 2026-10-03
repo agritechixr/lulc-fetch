@@ -192,6 +192,142 @@
     renderRunBar();
   };
   setInterval(() => { const r = runs[currentTool]; if (r && !r.state) renderRunBar(); }, 1000);  // keep the time ticking
+  // ------------------------------------------------------------------ floating windows: drag by the title bar, resize from the
+  // corner, position and size remembered, always (partly) on screen
+  function floatWin(el, head, key, def) {
+    const place = (x, y) => {
+      x = Math.min(Math.max(x, 8 - el.offsetWidth + 120), innerWidth - 120);
+      y = Math.min(Math.max(y, 8), innerHeight - 40);
+      el.style.left = `${x}px`; el.style.top = `${y}px`;
+    };
+    const save = () => { if (!el.classList.contains("hidden")) prefs.set(key, { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight }); };
+    head.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button, input, select")) return;
+      e.preventDefault();
+      const dx = e.clientX - el.offsetLeft, dy = e.clientY - el.offsetTop;
+      head.setPointerCapture(e.pointerId);
+      const move = (ev) => place(ev.clientX - dx, ev.clientY - dy);
+      const up = () => { head.removeEventListener("pointermove", move); head.removeEventListener("pointerup", up); save(); };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", up);
+    });
+    new ResizeObserver(save).observe(el);
+    addEventListener("resize", () => { if (!el.classList.contains("hidden")) place(el.offsetLeft, el.offsetTop); });
+    return {
+      show() {
+        if (!el.classList.contains("hidden")) return;
+        el.classList.remove("hidden");
+        const box = prefs.get(key, null), d = def();
+        el.style.width = `${box?.w || d.w}px`; el.style.height = `${box?.h || d.h}px`;
+        place(box ? box.x : d.x, box ? box.y : d.y);
+      },
+      hide() { el.classList.add("hidden"); },
+      get open() { return !el.classList.contains("hidden"); },
+    };
+  }
+
+  // ------------------------------------------------------------------ History: every tool run (logs/history.jsonl)
+  const KIND_TOOL = { table: "raster2table", train: "ml", predict: "ml", cluster: "ml", tsne: "ml", compare: "ml", python: "ml", pca: "pca",
+    stack: "stack", rasterml: "rasterml", patches: "patches", dltrain: "dltrain", dlinstall: "dltrain", dlpredict: "dlpredict", detect: "detect",
+    dettrain: "traindet", diagnose: "agridisease", embfetch: "embed", embcheck: "embed", embconvert: "embconvert", embsimilar: "embexplore",
+    embcolour: "embexplore", export: "export", product: "search" };
+  const toolOfKind = (k) => TOOLS.find((t) => t.id === (KIND_TOOL[k] || "search"));
+  const HIST_STATUS = { done: ["Finished", "c0"], error: ["Failed", "c2"], cancelled: ["Cancelled", "c1"], running: ["Running", "c1"], queued: ["Waiting", "c1"] };
+  const ago = (t) => { const s = Date.now() / 1000 - t; return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago`
+    : new Date(t * 1000).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }); };
+  const when = (t) => t ? new Date(t * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "medium" }) : "–";
+  const hist = { win: null, id: null, seq: 0 };
+  function histRow(r) {
+    const [st] = HIST_STATUS[r.status] || [r.status];
+    return `<div class="hist-row" data-hid="${esc(r.id)}" title="${esc(r.title)}"><i class="hd ${esc(r.status)}" title="${esc(st)}"></i>
+      <span class="ht"><b>${esc(r.title)}</b><small>${esc(st)} · ${esc(ago(r.started))} · ${fmtSecs(r.seconds || 0)}${r.outputs ? ` · ${r.outputs} file${r.outputs > 1 ? "s" : ""}` : ""}${r.copies ? " · saved to a folder" : ""}${r.project ? ` · ${esc(r.project)}` : ""}</small></span>
+      <button type="button" class="rb-info" data-hinfo title="Details: settings, input data, where the results went" aria-label="Details">i</button></div>`;
+  }
+  async function refreshHistoryMenu() {
+    const box = $("#history-menu");
+    box.innerHTML = `<div class="hist-empty">Loading…</div>`;
+    let h;
+    try { h = await api("/api/history?limit=12"); } catch (e) { box.innerHTML = `<div class="hist-empty">${esc(e.message)}</div>`; return; }
+    box.innerHTML = `<div class="menu-label" style="padding-left:10px">Recent tool runs</div>` +
+      (h.rows.length ? h.rows.map(histRow).join("") : `<div class="hist-empty">No runs yet: every tool you run is listed here, with its settings and results.</div>`) +
+      `<div class="menu-foot"><button data-hall>Open full history…</button></div>`;
+    $$("[data-hid]", box).forEach((row) => row.onclick = () => { toggleMenu(null); openHistory(row.dataset.hid); });
+    $("[data-hall]", box).onclick = () => { toggleMenu(null); openHistory(null); };
+  }
+  function openHistory(id) {
+    hist.win ||= floatWin($("#hist-float"), $("#hist-head"), "hist-float", () => { const m = $("#map").getBoundingClientRect(); return { x: m.left + 16, y: m.top + 16, w: 520, h: 560 }; });
+    hist.win.show();
+    id ? showHistoryDetail(id) : showHistoryList();
+  }
+  async function showHistoryList() {
+    hist.id = null;
+    $("#hist-title").textContent = "History";
+    $("#hist-back").classList.add("hidden");
+    $("#hist-tools").classList.remove("hidden");
+    const body = $("#hist-body"), seq = ++hist.seq;
+    let h;
+    try { h = await api(`/api/history?limit=1000&q=${encodeURIComponent($("#hist-q").value.trim())}&status=${$("#hist-status").value}`); }
+    catch (e) { body.innerHTML = `<div class="hist-empty">${esc(e.message)}</div>`; return; }
+    if (seq !== hist.seq) return;
+    body.innerHTML = `<p class="hint" style="margin:2px 4px 6px">${h.total.toLocaleString()} run${h.total === 1 ? "" : "s"}${h.total > h.rows.length ? ` (newest ${h.rows.length} shown)` : ""} · kept in <code>${esc(h.file)}</code></p>` +
+      (h.rows.length ? h.rows.map(histRow).join("") : `<div class="hist-empty">${$("#hist-q").value || $("#hist-status").value ? "Nothing matches." : "No runs yet."}</div>`) +
+      (h.total ? `<div class="row tight" style="margin:10px 4px 0"><button class="btn small ghost" data-hclear>Clear history…</button></div>` : "");
+    $$("[data-hid]", body).forEach((row) => row.onclick = () => showHistoryDetail(row.dataset.hid));
+    $("[data-hclear]", body)?.addEventListener("click", async () => {
+      if (!confirm("Clear the history? It is kept as history.old.jsonl next to it, so it can be restored by hand.")) return;
+      await api("/api/history", { method: "DELETE" }).catch((e) => toast(e.message, true));
+      showHistoryList();
+    });
+  }
+  { let t = 0;
+    $("#hist-q").oninput = () => { clearTimeout(t); t = setTimeout(showHistoryList, 250); };
+    $("#hist-status").onchange = showHistoryList;
+    $("#hist-back").onclick = () => showHistoryList();
+    $("#hist-x").onclick = () => hist.win?.hide(); }
+  const isPath = (v) => typeof v === "string" && /^(\/|~|[A-Za-z]:\\|downloads\/|uploads\/|tables\/|models\/|imports\/|exports\/|analysis\/|training_data\/)/.test(v) && v.length < 1000;
+  const histVal = (v) => isPath(v) ? `<code>${esc(v)}</code>` : v && typeof v === "object" ? `<code>${esc(JSON.stringify(v))}</code>` : esc(String(v ?? "–"));
+  function fileRow(p) {
+    const tif = /\.(tiff?|vrt)$/i.test(p);
+    return `<div class="hist-file"><code>${esc(p)}</code><button class="btn small" data-hreveal="${esc(p)}" title="Show in Finder / Explorer">Show</button>${tif ? `<button class="btn small" data-hmap="${esc(p)}">Add to map</button>` : ""}</div>`;
+  }
+  async function showHistoryDetail(id) {
+    hist.id = id;
+    $("#hist-back").classList.remove("hidden");
+    $("#hist-tools").classList.add("hidden");
+    $("#hist-title").textContent = "Run details";
+    const body = $("#hist-body"), seq = ++hist.seq;
+    body.innerHTML = `<div class="hist-empty">Loading…</div>`;
+    let e;
+    try { e = await api(`/api/history/${encodeURIComponent(id)}`); } catch (x) { body.innerHTML = `<div class="hist-empty">${esc(x.message)}</div>`; return; }
+    if (seq !== hist.seq) return;
+    const [st, cls] = HIST_STATUS[e.status] || [e.status, "c1"], tool = toolOfKind(e.kind);
+    const kv = (rows) => `<table class="hist-kv">${rows.filter((r) => r && r[1] !== undefined && r[1] !== null && r[1] !== "").map(([k, v, raw]) => `<tr><td>${esc(k)}</td><td>${raw ? v : histVal(v)}</td></tr>`).join("")}</table>`;
+    const inputs = Object.entries(e.inputs || {}), summ = Object.entries(e.summary || {});
+    const paths = inputs.flatMap(([, v]) => (Array.isArray(v) ? v : [v]).filter(isPath));
+    body.innerHTML = `<div class="hist-head-card"><h3>${esc(e.title)}<span class="pill ${cls}">${esc(st)}</span></h3>
+        <p class="hint" style="margin:2px 0 0">${tool ? `Tool: <a href="#" data-htool="${esc(tool.id)}">${esc(tool.title)}</a> · ` : ""}${esc(e.kind)} · run ${esc(e.id)}</p></div>
+      <div class="hist-sec">When</div>${kv([["Started", when(e.started)], ["Finished", e.finished ? when(e.finished) : "still running"], ["Took", fmtSecs(e.seconds || 0)],
+        ["Project", e.project || "temporary workspace"], ["Workspace", e.workspace]])}
+      <div class="hist-sec">Input data</div>${inputs.length ? kv(inputs.map(([k, v]) => [k, v])) : `<p class="hint" style="margin:2px 4px">None recorded.</p>`}
+      ${paths.length ? `<div style="margin-top:4px">${paths.map(fileRow).join("")}</div>` : ""}
+      <div class="hist-sec">Settings</div><pre class="hist-json">${esc(JSON.stringify({ ...(e.settings || {}), ...(Object.keys(e.params || {}).length ? { _job: e.params } : {}) }, null, 2))}</pre>
+      ${e.endpoint ? `<p class="hint" style="margin:2px 4px">Request: <code>${esc(e.endpoint)}</code></p>` : ""}
+      ${summ.length ? `<div class="hist-sec">Results</div>${kv(summ.map(([k, v]) => [k, v]))}` : ""}
+      <div class="hist-sec">Output files</div>${(e.outputs || []).length ? e.outputs.map(fileRow).join("") : `<p class="hint" style="margin:2px 4px">${e.status === "done" ? "No files." : "None (the run didn't finish)."}</p>`}
+      ${(e.copies || []).length ? `<div class="hist-sec">Copies saved to a folder</div>` + e.copies.map((c) => `<p class="hint" style="margin:4px">${esc(when(c.time))} → <code>${esc(c.folder)}</code></p>` + c.files.map(fileRow).join("")).join("") : ""}
+      ${e.error ? `<div class="hist-sec" style="color:var(--err)">Why it failed</div><p style="margin:4px;font-size:12.5px;color:var(--err)">${esc(e.error)}</p>` : ""}
+      ${(e.log || []).length ? `<div class="hist-sec">Steps</div><pre class="hist-json">${esc(e.log.join("\n"))}</pre>` : ""}
+      <div class="row tight" style="margin:12px 4px 0;gap:6px;flex-wrap:wrap"><button class="btn small" data-hcopy>Copy as JSON</button>${tool ? `<button class="btn small" data-htool="${esc(tool.id)}">Open ${esc(tool.title)}</button>` : ""}${e.error ? `<button class="btn small ghost" data-herrlog>Error log</button>` : ""}</div>`;
+    $$("[data-hreveal]", body).forEach((b) => b.onclick = () => {
+      api("/api/project/reveal", { method: "POST", json: { path: b.dataset.hreveal } }).catch((x) => toast(x.message, true));   // opens its folder
+    });
+    $$("[data-hmap]", body).forEach((b) => b.onclick = () => addRasterFromPath(b.dataset.hmap).catch((x) => toast(`Can't add it to the map: ${x.message}`, true)));
+    $$("[data-htool]", body).forEach((a) => a.onclick = (ev) => { ev.preventDefault(); switchTool(a.dataset.htool); });
+    $("[data-hcopy]", body).onclick = async () => { try { await navigator.clipboard.writeText(JSON.stringify(e, null, 2)); toast("Copied"); } catch { toast("Couldn't copy", true); } };
+    $("[data-herrlog]", body)?.addEventListener("click", () => window.open("/api/errors/file", "_blank", "noopener"));
+    body.scrollTop = 0;
+  }
+
   function finishRun(tool, run, state, error) {
     run.state = state; run.error = error || null; run.finished = Date.now();
     if (runs[tool] === run) renderRunBar();
@@ -479,7 +615,7 @@
   function toggleMenu(m) {
     openMenu?.classList.remove("open");
     openMenu = m;
-    if (m) { m.classList.add("open"); syncMenuChecks(); }
+    if (m) { m.classList.add("open"); syncMenuChecks(); if ($("#history-menu", m)) refreshHistoryMenu(); }
   }
   $$("#menus .menu").forEach((m) => {
     const btn = $(".menu-btn", m);
@@ -2234,6 +2370,7 @@
     if (!paths.length) return;
     try {
       const r = await api("/api/files/save", { method: "POST", json: { paths, folder } });
+      if (r.saved.length) api(`/api/history/${job.id}/copy`, { method: "POST", json: { folder: r.folder, files: r.saved } }).catch(() => {});
       note.innerHTML = `✓ Saved ${r.saved.length} file${r.saved.length === 1 ? "" : "s"} to <code title="${esc(r.saved.join("\n"))}">${esc(r.folder)}</code> · <a href="#" data-reveal>Show in folder</a>${r.skipped.length ? ` · <span style="color:var(--warn)">${r.skipped.length} skipped</span>` : ""}`;
       note.classList.remove("hidden");
       $("[data-reveal]", note).onclick = (e) => { e.preventDefault(); api("/api/project/reveal", { method: "POST", json: { path: r.saved[0] || r.folder } }).catch((x) => toast(x.message, true)); };

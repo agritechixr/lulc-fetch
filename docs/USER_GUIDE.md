@@ -110,6 +110,7 @@ The window is laid out like a desktop GIS (QGIS / ArcGIS):
 | **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (supervised: ↳ Train a model, ↳ Classify an image · unsupervised: ↳ Clustering, ↳ t-SNE map) · Export data · Downloads & jobs |
 | **Agri ▾** | Diagnose crop disease · Crop disease guide · shortcuts to Index analysis (crop health: NDVI, EVI…), Download embeddings and Find imagery |
 | **Embeddings ▾** | Download embeddings · Convert embeddings · Explore embeddings · shortcuts to Classical ML for raster, Classical ML (tabular data) and PCA |
+| **History ▾** | Your recent tool runs (finished, failed, running) with ⓘ for each · Open full history |
 | **View** | Show/hide Contents, Tool panel and Data viewer · Reset panel sizes · Basemap (Streets, Satellite, Topographic, None) · Place labels on top · Zoom to all layers · Theme (system / light / dark) |
 | **Help** | Getting started (start page, incl. your Sentinel products) · Quick guide · Keyboard shortcuts |
 
@@ -320,6 +321,27 @@ The **Tools** menu and the Start page list the tools in alphabetical order. The 
 
 ### ⓘ hints
 Every option has a small **ⓘ** icon. Hover over it for half a second to see a plain-language explanation, or click it to keep the hint open.
+
+### History
+
+The **History** menu lists your recent tool runs: what ran, when, how long it took, and whether it finished (green), failed
+(red), was cancelled (grey) or is still running (orange). **ⓘ** opens that run's details; **Open full history…** opens all of
+them, with a search box (tool, layer, file name, error…) and a filter by status.
+
+Both open in a **window over the map**: move it by its title bar, resize it from its corner (remembered), scroll its content,
+close it with ×. A run's details show:
+
+- **When:** start, end, time taken, the project (or temporary workspace) and its folder.
+- **Input data:** the layers, files, tables or photos it used, and its area; files have **Show** (in Finder / Explorer) and,
+  for GeoTIFFs, **Add to map**.
+- **Settings:** every option it was run with (passwords and keys are hidden; drawn areas and vector layers are summarised).
+- **Results:** the numbers it reported (accuracy, counts, sizes…).
+- **Output files:** where the results were written (the trained model, the exported file, the map…), with Show / Add to map.
+- **Copies saved to a folder:** where *Also save to a folder on my computer* put a copy.
+- **Why it failed** and the steps before it, for failed runs; **Copy as JSON**, **Open** the tool.
+
+History is kept in `logs/history.jsonl` in the app's folder: it covers every project and is still there after a restart.
+**Clear history…** (in the full list) moves it aside as `history.old.jsonl`.
 
 ### Area picker
 Most tools can be limited to part of an image. The **Area** option offers:
@@ -1250,7 +1272,7 @@ With a project open, these folders are inside the project folder (next to `lulc_
 | `training_data/` | Datasets made with Make training data when no folder is chosen (images/, labels/, classes.txt, dataset.json…) |
 | `embeddings_cache/` | The AlphaEarth file index used by Download embeddings (downloaded once) |
 | `agri_models/` | Crop disease models downloaded from Hugging Face (shared by all projects) |
-| `logs/` | (app's folder) `app.log` of the desktop app, and `errors.log`: every failed run, with the reason and details (**Help ▸ Error log**) |
+| `logs/` | (app's folder) `app.log` of the desktop app; `errors.log`: every failed run, with the reason and details (**Help ▸ Error log**); `history.jsonl`: every tool run, its settings, inputs and outputs (**History** menu) |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files (photos added to Diagnose crop disease go to `uploads/photos/`), index exports, other exports |
 
 All of these are excluded from git.

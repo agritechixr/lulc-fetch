@@ -66,3 +66,20 @@ def test_error_log(client, tmp_path):
     info = ok(client.get("/api/errors"))
     assert info["exists"] and info["entries"] >= 2 and info["path"].endswith("errors.log")
     assert "Rendering a layer" in client.get("/api/errors/file").text
+
+
+def test_history(client, data):
+    """Every run goes into History with its inputs, settings (secrets hidden), outputs and time; copies saved later too."""
+    r = run(client, "/api/pca/run", {"path": data["s2"], "bands": [1, 2, 3, 4], "method": "pca", "params": {"n_components": 2},
+                                     "name": "hist_test", "api_key": "abc"})
+    jid = r["path"].split("/")[1]
+    rows = ok(client.get("/api/history", params={"q": "hist_test"}))["rows"]
+    assert rows and rows[0]["id"] == jid and rows[0]["status"] == "done" and rows[0]["outputs"] >= 1
+    e = ok(client.get(f"/api/history/{jid}"))
+    assert e["endpoint"] == "/api/pca/run" and e["inputs"]["path"] == data["s2"] and e["settings"]["bands"] == [1, 2, 3, 4]
+    assert e["settings"]["api_key"] == "•••" and e["seconds"] >= 0 and any(o.endswith(".tif") for o in e["outputs"])
+    ok(client.post(f"/api/history/{jid}/copy", json={"folder": "/somewhere", "files": ["/somewhere/x.tif"]}))
+    assert ok(client.get(f"/api/history/{jid}"))["copies"][0]["folder"] == "/somewhere"
+    assert client.get("/api/history/nope").status_code == 404
+    ok(client.delete("/api/history"))
+    assert ok(client.get("/api/history"))["total"] == 0

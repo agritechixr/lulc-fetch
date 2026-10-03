@@ -43,6 +43,9 @@
     <div class="menu"><button class="menu-btn">Embeddings</button>
       <div class="menu-pop wide" id="embed-menu"></div>
     </div>
+    <div class="menu"><button class="menu-btn">History</button>
+      <div class="menu-pop wide hist-menu" id="history-menu"></div>
+    </div>
     <div class="menu"><button class="menu-btn">View</button>
       <div class="menu-pop">
         <button data-cmd="toggle-contents" class="check" id="mi-contents">Contents panel<kbd>Ctrl+1</kbd></button>
@@ -1224,6 +1227,20 @@
     <pre class="rb-log" id="rb-log" title="Every step of this run"></pre>
     <div class="rb-actions" id="rb-actions"></div>
   </div>
+</div>
+
+<!-- History: every tool run (History menu ▸ ⓘ, or Open full history); moved by its title bar, resized from its corner -->
+<div class="rb-float hist-float hidden" id="hist-float" role="dialog" aria-labelledby="hist-title">
+  <div class="rb-float-head" id="hist-head" title="Drag to move">
+    <button type="button" class="rb-float-x hidden" id="hist-back" title="Back to the list" aria-label="Back">‹</button>
+    <b id="hist-title">History</b>
+    <button type="button" class="rb-float-x" id="hist-x" title="Close" aria-label="Close">×</button>
+  </div>
+  <div class="hist-tools" id="hist-tools">
+    <input type="search" id="hist-q" placeholder="Search: tool, layer, file, error…" autocomplete="off">
+    <select id="hist-status"><option value="">All</option><option value="done">Finished</option><option value="error">Failed</option><option value="cancelled">Cancelled</option><option value="running">Running</option></select>
+  </div>
+  <div class="hist-body" id="hist-body"></div>
 </div>
 
 <!-- ================= status bar ================= -->

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import logging
+import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -53,6 +54,17 @@ async def local_only(request: Request, call_next):
     origin_host = origin.split("://", 1)[-1].rsplit(":", 1)[0] if origin else None
     if host not in LOCAL_HOSTS or (origin_host and origin_host not in LOCAL_HOSTS):
         return JSONResponse({"detail": "forbidden"}, status_code=403)
+    if request.method == "POST" and request.url.path.startswith("/api/") and "json" in (request.headers.get("content-type") or ""):
+        import json as _json
+
+        from .jobs import REQUEST
+        try:   # remembered for the job this request may start: its settings go into History
+            REQUEST.set({"endpoint": request.url.path, "body": _json.loads(await request.body() or b"null")})
+        except ValueError:
+            REQUEST.set(None)
+    elif request.method == "POST":
+        from .jobs import REQUEST
+        REQUEST.set({"endpoint": request.url.path, "body": {}})
     return await call_next(request)
 
 
@@ -2366,6 +2378,55 @@ def det_train(req: DetTrainRequest):
 
     title = f"Train detection model · {dettrain.FAMILIES[req.family].split(' ')[0]} · {req.name}"
     return jobs.submit("dettrain", title, {"image": Path(inp["path"]).name}, run).to_dict()
+
+
+# ------------------------------------------------------------------ History (every tool run, kept in logs/history.jsonl)
+
+def _running_rows() -> list[dict]:
+    return [{"id": j.id, "kind": j.kind, "title": j.title, "status": j.status, "started": j.started or j.created, "finished": None,
+             "seconds": round(time.time() - (j.started or j.created), 1), "project": (ws.project() or {}).get("name"), "error": None}
+            for j in sorted(jobs.list(), key=lambda j: -j.created) if j.status in ("queued", "running")]
+
+
+@app.get("/api/history")
+def history_list(q: str = "", status: str = "", limit: int = 200):
+    from . import history
+    return history.listing(_running_rows(), q=q[:200], status=status, limit=max(1, min(limit, 2000)))
+
+
+@app.get("/api/history/{job_id}")
+def history_get(job_id: str):
+    from . import history
+    e = history.get(job_id)
+    if e is None:
+        j = next((j for j in jobs.list() if j.id == job_id), None)
+        if j is None:
+            raise HTTPException(404, "Not in the history")
+        req = j.request or {}
+        e = {"id": j.id, "kind": j.kind, "title": j.title, "status": j.status, "started": j.started or j.created, "finished": None,
+             "seconds": round(time.time() - (j.started or j.created), 1), "endpoint": req.get("endpoint"), "params": history.safe(j.params),
+             "settings": history.safe(req.get("body") or {}), "inputs": {}, "outputs": [], "summary": {}, "error": None, "log": j.logs[-40:],
+             "project": (ws.project() or {}).get("name"), "workspace": str(ws.root())}
+    return e
+
+
+@app.delete("/api/history")
+def history_clear():
+    from . import history
+    history.clear()
+    return {"ok": True}
+
+
+class HistoryCopy(BaseModel):
+    folder: str = Field(max_length=2000)
+    files: list[str] = Field(default_factory=list, max_length=500)
+
+
+@app.post("/api/history/{job_id}/copy")
+def history_copy(job_id: str, req: HistoryCopy):
+    from . import history
+    history.record_copy(job_id, req.folder, req.files)
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ error log (every failed tool run)
