@@ -53,7 +53,8 @@
       const STATUS = { disease: ["Disease", "c2"], healthy: ["Healthy", "c0"], variety: ["Variety", "c0"], retake: ["Retake photo", "c1"], no_model: ["No model", "c1"], error: ["Error", "c2"] };
       const REASON = { too_small: "Photo too small (under 96 pixels): take it closer", too_dark: "Too dark: take it in daylight", too_bright: "Too bright: avoid direct sun glare",
         no_detail: "No leaf to see (blank or plain surface)", blurry: "Blurry: hold still and tap the leaf to focus", not_leaf: "Not confidently a leaf of a supported crop: one leaf, filling the photo",
-        low_confidence: "The disease model is unsure: try a closer, sharper photo of the affected part", unreadable: "Couldn't read the photo" };
+        low_confidence: "The disease model is unsure: try a closer, sharper photo of the affected part", unreadable: "Couldn't read the photo",
+        crop_check: "Check the crop: leaves of related crops look alike, and the crop detectors can mix them up" };
       const COLORS = { disease: "#dc2626", healthy: "#16a34a", variety: "#16a34a", retake: "#d97706", no_model: "#64748b", error: "#64748b" };
       const thumb = (path, size = 160) => `/api/agri/photo?path=${encodeURIComponent(path)}&size=${size}`;
       const cropName = (c) => st.schema?.crops[c]?.name || c;
@@ -214,7 +215,30 @@
         renderPhotos();
       });
 
-      function renderResult() {
+      // recount after a photo was diagnosed again (same rules as the server)
+      function recount() {
+        const r = st.result, sum = {};
+        r.counts = Object.fromEntries(["disease", "healthy", "variety", "retake", "no_model", "error"].map((s) => [s, r.photos.filter((p) => p.status === s).length]));
+        r.photos.filter((p) => ["disease", "healthy", "variety"].includes(p.status)).forEach((p) => {
+          const k = JSON.stringify([p.crop_name, p.diagnosis, p.status]); sum[k] = (sum[k] || 0) + 1; });
+        r.summary = Object.entries(sum).map(([k, n]) => { const [crop, diagnosis, status] = JSON.parse(k); return { crop, diagnosis, status, count: n }; })
+          .sort((a, b) => b.count - a.count || a.crop.localeCompare(b.crop));
+      }
+      // a photo's crop was wrong: diagnose it again with the crop the user chose (only that photo)
+      async function recrop(i, crop, btn) {
+        const p = st.result.photos[i];
+        btn.disabled = true; btn.textContent = "Diagnosing…";
+        try {
+          const r = await runJob("/api/agri/diagnose", { photos: [p.path], crop, strict: $("#ad-strict").checked, device: $("#ad-device").value,
+                                                         name: `${st.result.name}_${p.file.replace(/\.[^.]+$/, "")}_as_${crop}` },
+                                 { tool: "agridisease", title: `Diagnosing ${p.file} as ${cropName(crop)}` });
+          st.result.photos[i] = { ...r.photos[0], rechecked: true };
+          recount();
+          renderResult(i);
+        } catch (e) { btn.disabled = false; btn.textContent = "Diagnose again"; if (LF.notCancelled(e)) toast(e.message, true); }
+      }
+
+      function renderResult(focus = null) {
         const r = st.result, c = r.counts, n = r.photos.length;
         const parts = [c.disease && `<b>${c.disease}</b> diseased`, c.healthy && `<b>${c.healthy}</b> healthy`, c.variety && `<b>${c.variety}</b> variety`,
                        c.retake && `<b>${c.retake}</b> to retake`, c.no_model && `<b>${c.no_model}</b> without a model`, c.error && `<b>${c.error}</b> unreadable`].filter(Boolean);
@@ -232,7 +256,7 @@
             </div>
             <p class="hint">${r.located ? `${r.located} of ${n} photos had a GPS position and are on the map (red diseased, green healthy, orange retake). ` : "No photo had a GPS position, so nothing was put on the map. "}The table (${esc(r.csv.split("/").pop())}) has one row per photo with the top 3 diagnoses and confidences.</p>
           </div>
-          ${list.map(card).join("")}
+          ${list.map((p, i) => card(p, i)).join("")}
           ${!st.showAll && n > LIMIT ? `<button class="btn" style="width:100%" data-ad-all>Show all ${n.toLocaleString()} photos</button>` : ""}`);
         $("[data-ad-table]", box).onclick = () => { const it = dataItems.find((d) => d.path === r.csv); it ? openItem(it) : addItem({ kind: "table", name: `${r.name}.csv`, path: r.csv }, { open: true }); };
         $("[data-ad-zoom]", box)?.addEventListener("click", () => { const l = layers.find((x) => x.path === r.geojson_path); if (l?.leaflet) map.fitBounds(l.leaflet.getBounds(), { maxZoom: 17, padding: [30, 30] }); });
@@ -240,16 +264,26 @@
         $("[data-ad-all]", box)?.addEventListener("click", () => { st.showAll = true; renderResult(); });
         $$("[data-ad-guide]", box).forEach((a) => a.onclick = (e) => { e.preventDefault(); openTool("agriguide", { crop: a.dataset.crop, disease: a.dataset.adGuide }); });
         $$("[data-ad-big]", box).forEach((im) => im.onclick = () => window.open(thumb(im.dataset.adBig, 0), "_blank", "noopener"));
-        box.scrollIntoView({ behavior: "smooth", block: "start" });
+        $$("[data-ad-recrop]", box).forEach((w) => $("button", w).onclick = (e) => recrop(+w.dataset.adRecrop, $("select", w).value, e.currentTarget));
+        if (focus != null) $(`[data-ad-card="${focus}"]`, box)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        else box.scrollIntoView({ behavior: "smooth", block: "start" });
       }
       // one photo: its status, crop, top 3 diagnoses, why it was refused, a link to the guide
-      function card(p) {
+      function card(p, i) {
         const [stText, stCls] = STATUS[p.status] || [p.status, "c1"];
         const diag = ["disease", "healthy", "variety"].includes(p.status);
         const reasons = [p.reason, ...(p.warnings || [])].filter(Boolean).map((x) => REASON[x] || x);
         const top = (p.top || []).map((t, i) => `<div class="ad-bar"><span>${i ? esc(t.name) : `<b>${esc(t.name)}</b>`}</span><span class="rb-track"><span class="rb-fill" style="width:${Math.max(1, 100 * t.conf)}%;${i ? "opacity:.45" : ""}"></span></span><span>${pct(t.conf)}</span></div>`).join("");
         const crop = p.crop_name ? `${esc(p.crop_name)}${p.crop_conf != null ? ` <small>(${pct(p.crop_conf)} sure${p.crop_top?.[1] && p.crop_top[1].conf > 0.1 ? `; or ${esc(p.crop_top[1].name)} ${pct(p.crop_top[1].conf)}` : ""})</small>` : ""}` : "";
-        return `<div class="card ad-card">
+        // "Wrong crop?": the likely alternatives first, then every crop that has a model
+        const have = new Set(st.schema?.models.crops || []), alts = (p.crop_alternatives || []).filter((a) => have.has(a.crop));
+        const others = Object.keys(st.schema?.crops || {}).filter((c) => have.has(c) && c !== p.crop && !alts.some((a) => a.crop === c))
+          .sort((a, b) => cropName(a).localeCompare(cropName(b)));
+        const recrop = p.crop && p.status !== "error" ? `<div class="ad-recrop" data-ad-recrop="${i}">${p.rechecked ? "✓ Diagnosed again as this crop · " : ""}Wrong crop?
+            <select>${alts.length ? `<optgroup label="Likely">${alts.map((a) => `<option value="${esc(a.crop)}">${esc(a.name)}</option>`).join("")}</optgroup>` : ""}
+              <optgroup label="${alts.length ? "Other crops" : "Crops"}">${others.map((c) => `<option value="${esc(c)}">${esc(cropName(c))}</option>`).join("")}</optgroup></select>
+            <button type="button" class="btn small">Diagnose again</button></div>` : "";
+        return `<div class="card ad-card" data-ad-card="${i}">
           <img class="ad-photo" src="${thumb(p.path, 240)}" alt="" data-ad-big="${esc(p.path)}" title="Open the full photo">
           <div class="ad-body">
             <div class="ad-file"><span class="pill ${stCls}">${stText}</span> <span title="${esc(p.path)}">${esc(p.file)}</span>${p.lat != null ? ` <span class="ad-gps" title="${p.lat}, ${p.lon}${p.taken ? ` · ${esc(p.taken)}` : ""}">📍</span>` : ""}</div>
@@ -258,6 +292,7 @@
             ${top ? `<div class="ad-bars">${top}</div>` : ""}
             ${reasons.length ? `<div class="hint" style="color:var(--warn)">${reasons.map(esc).join(" · ")}</div>` : ""}
             ${p.note && !reasons.length ? `<div class="hint">${esc(p.note)}</div>` : ""}
+            ${recrop}
             ${diag && p.status !== "variety" ? `<a href="#" class="small" data-ad-guide="${esc(p.diagnosis)}" data-crop="${esc(p.crop)}">${p.status === "healthy" ? `About ${esc(p.crop_name)} in the guide →` : `Symptoms &amp; treatment of ${esc(p.diagnosis)} →`}</a>` : ""}
           </div></div>`;
       }

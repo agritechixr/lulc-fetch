@@ -130,3 +130,25 @@ def test_no_function_is_defined_twice(client):
     names += re.findall(r"^  (?:const|let)\s+([A-Za-z_$][\w$]*)\s*=", js, re.M)
     twice = [n for n, k in Counter(names).items() if k > 1]
     assert not twice, f"defined more than once in app.js: {twice}"
+
+
+def test_app_script_parts():
+    """app.js is joined from webapp/static/app/ (parts.json, in order): every part exists, every file there is listed."""
+    import json
+    from pathlib import Path
+
+    d = Path(__file__).resolve().parent.parent / "webapp" / "static" / "app"
+    parts = json.loads((d / "parts.json").read_text(encoding="utf-8"))["parts"]
+    assert len(parts) == len(set(parts)), "a part is listed twice"
+    on_disk = {str(p.relative_to(d)) for p in d.rglob("*.js")}
+    assert set(parts) == on_disk, f"not listed: {on_disk - set(parts)}; missing: {set(parts) - on_disk}"
+
+
+def test_every_tool_has_its_own_routes_file():
+    """The server is one routes file per tool (webapp/routes/), included by server.py."""
+    from webapp import server
+
+    paths = set(server.app.openapi()["paths"])
+    for p in ("/api/pca/run", "/api/ml/train", "/api/dl/train", "/api/detect/run", "/api/emb/fetch", "/api/agri/diagnose",
+              "/api/history", "/api/stack", "/api/patches/make", "/api/rasterml/run", "/api/tables/from-raster"):
+        assert p in paths, f"{p} isn't served"

@@ -12,17 +12,25 @@ server.py, and import only from here and from lulc_fetch: changing one tool neve
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
 import re
+import warnings
 from pathlib import Path
 
+import numpy as np
 from fastapi import HTTPException
+from pydantic import BaseModel, Field
+from rasterio.errors import NotGeoreferencedWarning
+from rasterio.io import MemoryFile
 from shapely.geometry import shape
 
 from lulc_fetch.aoi import AOI
+from lulc_fetch.sources import SOURCES, get_source
 
+from . import credentials
 from . import workspace as ws
 from .jobs import JobManager
 
@@ -177,3 +185,140 @@ def require_dl() -> None:
     """Stop a tool that needs PyTorch when the add-on isn't installed."""
     if not dl_status()["available"]:
         raise HTTPException(400, "The deep-learning add-on isn't installed yet")
+
+
+# ------------------------------------------------------------------ used by several tools
+
+def source(name: str):
+    if name not in SOURCES:
+        raise HTTPException(400, f"Unknown source {name}")
+    return get_source(name, **credentials.source_kwargs(name))
+
+
+def png_data_url(rgba: np.ndarray) -> str:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", NotGeoreferencedWarning)
+        with MemoryFile() as mem:
+            with mem.open(driver="PNG", width=rgba.shape[2], height=rgba.shape[1],
+                          count=4, dtype="uint8") as dst:
+                dst.write(rgba)
+            return "data:image/png;base64," + base64.b64encode(mem.read()).decode()
+
+
+TABLE_EXTS = {".csv", ".parquet"}
+
+
+def table_path(rel: str) -> Path:
+    p = (ws.root() / rel).resolve()
+    if not p.is_relative_to(TABLE_DIR.resolve()) or p.suffix.lower() not in TABLE_EXTS or not p.is_file():
+        raise HTTPException(404, "No such table")
+    return p
+
+
+MODEL_DIR = ws.Dir("models")
+
+
+def model_path(rel: str) -> Path:
+    p = (ws.root() / rel).resolve()
+    if not p.is_relative_to(MODEL_DIR.resolve()) or p.suffix != ".joblib" or not p.is_file():
+        raise HTTPException(404, "No such model")
+    return p
+
+
+def report_folder(folder: str) -> Path:
+    """Validate a folder typed by the user for saving evaluation reports (created if missing)."""
+    import os
+    import tempfile
+
+    raw = folder.strip().strip('"').strip("'")
+    d = Path(os.path.expandvars(os.path.expanduser(raw)))
+    if not raw or not d.is_absolute():
+        raise HTTPException(400, "Give a full folder path, e.g. /Users/you/Documents/reports or ~/Documents/reports")
+    if d.exists() and not d.is_dir():
+        raise HTTPException(400, f"{d} is a file, not a folder")
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=d, prefix=".lulc_write_test_"):
+            pass
+    except OSError as e:
+        raise HTTPException(400, f"Can't write to {d}: {e.strerror or e}")
+    return d
+
+
+def copy_report(html: Path, folder: Path) -> Path:
+    """Copy an evaluation report into `folder` without overwriting an existing file."""
+    import shutil
+
+    dest, i = folder / html.name, 2
+    while dest.exists():
+        dest = folder / f"{html.name.removesuffix('.evaluation.html')}_{i}.evaluation.html"
+        i += 1
+    shutil.copy2(html, dest)
+    return dest
+
+
+class PatchInput(BaseModel):
+    path: str
+    bands: list[int] | None = None
+    name: str | None = Field(None, max_length=120)
+    scale: float = 1.0
+    offset: float = 0.0
+
+
+def companions(src: Path) -> list[Path]:
+    """Files that belong with src: shapefile parts, sidecar descriptions, world files, model reports."""
+    out = []
+    if src.suffix.lower() == ".shp":
+        out += [src.with_suffix(e) for e in (".shx", ".dbf", ".prj", ".cpg")]
+    out += [Path(str(src) + ".json"), Path(str(src) + ".aux.xml"), src.with_suffix(".pgw"), src.with_suffix(".tfw")]
+    if src.suffix == ".joblib":
+        out.append(src.with_suffix(".evaluation.html"))
+    return [p for p in out if p.is_file()]
+
+
+def save_into(src: Path, folder: Path) -> list[str]:
+    """Copy a workspace file (and its companions) into folder without overwriting. Zipped shapefiles are unpacked."""
+    import shutil
+    import zipfile
+
+    saved = []
+    if src.suffix.lower() == ".zip" and zipfile.is_zipfile(src):
+        with zipfile.ZipFile(src) as z:
+            members = [m for m in z.namelist() if not m.endswith("/") and "/" not in m.strip("/") and ".." not in m]
+            if any(m.lower().endswith(".shp") for m in members):
+                stems = {Path(m).stem for m in members}
+                rename = {}
+                for st in stems:
+                    new, i = st, 2
+                    while any((folder / f"{new}{Path(m).suffix}").exists() for m in members if Path(m).stem == st):
+                        new = f"{st}_{i}"
+                        i += 1
+                    rename[st] = new
+                for m in members:
+                    dest = folder / f"{rename[Path(m).stem]}{Path(m).suffix}"
+                    with z.open(m) as fin, open(dest, "wb") as fout:
+                        shutil.copyfileobj(fin, fout)
+                    saved.append(str(dest))
+                return saved
+    dest = unique(folder, src.name)
+    shutil.copy2(src, dest)
+    saved.append(str(dest))
+    for c in companions(src):
+        name = dest.name + c.name[len(src.name):] if c.name.startswith(src.name) else dest.stem + c.name[len(src.stem):]
+        if c.suffix == ".html" and src.suffix == ".joblib":
+            name = dest.with_suffix("").name + ".evaluation.html"
+        shutil.copy2(c, folder / name)
+        saved.append(str(folder / name))
+    return saved
+
+
+def vrt_to_tif(src: Path, out: Path) -> Path:
+    """A .SAFE import (a VRT that points at the original product) written as a real GeoTIFF."""
+    import rasterio
+    from rasterio.shutil import copy as rio_copy
+
+    with rasterio.open(src) as ds:
+        big = ds.width * ds.height * ds.count > 2**31
+    rio_copy(src, out, driver="GTiff", compress="deflate", tiled=True, blockxsize=512, blockysize=512,
+             BIGTIFF="YES" if big else "IF_SAFER", predictor=2)
+    return out
