@@ -3,7 +3,7 @@
     python -m lulc_fetch.agri.import_data ~/Desktop/Farmer_ai
 
 Copies, per crop: the model's class labels, its test results and the Q&A knowledge base; plus the two crop detectors'
-class lists. Model weights are not copied (they stay in the models folder chosen in the app).
+class lists. Model weights are not copied: they are published on Hugging Face (see publish.py) and downloaded by the app.
 """
 
 from __future__ import annotations

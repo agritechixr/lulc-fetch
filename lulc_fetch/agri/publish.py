@@ -8,7 +8,7 @@ SHA-256). Upload <out> to the model repository (HUB_REPO in disease.py) afterwar
 
 One repository per crop as well (timm format: timm.create_model("hf-hub:<repo>", pretrained=True)), and a collection:
 
-    python -m lulc_fetch.agri.publish --repos <out> <repos folder> [--upload]
+    python -m lulc_fetch.agri.publish --repos <out> <repos folder> [--upload | --cards]
 """
 
 from __future__ import annotations
@@ -79,6 +79,7 @@ def convert(src: Path, out: Path, photos: list[Path]) -> dict:
 OWNER = "ixrbhii"
 COMBINED = f"{OWNER}/multicrop-disease-models"
 QA_DATASET = f"{OWNER}/crop-disease-qa"
+COLLECTION = "https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993"
 CROP_NOTES = {   # shown on that crop's page, from the disease app's known limitations
     "Mulberry": "This model tells **varieties**, not diseases: there were no Mulberry disease photos to train on.",
     "Coffee": "*Cercospora brown eye spot* is usually missed: the model caught 1 of 11 test photos of it (few training photos).",
@@ -185,6 +186,7 @@ and then runs the right disease model, with a photo-quality check and a disease 
 
 ## Related
 
+- All 44 models (2 crop detectors, 42 crops) as separate repositories: [the collection]({COLLECTION})
 - All 44 models in one repository: [{COMBINED}](https://huggingface.co/{COMBINED})
 - Symptoms, treatment and pests for each disease: [{QA_DATASET}](https://huggingface.co/datasets/{QA_DATASET})
 
@@ -216,6 +218,15 @@ def build_repos(hub: Path, out: Path) -> list[tuple[str, Path]]:
     return built
 
 
+def upload_cards(built: list[tuple[str, Path]]):
+    """Upload only the README of each repository (after the cards changed)."""
+    from huggingface_hub import HfApi
+    api = HfApi()
+    for repo, folder in built:
+        api.upload_file(path_or_fileobj=str(folder / "README.md"), path_in_repo="README.md", repo_id=repo, commit_message="Update model card")
+        print("card", repo, flush=True)
+
+
 def upload_repos(built: list[tuple[str, Path]], collection_title: str = "Multi-crop disease models (42 crops)") -> str:
     """Create / update each repository and gather them, the combined repository and the Q&A dataset in one collection."""
     from huggingface_hub import HfApi
@@ -241,6 +252,8 @@ def main(argv: list[str]) -> int:
         print(f"{len(built)} repositories prepared in {argv[2]}")
         if "--upload" in argv:
             print("collection:", upload_repos(built))
+        elif "--cards" in argv:   # only the model cards changed
+            upload_cards(built)
         return 0
     if len(argv) < 2:
         print(__doc__)

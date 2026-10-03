@@ -9,8 +9,9 @@ Runs in the deep-learning helper process (lulc_fetch.dlrunner, action "diagnose"
 
 The limits are the disease app's (vision_model.py), calibrated on the models' test sets.
 
-Models folder: a copy of the disease repository (data/<Crop>/convnext_best.pth, master_model/crop_classifier_best.pth,
-master_model/new_crop_detector/convnext_best.pth), or the data/ folder itself.
+Models: downloaded from Hugging Face (HUB_REPO) into the app's agri_models/ folder the first time each is needed, checked
+against the published SHA-256; or a local copy of the disease repository (data/<Crop>/convnext_best.pth,
+master_model/crop_classifier_best.pth, master_model/new_crop_detector/convnext_best.pth), or its data/ folder.
 """
 
 from __future__ import annotations

@@ -82,7 +82,7 @@ The files are large (about 170–200 MB), because Python and all libraries are i
 
 **Using the app**
 - LULC Fetch opens in your web browser, and a small window lets you reopen it, open your data folder, or quit. Closing that window stops the app.
-- Everything runs on your own computer. The internet is only used to find and download satellite images, for background maps and for address search. All analysis and machine learning work offline.
+- Everything runs on your own computer. The internet is only used to find and download satellite images, for background maps, for address search, and to download a crop's disease model from Hugging Face the first time it's needed. All analysis and machine learning work offline.
 - Your files are kept in **Documents ▸ LULC Fetch**. Put Copernicus `.SAFE` products in its `data` folder. Projects can live in any folder.
 - **Deep-learning tools:** the first time you open one, it offers to install the free **PyTorch add-on** (about 0.8 GB on Mac; on Windows about 1.1 GB for CPU only or 3.5 GB with NVIDIA GPU support). It is downloaded once into the data folder; everything else works without it.
 

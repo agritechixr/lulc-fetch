@@ -6250,8 +6250,8 @@
     } else if (!m.folder) {
       box.innerHTML = `<div class="warn" style="margin-top:0">Choose the folder that holds the disease models: your copy of the disease app
           (<code>multicrop-disease-decision-support</code>) with <code>data/&lt;Crop&gt;/convnext_best.pth</code> and <code>master_model/</code>.
-          The model files aren't on GitHub (about 190 MB per crop).</div>
-        <button class="btn primary" style="margin-top:8px" data-ad-pick>Choose the models folder…</button>`;
+          Or download them from Hugging Face instead (about 95 MB per crop, each the first time it's needed).</div>
+        <div class="row tight" style="margin-top:8px;gap:6px;flex-wrap:wrap"><button class="btn primary" data-ad-hub>Download from Hugging Face</button><button class="btn" data-ad-pick>Choose the models folder…</button></div>`;
     } else {
       const missing = Object.keys(ad.schema.crops).filter((c) => !m.crops.includes(c));
       const dets = [m.detectors.includes("original") && `crop detector (${d.original.crops} crops, ${pct0(d.original.accuracy)} on test photos)`,

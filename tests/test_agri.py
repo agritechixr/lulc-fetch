@@ -1,8 +1,8 @@
 """Agri menu: Diagnose crop disease (leaf photos) and Crop disease guide (the knowledge base).
 
-The guide, the photo checks and the photo handling need nothing extra. Diagnosis needs the PyTorch add-on and the disease
-models folder (about 8 GB, not in git): those tests run when LULC_AGRI_MODELS points to it, or a copy of the disease repo
-is at ~/Desktop/Farmer_ai, and are skipped otherwise."""
+The guide, the photo checks, the photo handling and the Hugging Face download (against a local test server) need nothing
+extra. The diagnosis test needs the PyTorch add-on and a local copy of the disease models (the original .pth files): it runs
+when LULC_AGRI_MODELS points to it, or the disease repo is at ~/Desktop/Farmer_ai, and is skipped otherwise."""
 
 import io
 import os
