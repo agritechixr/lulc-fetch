@@ -56,7 +56,7 @@
     $, $$, esc, fmt, prefs, api, toast, status, map, layers, getLayer, addRasterFromPath, addVectorLayer, saveLayers,
     dataItems, addItem, openItem, trackJob, notCancelled, runJob, runButton, showResult: showRunResult, switchTool, openTool,
     getClip, refreshClipPicker, updateClipHint, startDraw, fillLayers, touched, autoName, limitDevices, stillImproving,
-    renderAddon, tipBtn, starMeta, modelPicker, searchPicker, pickFolder, floatWin,
+    renderAddon, tipBtn, modelPicker, searchPicker, pickFolder, floatWin,
   });
   LF.tools.forEach((t) => {   // each tool wires its panel once; a broken tool doesn't stop the others
     try { t.hooks = t.setup?.(LF) || {}; } catch (e) { t.hooks = {}; console.error(`Tool ${t.id}:`, e); toast(`The ${t.title} tool couldn't start: ${e.message}`, true); }

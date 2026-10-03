@@ -74,7 +74,7 @@
     const ys = dlx.status?.yolo?.available, groups = { tv: "torchvision · COCO (PyTorch add-on)", yolo: "YOLO26 · ultralytics", sam: "Segment Anything" };
     const needs = (fam) => fam !== "tv" && !ys ? "needs the YOLO & SAM add-on" : "";
     const items = Object.entries(ms).map(([k, m]) => ({ id: k, title: m.title, group: groups[m.family] + (needs(m.family) ? " (add-on not installed)" : ""),
-        badge: k === "yolo_obb" ? "aerial" : k === "yolo_detect" ? "recommended" : "", meta: starMeta(m.accuracy, m.speed, 5),
+        badge: k === "yolo_obb" ? "aerial" : k === "yolo_detect" ? "recommended" : "",
         tip: `${m.desc}${m.backbone ? ` Backbone: ${m.backbone}.` : ""}${m.mb ? ` Download ${m.mb} MB, once.` : ""}` }));
     items.sort((a, b) => (a.group.startsWith("YOLO") ? 0 : a.group.startsWith("torch") ? 1 : 2) - (b.group.startsWith("YOLO") ? 0 : b.group.startsWith("torch") ? 1 : 2));
     od.custom.forEach((m) => items.push({ id: "custom:" + m.folder, title: m.name, group: "Your trained models", badge: m.task === "obb" ? "rotated" : m.task === "segment" ? "outlines" : "",

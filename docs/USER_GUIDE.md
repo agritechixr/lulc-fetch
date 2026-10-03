@@ -315,7 +315,7 @@ Renamed or deleted band / label columns are updated in a table's description, so
 ## 4. Things every tool shares
 
 ### Choosing a model or method
-Wherever you choose a model or method (Train a model, Clustering, Classical ML for raster, PCA, Deep learning), a dropdown lists one row per option with its accuracy / speed stars. Click **ⓘ** on a row to read what it does; it doesn't select the row. Every setting also has an ⓘ with its explanation.
+Wherever you choose a model or method (Train a model, Clustering, Classical ML for raster, PCA, Deep learning), a dropdown lists one row per option, with a badge for the recommended (or fastest / smallest) one. Click **ⓘ** on a row to read what it does; it doesn't select the row. Every setting also has an ⓘ with its explanation.
 
 ### Finding a tool
 The **Tools** menu and the Start page list the tools in alphabetical order. *Classical ML (tabular data)* has its own tools as tabs at the top of its panel: **Overview** (your tables and models), **Train a model**, **Classify an image**, **Clustering** and **t-SNE map**; it reopens at the tab you used last. To read what a tool does, click the 👁 **eye** next to it (click again to hide it), or hover over the eye. The open tool has the same eye next to its title in the tool panel.
@@ -831,7 +831,7 @@ It works with any number of bands:
    | LightGBM, XGBoost, Extra Trees, Hist. Gradient Boosting | boosted / random trees | multispectral, hyperspectral |
    | Logistic Regression, Linear Discriminant, Naive Bayes, MLP | linear / probabilistic / small neural network | embeddings, hyperspectral |
 
-   Models marked **★ SUGGESTED** suit the detected kind of data.
+   Models marked **SUGGESTED** suit the detected kind of data.
 4. **Settings:**
    - The model's parameters.
    - **Preprocessing:** missing values, outliers, skew, scaling, and **Reduce bands (PCA)**. *Auto* reduces more than 30 bands to the components that keep 99 % of the variance (max 30). It is set automatically for Maximum Likelihood, LDA, Naive Bayes, k-NN, SVM and MLP on hyperspectral data.
@@ -1151,7 +1151,7 @@ it cuts the layer into patches (all bands), trains with early stopping, writes a
 2. **Labels:** polygons or points with a class field (Tools ▸ Training samples, a shapefile, GeoJSON…), or a class raster.
    Optionally an **Area** to train and map only part of the layer.
 3. **Model:** ENet, CGNet, DABNet (recommended), LEDNet, FDDWNet, LEANet, LSNet, EFSNet (smallest), FPENet or ADSCNet,
-   0.15–0.95 M parameters each, with accuracy / speed stars and ⓘ (see `lulc_fetch/lightseg/README.md`). They train from
+   0.15–0.95 M parameters each, with their size and ⓘ (see `lulc_fetch/lightseg/README.md`). They train from
    scratch, which suits embeddings: no pretrained weights expect 64 or 128 bands.
 4. **Training:** patch size **256 × 256** (128 or 64 with 50 % overlap for small labelled areas: more patches), epochs,
    batch size, learning rate, validation %, early stopping, rarer classes counting more, flips and rotations, device. With

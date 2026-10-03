@@ -3,7 +3,6 @@
 
   // ------------------------------------------------------------------ Classical ML: train a model / classify an image
   const mlx = { schema: null, desc: null, model: "rf", family: "All", report: null, cols: {}, tuneMethod: "random" };
-  const stars = (n) => "★".repeat(n) + "☆".repeat(3 - n);
   const pct = (v) => v == null ? "–" : `${(v * 100).toFixed(1)}%`;
   const COORDS = ["x", "y", "lon", "lat", "row", "col"];
 
@@ -165,7 +164,7 @@
     const fams = [...new Set(Object.values(sc.models).map((m) => m.family))];
     const items = fams.flatMap((f) => Object.entries(sc.models).filter(([, m]) => m.family === f).map(([k, m]) => {
       const why = !m.tasks.includes(task) ? `Not for ${task}` : sc.unavailable.includes(k) ? "Not installed" : "";
-      return { id: k, title: m.title, group: f, badge: m.recommended ? "recommended" : "", meta: starMeta(m.accuracy, m.speed), tip: descTip(m.desc, m.tip), disabled: !usable(k, m), why };
+      return { id: k, title: m.title, group: f, badge: m.recommended ? "recommended" : "", tip: descTip(m.desc, m.tip), disabled: !usable(k, m), why };
     }));
     modelPicker($("#mt-models"), { items, value: mlx.model, onChange: (k) => {
       mlx.model = k;

@@ -36,5 +36,4 @@
     btn.onkeydown = (e) => { if (e.key === "ArrowDown") { e.preventDefault(); open(true); } };
   }
   document.addEventListener("click", (e) => { if (!e.target.closest(".mp")) $$(".mp-list:not(.hidden)").forEach((l) => { l.classList.add("hidden"); l.previousElementSibling?.querySelector(".mp-btn")?.setAttribute("aria-expanded", "false"); }); });
-  const starMeta = (acc, speed, max = 3) => `<span title="Accuracy">Acc <b>${"★".repeat(acc)}${"☆".repeat(max - acc)}</b></span><span title="Speed">Speed <b>${"★".repeat(speed)}${"☆".repeat(max - speed)}</b></span>`;
   const descTip = (...parts) => parts.filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(" ");
