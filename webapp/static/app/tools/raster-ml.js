@@ -132,7 +132,7 @@
       items: keys.map((k) => {
         const m = sc.models[k], good = (rm.schema.good_for[k] || []).map((g) => rm.schema.kinds[g]?.title.replace(/ image$/, "").replace("Pixel ", "")).join(" · ");
         return { id: k, title: m.title, group: rec.length ? (rec.includes(k) ? `Suggested for this ${(rm.kind.title || "image").toLowerCase()}` : "Other models") : m.family,
-                 badge: rec.includes(k) ? "★ suggested" : "", meta: starMeta(m.accuracy, m.speed), tip: descTip(m.desc, m.tip, good ? `Good for: ${good}.` : "") };
+                 badge: rec.includes(k) ? "suggested" : "", tip: descTip(m.desc, m.tip, good ? `Good for: ${good}.` : "") };
       }) });
   }
   // settings: the model's parameters, preprocessing and validation, with recommendations for the detected kind

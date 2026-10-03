@@ -58,7 +58,7 @@
       </div>`,
 
     setup(LF) {
-      const { $, esc, fmt, prefs, api, toast, layers, getLayer, getClip, refreshClipPicker, renderAddon, modelPicker, starMeta,
+      const { $, esc, fmt, prefs, api, toast, layers, getLayer, getClip, refreshClipPicker, renderAddon, modelPicker,
               runJob, runButton, showResult, addRasterFromPath, openTool, fillLayers, touched, autoName, limitDevices } = LF;
       const st = { schema: null, arch: prefs.get("et-arch", "light_dabnet") };
       // labels: polygons / points with a class field, or a one-band class raster
@@ -79,9 +79,9 @@
       function renderModels() {
         const archs = Object.entries(st.schema.archs).filter(([, a]) => a.lib === "light");
         modelPicker($("#et-models"), { value: st.arch, onChange: (k) => { st.arch = k; prefs.set("et-arch", k); renderModels(); setName(); },
-          items: archs.map(([k, a]) => ({ id: k, title: a.title, group: "Light segmentation models (lulc_fetch/lightseg)",
+          items: archs.map(([k, a]) => ({ id: k, title: a.title, group: "Light segmentation models",
             badge: k === "light_dabnet" ? "recommended" : k === "light_efsnet" ? "smallest" : k === "light_enet" ? "fastest" : "",
-            meta: `${starMeta(a.accuracy, a.speed, 5)}<span title="Parameters">${a.params_m} M</span>`, tip: a.desc })) });
+            meta: `<span title="Parameters">${a.params_m} M parameters</span>`, tip: a.desc })) });
         $("#et-model-info").textContent = st.schema.archs[st.arch]?.desc || "";
       }
       const setName = () => autoName($("#et-name"), LF.emb.name(getLayer($("#et-layer").value)?.name, st.arch.replace("light_", "")));

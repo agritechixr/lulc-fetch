@@ -24,7 +24,7 @@
      switchTool openTool                   open a tool (openTool passes an argument to its open hook)
      getClip refreshClipPicker updateClipHint startDraw   areas and drawing
      fillLayers autoName touched limitDevices showResult   form helpers used by most tools
-     renderAddon tipBtn starMeta modelPicker searchPicker pickFolder floatWin   widgets
+     renderAddon tipBtn modelPicker searchPicker pickFolder floatWin   widgets
    Data shared by the tools of one menu goes in LF.<menu> (e.g. tools/embeddings/common.js → LF.emb).
 
    LF.html holds small HTML builders for panels (they run before the app starts, so they use nothing else). */

@@ -118,7 +118,7 @@
     const ms = ux.schema.methods;
     modelPicker($("#uc-methods"), { value: ux.method, onChange: (k) => { ux.method = k; renderMethodCards(); },
       items: Object.entries(ms).map(([k, m]) => ({ id: k, title: m.title, group: m.family, badge: m.recommended ? "recommended" : "",
-        meta: `<span>${m.k ? "you choose k" : "finds k itself"}${m.noise ? " · finds noise" : ""}</span><span title="Speed">Speed <b>${"★".repeat(m.speed)}${"☆".repeat(3 - m.speed)}</b></span>`,
+        meta: `<span>${m.k ? "you choose k" : "finds k itself"}${m.noise ? " · finds noise" : ""}</span>`,
         tip: descTip(m.desc, m.tip) })) });
     renderClusterParams(true);
   }

@@ -3,7 +3,6 @@
 
   // ------------------------------------------------------------------ Deep learning (optional PyTorch add-on): train + classify
   const dlx = { status: null, schema: null, arch: "unet", datasets: [], ds: null, models: [], dpOn: {} };
-  const stars5 = (n) => "★".repeat(n) + "☆".repeat(5 - n);
   async function dlStatus(force) {
     if (!dlx.status || force) dlx.status = await api("/api/dl/status");
     return dlx.status;
@@ -80,7 +79,7 @@
     const sc = dlx.schema;
     modelPicker($("#dt-archs"), { value: dlx.arch, onChange: (k) => { dlx.arch = k; renderDtArchs(); },
       items: Object.entries(sc.archs).map(([k, a]) => ({ id: k, title: a.title, group: { tv: "torchvision", yolo: "YOLO · ultralytics (YOLO & SAM add-on)" }[a.lib] || "segmentation-models-pytorch",
-        badge: k === "unet" ? "recommended" : "", meta: starMeta(a.accuracy, a.speed, 5), tip: a.desc })) });
+        badge: k === "unet" ? "recommended" : "", tip: a.desc })) });
     const a = sc.archs[dlx.arch], encs = a.encoders || sc.smp_encoders, cur = $("#dt-enc").value;
     $("#dt-enc").innerHTML = encs.map((e) => `<option value="${e}">${esc(sc.encoders[e])}</option>`).join("");
     $("#dt-enc").value = encs.includes(cur) ? cur : encs.includes("tu-mobilenetv3_large_100") ? "tu-mobilenetv3_large_100" : encs.includes("yolo-s") ? "yolo-s" : encs[0];
