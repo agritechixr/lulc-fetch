@@ -31,7 +31,7 @@ A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your 
 
 | Tool | What it does |
 |---|---|
-| **Diagnose crop disease** | Leaf photos → the crop (two ConvNeXt crop detectors, 42 crops) → its disease (one ConvNeXt model per crop, top 3 with confidence; 91–100 % on test photos). Add single photos or a whole survey folder. Unclear or non-leaf photos get "retake" instead of a guess. A results table, and **geotagged photos become a disease map** (point layer). Needs the deep-learning add-on; the models ([Hugging Face](https://huggingface.co/ixrbhii/multicrop-disease-models)) download by themselves the first time, about 95 MB per crop. |
+| **Diagnose crop disease** | Leaf photos → the crop (two ConvNeXt crop detectors, 42 crops) → its disease (one ConvNeXt model per crop, top 3 with confidence; 91–100 % on test photos). Add single photos or a whole survey folder. Unclear or non-leaf photos get "retake" instead of a guess. A results table, and **geotagged photos become a disease map** (point layer). Needs the deep-learning add-on; the models ([Hugging Face](https://huggingface.co/ixrbhii/multicrop-disease-models)) download by themselves the first time, about 95 MB per crop. Each crop's model is also its own timm repository ([collection](https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993)). |
 | **Crop disease guide** | About 9,000 expert questions and answers: symptoms, treatment, spray schedules and pests per crop and disease, searchable; offline. Diagnosis results link straight to their disease. Also a dataset: [ixrbhii/crop-disease-qa](https://huggingface.co/datasets/ixrbhii/crop-disease-qa). |
 
 Across the app:
