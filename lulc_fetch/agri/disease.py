@@ -269,13 +269,25 @@ class _Model:
         return [(self.classes[i], float(p[i])) for i in order]
 
 
+def _device(name: str):
+    import torch
+    if name == "cuda" or (name == "auto" and torch.cuda.is_available()):
+        if not torch.cuda.is_available():
+            raise ValueError("No NVIDIA GPU (CUDA) is available on this computer")
+        return torch.device("cuda")
+    if name == "mps" or (name == "auto" and torch.backends.mps.is_available()):
+        if not torch.backends.mps.is_available():
+            raise ValueError("The Apple GPU (MPS) isn't available on this computer")
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 class Models:
     """Loads models when first needed and keeps the most recent few crop models (about 200 MB each) in memory."""
 
     def __init__(self, found: dict, device: str = "auto", keep: int = 4):
-        from .. import dl
         self.found, self.keep, self.cache, self.index = found, keep, OrderedDict(), None
-        self.device = dl._device(device)
+        self.device = _device(device)
 
     @staticmethod
     def _title(key: str) -> str:
@@ -408,11 +420,17 @@ def diagnose(photos: list[str], models_dir: str, out_dir: str, name: str = "diag
     models = Models(found, device)
     log.info("Diagnosing %d photo%s on %s · %s", len(photos), "s" if len(photos) != 1 else "", models.device,
              "crop detected from each photo" if crop == "auto" else _crop_name(crop))
+    results = run_all(photos, lambda p: diagnose_one(models, p, crop, th, strict))
+    return write_outputs(results, out_dir, name, str(models.device), t0)
+
+
+def run_all(photos: list[str], one) -> list[dict]:
+    """one(path) for every photo, with progress, a log line each, and an error row instead of stopping."""
     results = []
     for i, p in enumerate(photos):
         progress.update(i / max(len(photos), 1), f"Photo {i + 1} of {len(photos)}: {Path(p).name}")
         try:
-            r = diagnose_one(models, p, crop, th, strict)
+            r = one(p)
         except progress.Cancelled:
             raise
         except Exception as e:
@@ -421,6 +439,11 @@ def diagnose(photos: list[str], models_dir: str, out_dir: str, name: str = "diag
         results.append(r)
         log.info("%s → %s", r["file"], f"{r.get('crop_name')}: {r['diagnosis']} ({100 * r['conf']:.0f} %)" if r["status"] in ("disease", "healthy", "variety")
                  else ISSUE_TEXT.get(r.get("reason"), r.get("note") or r["status"]))
+    return results
+
+
+def write_outputs(results: list[dict], out_dir: str, name: str, device: str, t0: float) -> dict:
+    """<name>.csv (one row per photo) and <name>.geojson (photos with a GPS position), and the summary."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     csv_path = out / f"{name}.csv"
@@ -444,4 +467,4 @@ def diagnose(photos: list[str], models_dir: str, out_dir: str, name: str = "diag
     return {"photos": results, "csv": str(csv_path), "geojson_path": str(gj_path) if gj_path else None, "located": len(feats),
             "counts": counts, "summary": [{"crop": c, "diagnosis": d, "status": s, "count": n} for (c, d, s), n in
                                           sorted(summary.items(), key=lambda x: (-x[1], x[0]))],
-            "device": str(models.device), "seconds": round(time.time() - t0, 1)}
+            "device": device, "seconds": round(time.time() - t0, 1)}

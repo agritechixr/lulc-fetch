@@ -9,6 +9,10 @@ SHA-256). Upload <out> to the model repository (HUB_REPO in disease.py) afterwar
 One repository per crop as well (timm format: timm.create_model("hf-hub:<repo>", pretrained=True)), and a collection:
 
     python -m lulc_fetch.agri.publish --repos <out> <repos folder> [--upload | --cards]
+
+The Space that diagnoses photos online (so the app needs no model download), from huggingface/space/ and this code:
+
+    python -m lulc_fetch.agri.publish --space <folder> [--upload]
 """
 
 from __future__ import annotations
@@ -79,6 +83,7 @@ def convert(src: Path, out: Path, photos: list[Path]) -> dict:
 OWNER = "ixrbhii"
 COMBINED = f"{OWNER}/multicrop-disease-models"
 QA_DATASET = f"{OWNER}/crop-disease-qa"
+SPACE = f"{OWNER}/crop-disease-diagnosis"   # runs the diagnosis online (huggingface/space/ + this package's agri code)
 COLLECTION = "https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993"
 CROP_NOTES = {   # shown on that crop's page, from the disease app's known limitations
     "Mulberry": "This model tells **varieties**, not diseases: there were no Mulberry disease photos to train on.",
@@ -246,7 +251,39 @@ def upload_repos(built: list[tuple[str, Path]], collection_title: str = "Multi-c
     return f"https://huggingface.co/collections/{col.slug}"
 
 
+def build_space(out: Path) -> Path:
+    """The Space folder: huggingface/space/ (app, requirements, card) plus the agri code and data it runs."""
+    import shutil
+    pkg = Path(__file__).resolve().parent            # lulc_fetch/agri
+    src = pkg.parent.parent / "huggingface" / "space"
+    if out.exists():
+        shutil.rmtree(out)
+    shutil.copytree(src, out, ignore=shutil.ignore_patterns("__pycache__"))
+    (out / "lulc_fetch" / "agri").mkdir(parents=True)
+    (out / "lulc_fetch" / "__init__.py").write_text('"""Just the parts of LULC Fetch this Space needs (lulc_fetch/agri)."""\n')
+    shutil.copyfile(pkg.parent / "progress.py", out / "lulc_fetch" / "progress.py")
+    for f in ("__init__.py", "disease.py", "knowledge.py", "labels.py", "import_data.py"):
+        shutil.copyfile(pkg / f, out / "lulc_fetch" / "agri" / f)
+    shutil.copytree(pkg / "data", out / "lulc_fetch" / "agri" / "data")
+    return out
+
+
+def upload_space(folder: Path) -> str:
+    from huggingface_hub import HfApi
+    api = HfApi()
+    api.create_repo(SPACE, repo_type="space", space_sdk="gradio", exist_ok=True)
+    api.upload_folder(folder_path=str(folder), repo_id=SPACE, repo_type="space", commit_message="Update the Space from LULC Fetch",
+                      delete_patterns=["lulc_fetch/**"])
+    return f"https://huggingface.co/spaces/{SPACE}"
+
+
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["--space"]:   # python -m lulc_fetch.agri.publish --space <out folder> [--upload]
+        out = build_space(Path(argv[1]).expanduser())
+        print("Space prepared in", out)
+        if "--upload" in argv:
+            print("Space:", upload_space(out))
+        return 0
     if argv[:1] == ["--repos"]:   # python -m lulc_fetch.agri.publish --repos <converted folder> <out> [--upload]
         built = build_repos(Path(argv[1]).expanduser(), Path(argv[2]).expanduser())
         print(f"{len(built)} repositories prepared in {argv[2]}")
