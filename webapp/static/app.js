@@ -6139,8 +6139,89 @@
     } finally { btn.disabled = false; }
   };
 
+  // ------------------------------------------------------------------ searchable picker: type letters, the matching items are listed
+  // items: { id, title, aliases?, keywords?, sub?, group?, disabled? }. Matches the title, the aliases (e.g. local crop names) and,
+  // for 3+ letters, the keywords (e.g. disease names); names that start with the letters come first.
+  function searchPicker(el, { items, value, onChange, placeholder = "Type to search…", empty = "Nothing matches" }) {
+    const norm = (s) => String(s || "").toLowerCase().replace(/[_\W]+/g, " ").trim();
+    el.classList.add("cc");
+    el.innerHTML = `<div class="cc-box"><input type="text" class="cc-in" role="combobox" aria-expanded="false" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="${esc(placeholder)}">
+      <button type="button" class="cc-caret" tabindex="-1" aria-label="Show the whole list">▾</button></div><div class="cc-list hidden" role="listbox"></div>`;
+    const inp = $(".cc-in", el), list = $(".cc-list", el);
+    let cur = value, shown = [], act = -1;
+    const title = () => items.find((i) => i.id === cur)?.title || "";
+    const isOpen = () => !list.classList.contains("hidden");
+    function matches(q) {
+      if (!q) return items.map((it) => ({ it, why: "" }));
+      const out = [];
+      for (const it of items) {
+        let rank = 9, why = "";
+        [it.title, it.id, ...(it.aliases || [])].map(norm).forEach((n, k) => {
+          const r = n.startsWith(q) ? (k ? 1 : 0) : n.split(" ").some((w) => w.startsWith(q)) ? 2 : n.includes(q) ? 3 : 9;
+          if (r < rank) { rank = r; why = k > 1 ? n : ""; }
+        });
+        if (rank === 9 && q.length >= 3) {
+          const kw = (it.keywords || []).find((w) => norm(w).includes(q));
+          if (kw) { rank = 4; why = kw; }
+        }
+        if (rank < 9) out.push({ it, rank, why });
+      }
+      return out.sort((a, b) => a.rank - b.rank || a.it.title.localeCompare(b.it.title));
+    }
+    const mark = (text, q) => {
+      const i = q ? text.toLowerCase().indexOf(q) : -1;
+      return i < 0 ? esc(text) : `${esc(text.slice(0, i))}<mark>${esc(text.slice(i, i + q.length))}</mark>${esc(text.slice(i + q.length))}`;
+    };
+    function render(raw) {
+      const q = norm(raw), m = matches(q);
+      shown = m.map((x) => x.it);
+      let last = null;
+      list.innerHTML = m.length ? m.map(({ it, why }, i) => {
+        const g = !q && it.group && it.group !== last ? `<div class="cc-group">${esc(it.group)}</div>` : "";
+        last = it.group;
+        const sub = why ? `matches “${why}”` : it.sub || "";
+        return `${g}<div role="option" class="cc-row ${it.id === cur ? "on" : ""} ${it.disabled ? "off" : ""}" data-i="${i}" aria-selected="${it.id === cur}">
+          <span>${mark(it.title, q)}</span>${sub ? `<small>${q ? mark(sub, q) : esc(sub)}</small>` : ""}</div>`;
+      }).join("") : `<div class="cc-empty">${esc(empty)}: “${esc(raw.trim())}”</div>`;
+      act = q ? shown.findIndex((it) => !it.disabled) : shown.findIndex((it) => it.id === cur);
+      highlight();
+      $$(".cc-row", list).forEach((r) => r.onmousedown = (e) => { e.preventDefault(); choose(shown[+r.dataset.i]); });
+    }
+    function highlight() {
+      $$(".cc-row", list).forEach((r) => r.classList.toggle("act", +r.dataset.i === act));
+      $(".cc-row.act", list)?.scrollIntoView({ block: "nearest" });
+    }
+    const open = (on) => { list.classList.toggle("hidden", !on); inp.setAttribute("aria-expanded", on); el.classList.toggle("open", on); };
+    function choose(it) {
+      if (!it || it.disabled) return;
+      const changed = it.id !== cur;
+      cur = it.id; stop(); inp.blur();
+      if (changed) onChange(it.id);
+    }
+    // while the list is open the box is empty (the current choice shows greyed), so letters always start a new search
+    const start = () => { inp.placeholder = title() || placeholder; inp.value = ""; render(""); open(true); };
+    const stop = () => { open(false); inp.value = title(); inp.placeholder = placeholder; };
+    inp.value = title();
+    inp.onfocus = start;
+    inp.onmousedown = () => { if (document.activeElement === inp && !isOpen()) start(); };
+    inp.oninput = () => { render(inp.value); open(true); };
+    inp.onblur = stop;
+    inp.onkeydown = (e) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (!isOpen()) { start(); return; }
+        let i = act;
+        do { i += e.key === "ArrowDown" ? 1 : -1; } while (shown[i]?.disabled);
+        if (shown[i]) { act = i; highlight(); }
+      } else if (e.key === "Enter") { e.preventDefault(); if (isOpen()) choose(shown[act]); }
+      else if (e.key === "Escape" && isOpen()) { e.preventDefault(); stop(); inp.select(); }
+    };
+    $(".cc-caret", el).onmousedown = (e) => { e.preventDefault(); if (isOpen()) { open(false); inp.blur(); } else inp.focus(); };
+    return { set: (id) => { cur = id; inp.value = title(); }, get: () => cur };
+  }
+
   // ------------------------------------------------------------------ Agri: Diagnose crop disease (leaf photos → crop → disease)
-  const ad = { schema: null, photos: prefs.get("ad-photos", []), result: null, showAll: false };
+  const ad = { schema: null, photos: prefs.get("ad-photos", []), result: null, showAll: false, crop: prefs.get("ad-crop", "auto") };
   const AD_STATUS = { disease: ["Disease", "c2"], healthy: ["Healthy", "c0"], variety: ["Variety", "c0"], retake: ["Retake photo", "c1"], no_model: ["No model", "c1"], error: ["Error", "c2"] };
   const AD_REASON = { too_small: "Photo too small (under 96 pixels): take it closer", too_dark: "Too dark: take it in daylight", too_bright: "Too bright: avoid direct sun glare",
     no_detail: "No leaf to see (blank or plain surface)", blurry: "Blurry: hold still and tap the leaf to focus", not_leaf: "Not confidently a leaf of a supported crop: one leaf, filling the photo",
@@ -6183,16 +6264,21 @@
     });
   }
   function renderAdCrops() {
-    const sc = ad.schema, have = new Set(sc.models.crops), sel = $("#ad-crop"), cur = sel.value || prefs.get("ad-crop", "auto");
+    const sc = ad.schema, have = new Set(sc.models.crops);
     const crops = Object.entries(sc.crops).sort((a, b) => a[1].name.localeCompare(b[1].name));
     const canDetect = sc.models.detectors.length > 0;
-    sel.innerHTML = `<option value="auto" ${canDetect ? "" : "disabled"}>Detect the crop in each photo${canDetect ? "" : " (no crop detector)"}</option>
-      <optgroup label="Or every photo is of…">${crops.map(([k, c]) => `<option value="${esc(k)}" ${have.has(k) ? "" : "disabled"}>${esc(c.name)}${have.has(k) ? "" : " · no model"}</option>`).join("")}</optgroup>`;
-    sel.value = [...sel.options].some((o) => o.value === cur && !o.disabled) ? cur : canDetect ? "auto" : (crops.find(([k]) => have.has(k)) || [""])[0];
+    const items = [{ id: "auto", title: "Detect the crop in each photo", sub: canDetect ? "recommended when photos are of several crops" : "the models folder has no crop detector",
+                     group: "Automatic", disabled: !canDetect },
+      ...crops.map(([k, c]) => ({ id: k, title: c.name, aliases: c.aliases, keywords: c.labels, group: "Or every photo is of one crop",
+                                  sub: have.has(k) ? [c.aliases.slice(0, 3).join(", "), `${c.labels.length} classes`].filter(Boolean).join(" · ") : "no model in the models folder",
+                                  disabled: !have.has(k) }))];
+    if (!items.some((it) => it.id === ad.crop && !it.disabled)) ad.crop = canDetect ? "auto" : (items.find((it) => !it.disabled) || {}).id || "";
+    searchPicker($("#ad-crop"), { items, value: ad.crop, placeholder: "Type a crop: e.g. tom, paddy, aloo…", empty: "No crop matches",
+                                  onChange: (k) => { ad.crop = k; adCropInfo(); } });
     adCropInfo();
   }
   function adCropInfo() {
-    const sc = ad.schema, c = $("#ad-crop").value, info = $("#ad-crop-info");
+    const sc = ad.schema, c = ad.crop, info = $("#ad-crop-info");
     if (c === "auto") {
       const d = sc.detectors;
       info.innerHTML = `The crop detectors recognise ${d.original.crops} crops (${pct0(d.original.accuracy)} correct on ${d.original.test_images?.toLocaleString()} test photos) and ${d.new.crops} more (${pct0(d.new.accuracy)}). ` +
@@ -6206,7 +6292,6 @@
     }
     prefs.set("ad-crop", c);
   }
-  $("#ad-crop").onchange = adCropInfo;
 
   function saveAdPhotos() { prefs.set("ad-photos", ad.photos.slice(0, 3000)); }
   function addAdPhotos(list) {
@@ -6270,7 +6355,8 @@
     if (!ad.photos.length) return toast("Add leaf photos first", true);
     if (!ad.schema?.models.folder) return toast("Choose the disease models folder first", true);
     const name = $("#ad-name").value.trim() || "diagnosis";
-    const body = { photos: ad.photos.map((p) => p.path), crop: $("#ad-crop").value, strict: $("#ad-strict").checked, device: $("#ad-device").value, name };
+    if (!ad.crop) return toast("Choose the crop", true);
+    const body = { photos: ad.photos.map((p) => p.path), crop: ad.crop, strict: $("#ad-strict").checked, device: $("#ad-device").value, name };
     const btn = $("#ad-run"); btn.disabled = true; $("#ad-result").classList.add("hidden");
     try {
       const job = await api("/api/agri/diagnose", { method: "POST", json: body });
@@ -6341,20 +6427,21 @@
   }
 
   // ------------------------------------------------------------------ Agri: Crop disease guide (the knowledge base)
-  const ag = { schema: null, crop: prefs.get("ag-crop", "Mango"), disease: null, section: null, diseases: [], seq: 0 };
+  const ag = { schema: null, crop: prefs.get("ag-crop", "Mango"), disease: null, section: null, diseases: [], seq: 0, picker: null };
   async function refreshAg() {
     if (!ag.schema) {
       try { ag.schema = await api("/api/agri/schema"); } catch (e) { toast(e.message, true); return; }
-      const crops = Object.entries(ag.schema.crops).sort((a, b) => a[1].name.localeCompare(b[1].name));
-      const full = crops.filter(([, c]) => !c.limited_kb), lim = crops.filter(([, c]) => c.limited_kb);
-      const opt = ([k, c]) => `<option value="${esc(k)}">${esc(c.name)}${c.aliases.length ? ` (${esc(c.aliases.slice(0, 3).join(", "))})` : ""}</option>`;
-      $("#ag-crop").innerHTML = `<optgroup label="Full guide: symptoms, treatment, pests">${full.map(opt).join("")}</optgroup><optgroup label="Symptoms only">${lim.map(opt).join("")}</optgroup>`;
-      $("#ag-crop").onchange = () => { ag.crop = $("#ag-crop").value; ag.disease = null; ag.section = null; prefs.set("ag-crop", ag.crop); loadAgCrop(); };
+      const crops = Object.entries(ag.schema.crops).sort((a, b) => (a[1].limited_kb - b[1].limited_kb) || a[1].name.localeCompare(b[1].name));
+      ag.picker = searchPicker($("#ag-crop"), { value: ag.crop, placeholder: "Type a crop: e.g. man, paddy, bhindi…", empty: "No crop matches",
+        items: crops.map(([k, c]) => ({ id: k, title: c.name, aliases: c.aliases, keywords: c.labels,
+          group: c.limited_kb ? "Symptoms only" : "Full guide: symptoms, treatment, pests",
+          sub: [c.aliases.slice(0, 3).join(", "), `${c.kb_records.toLocaleString()} answers`].filter(Boolean).join(" · ") })),
+        onChange: (k) => { ag.crop = k; ag.disease = null; ag.section = null; prefs.set("ag-crop", k); loadAgCrop(); } });
       let t = 0;
       $("#ag-q").oninput = () => { clearTimeout(t); t = setTimeout(renderAgRecords, 250); };
     }
     if (!ag.schema.crops[ag.crop]) ag.crop = "Mango";
-    $("#ag-crop").value = ag.crop;
+    ag.picker.set(ag.crop);
     await loadAgCrop();
   }
   function openGuide(crop, disease) {
