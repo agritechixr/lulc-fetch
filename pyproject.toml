@@ -32,10 +32,11 @@ lulc-fetch-web = "webapp.server:main"
 lulc-fetch-app = "webapp.desktop:main"
 
 [tool.setuptools]
-packages = ["lulc_fetch", "webapp"]
+packages = ["lulc_fetch", "lulc_fetch.agri", "webapp"]
 
 [tool.setuptools.package-data]
 webapp = ["static/*"]
+"lulc_fetch.agri" = ["data/*.json", "data/kb/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -23,6 +23,8 @@ uploads/
 analysis/
 exports/
 data/
+# ...except the Agri tools' crop labels and knowledge base (part of the app)
+!lulc_fetch/agri/data/
 imports/
 tables/
 models/

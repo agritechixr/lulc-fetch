@@ -68,6 +68,9 @@ def cli(argv: list[str]) -> int:
         elif req["action"] == "train_detector":
             from . import dettrain
             res = dettrain.train(**req["kwargs"])
+        elif req["action"] == "diagnose":
+            from .agri import disease
+            res = disease.diagnose(**req["kwargs"])
         elif req["action"] == "status":
             res = dl.status()
         else:

@@ -12,6 +12,7 @@ import re as _re
 APP_VERSION = (_re.match(r"\d+(\.\d+)*", os.environ.get("LULC_VERSION", "0.1.0").lstrip("v")) or _re.match(r".*", "0.1.0")).group(0)
 WIN, MAC = sys.platform.startswith("win"), sys.platform == "darwin"
 datas = [(os.path.join(ROOT, "webapp", "static"), os.path.join("webapp", "static")),
+         (os.path.join(ROOT, "lulc_fetch", "agri", "data"), os.path.join("lulc_fetch", "agri", "data")),   # crop labels + knowledge base
          (os.path.join(SPECPATH, "LULC Fetch.ico"), "packaging")]
 binaries = []
 hiddenimports = (collect_submodules("webapp") + collect_submodules("lulc_fetch") + collect_submodules("uvicorn")

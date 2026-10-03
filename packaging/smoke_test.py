@@ -53,7 +53,10 @@ def main():
             time.sleep(1)
         assert j["status"] == "done" and j["result"]["ok"], j.get("error") or j.get("result")
         assert "python ok" in j["result"]["output"]
-        print("Smoke test passed: UI, map library, ML libraries, field calculator, Python runner")
+        agri = get("/api/agri/schema")   # crop labels and the knowledge base are bundled
+        assert len(agri["crops"]) >= 42, f"agri data not bundled: {len(agri['crops'])} crops"
+        assert get("/api/agri/guide/search?crop=Mango&q=anthracnose")["total"] > 0
+        print("Smoke test passed: UI, map library, ML libraries, field calculator, Python runner, agri data")
     except BaseException:
         log = home / "logs" / "app.log"
         if log.exists():

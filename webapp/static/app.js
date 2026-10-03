@@ -192,6 +192,8 @@
     detect: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".45"/><rect x="6" y="7" width="7" height="6" rx=".5"/><rect x="12" y="13" width="6" height="5" rx=".5" fill="currentColor" fill-opacity=".35"/><path d="M6 5.5h3"/>',
     patches: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" opacity=".55"/><rect x="9" y="9" width="6" height="6" fill="currentColor" stroke="none" opacity=".8"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>',
+    leaf: '<path d="M5 19C5 10 10 5 20 4c-1 10-6 15-15 15z"/><path d="M5 19l8-8" opacity=".7"/><circle cx="14" cy="9.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="10.5" cy="13.5" r="1" fill="currentColor" stroke="none"/>',
+    book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M12 7.5c-2 .5-3 2-3 4 2 0 3.5-1.5 3-4zM12 7.5c1.5 1 2 2.5 1.5 4.5" opacity=".75"/>',
   };
   const svg = (name, w = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
   const TOOLS = [
@@ -210,7 +212,11 @@
     { id: "patches", title: "Make training data", icon: "patches", subtitle: "Cut large images and their ground truth into image / label patches for deep-learning training" },
     { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
+    // the Agri menu
+    { id: "agridisease", menu: "agri", title: "Diagnose crop disease", icon: "leaf", subtitle: "Find the disease on leaf photos of 42 crops (apple, mango, rice, tomato, maize…): the crop is recognised, then its ConvNeXt model gives the top 3 diseases. Unclear photos are refused; photos with GPS become a disease map" },
+    { id: "agriguide", menu: "agri", title: "Crop disease guide", icon: "book", subtitle: "Symptoms, treatment and pests for each crop and disease, from a knowledge base of about 9,000 expert questions and answers; searchable" },
   ];
+  const AGRI_SHORTCUTS = ["analyze", "search"];   // other tools listed under Agri too
   let currentTool = "home";
 
   // Tools are listed A–Z; each explanation is behind an eye button (click it to show / hide, or hover for a tooltip)
@@ -231,9 +237,14 @@
   }
   function buildToolsMenu() {
     const tools = [...TOOLS].sort(byTitle), subs = [...ML_SUBTOOLS].sort(byTitle);
-    $("#tools-menu").innerHTML = tools.map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t) +
+    $("#tools-menu").innerHTML = tools.filter((t) => !t.menu).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t) +
         (t.id === "ml" ? subs.map((st) => toolEntry("tool-item sub", `data-tool="ml" data-sub="${st.id}"`, st, false)).join("") : "")).join("");
     wireEntries($("#tools-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); if (b.dataset.tool === "ml") openMlSub(b.dataset.sub || null); toggleMenu(null); });
+    $("#agri-menu").innerHTML = TOOLS.filter((t) => t.menu === "agri").map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t)).join("") +
+      `<hr><div class="menu-label">Also useful for crops</div>` +
+      AGRI_SHORTCUTS.map((id) => TOOLS.find((t) => t.id === id)).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`,
+        t.id === "analyze" ? { ...t, subtitle: "Crop health and vigour from satellite images: NDVI, EVI, SAVI, NDRE, NDWI and more" } : t)).join("");
+    wireEntries($("#agri-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });
     $("#tool-cards").innerHTML = tools.map((t) => toolEntry("tool-card", `data-tool="${t.id}"`, t)).join("");
     wireEntries($("#tool-cards"), "[data-tool]", (b) => switchTool(b.dataset.tool));
   }
@@ -257,7 +268,7 @@
     $("#tool-eye").title = tool.subtitle;
     $("#tool-eye").classList.toggle("hidden", tool.id === "home");
     $("#active-tool").innerHTML = tool.id === "home" ? "" : `Tool: <b>${esc(tool.title)}</b>`;
-    $$("#tools-menu [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === tool.id));
+    $$("#tools-menu [data-tool], #agri-menu [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === tool.id));
     document.title = tool.id === "home" ? "LULC Fetch" : `${tool.title} · LULC Fetch`;
     setPane("tools", true);
     renderRunBar();
@@ -274,6 +285,8 @@
     if (tool.id === "dlpredict") refreshDp();
     if (tool.id === "detect") refreshOd();
     if (tool.id === "traindet") refreshTd();
+    if (tool.id === "agridisease") refreshAd();
+    if (tool.id === "agriguide") refreshAg();
     if (tool.id === "samples") renderSamples();
     if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
@@ -2146,7 +2159,7 @@
     e.preventDefault();
     dragDepth = 0;
     $("#drop-overlay").classList.add("hidden");
-    if (e.target.closest("#drop, #an-drop")) return;  // the AOI upload box handles its own drops
+    if (e.target.closest("#drop, #an-drop, #ad-drop")) return;  // these upload boxes handle their own drops
     // entries must be read during the event; folders (e.g. a .SAFE product) only show up this way
     const entries = [...(e.dataTransfer.items || [])].map((i) => i.kind === "file" && i.webkitGetAsEntry ? i.webkitGetAsEntry() : null);
     if (entries.some((x) => x?.isDirectory)) addDropped(entries.filter(Boolean)).catch((err) => toast(err.message, true));
@@ -3339,7 +3352,7 @@
     }
     for (const j of list) {
       // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
-      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches", "dltrain", "dlpredict", "detect", "dettrain", "dlinstall"].includes(j.kind)) continue;
+      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches", "dltrain", "dlpredict", "detect", "dettrain", "dlinstall", "diagnose"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
@@ -5632,7 +5645,7 @@
         await trackJob(job, { title: "Installing the deep-learning add-on" });
         await dlStatus(true);
         toast("Deep-learning add-on installed");
-        renderAddon(panel).then((ok) => ok && ({ "tab-dltrain": refreshDt, "tab-detect": refreshOd, "tab-traindet": refreshTd }[panel.id] || refreshDp)());
+        renderAddon(panel).then((ok) => ok && ({ "tab-dltrain": refreshDt, "tab-detect": refreshOd, "tab-traindet": refreshTd, "tab-agridisease": refreshAd }[panel.id] || refreshDp)());
       } catch (err) { if (notCancelled(err)) toast(err.message, true); }
       finally { btn.disabled = false; }
     };
@@ -6125,6 +6138,274 @@
       if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
     } finally { btn.disabled = false; }
   };
+
+  // ------------------------------------------------------------------ Agri: Diagnose crop disease (leaf photos → crop → disease)
+  const ad = { schema: null, photos: prefs.get("ad-photos", []), result: null, showAll: false };
+  const AD_STATUS = { disease: ["Disease", "c2"], healthy: ["Healthy", "c0"], variety: ["Variety", "c0"], retake: ["Retake photo", "c1"], no_model: ["No model", "c1"], error: ["Error", "c2"] };
+  const AD_REASON = { too_small: "Photo too small (under 96 pixels): take it closer", too_dark: "Too dark: take it in daylight", too_bright: "Too bright: avoid direct sun glare",
+    no_detail: "No leaf to see (blank or plain surface)", blurry: "Blurry: hold still and tap the leaf to focus", not_leaf: "Not confidently a leaf of a supported crop: one leaf, filling the photo",
+    low_confidence: "The disease model is unsure: try a closer, sharper photo of the affected part", unreadable: "Couldn't read the photo" };
+  const AD_POINT_COLORS = { disease: "#dc2626", healthy: "#16a34a", variety: "#16a34a", retake: "#d97706", no_model: "#64748b", error: "#64748b" };
+  const adThumb = (path, size = 160) => `/api/agri/photo?path=${encodeURIComponent(path)}&size=${size}`;
+  const pct0 = (v) => v == null ? "–" : `${fmt(100 * v, v >= 0.995 || v < 0.1 ? 1 : 0)} %`;
+  const cropName = (c) => ad.schema?.crops[c]?.name || ag.schema?.crops[c]?.name || c;
+
+  async function refreshAd() {
+    if (!(await renderAddon($("#tab-agridisease")))) return;
+    try { ad.schema = await api("/api/agri/schema"); } catch (e) { toast(e.message, true); return; }
+    [...$("#ad-device").options].forEach((o) => { if (o.value !== "auto" && !dlx.status.devices.includes(o.value)) o.disabled = true; });
+    renderAdModels();
+    renderAdCrops();
+    renderAdPhotos();
+  }
+  function renderAdModels() {
+    const m = ad.schema.models, n = m.crops.length, total = Object.keys(ad.schema.crops).length, d = ad.schema.detectors;
+    const box = $("#ad-models");
+    if (!m.folder) {
+      box.innerHTML = `<div class="warn" style="margin-top:0">Choose the folder that holds the disease models: your copy of the disease app
+          (<code>multicrop-disease-decision-support</code>) with <code>data/&lt;Crop&gt;/convnext_best.pth</code> and <code>master_model/</code>.
+          The model files aren't on GitHub (about 190 MB per crop).</div>
+        <button class="btn primary" style="margin-top:8px" data-ad-pick>Choose the models folder…</button>`;
+    } else {
+      const missing = Object.keys(ad.schema.crops).filter((c) => !m.crops.includes(c));
+      const dets = [m.detectors.includes("original") && `crop detector (${d.original.crops} crops, ${pct0(d.original.accuracy)} on test photos)`,
+                    m.detectors.includes("new") && `added-crops detector (${d.new.crops} crops, ${pct0(d.new.accuracy)})`].filter(Boolean);
+      box.innerHTML = `<div class="ad-models-ok"><b>${n === total ? "✓" : "⚠"} ${n} of ${total} crop models</b> · ${dets.length ? dets.join(" + ") : `<span style="color:var(--warn)">no crop detector: choose the crop below</span>`}</div>
+        <p class="hint" style="margin-top:4px"><span style="overflow-wrap:anywhere">${esc(m.folder)}</span>${m.chosen ? "" : " (found automatically)"} · <a href="#" data-ad-pick style="white-space:nowrap">change…</a></p>
+        ${missing.length && n ? `<p class="hint">No model yet for: ${missing.map((c) => esc(cropName(c))).join(", ")}.</p>` : ""}`;
+    }
+    $$("[data-ad-pick]", box).forEach((b) => b.onclick = async (e) => {
+      e.preventDefault();
+      const f = await pickFolder({ title: "Choose the disease models folder (the disease app's folder)", start: m.folder || "", okLabel: "Use this folder" });
+      if (!f) return;
+      try { ad.schema.models = await api("/api/agri/models", { method: "POST", json: { folder: f } }); renderAdModels(); renderAdCrops(); toast("Models folder set"); }
+      catch (err) { toast(err.message, true); }
+    });
+  }
+  function renderAdCrops() {
+    const sc = ad.schema, have = new Set(sc.models.crops), sel = $("#ad-crop"), cur = sel.value || prefs.get("ad-crop", "auto");
+    const crops = Object.entries(sc.crops).sort((a, b) => a[1].name.localeCompare(b[1].name));
+    const canDetect = sc.models.detectors.length > 0;
+    sel.innerHTML = `<option value="auto" ${canDetect ? "" : "disabled"}>Detect the crop in each photo${canDetect ? "" : " (no crop detector)"}</option>
+      <optgroup label="Or every photo is of…">${crops.map(([k, c]) => `<option value="${esc(k)}" ${have.has(k) ? "" : "disabled"}>${esc(c.name)}${have.has(k) ? "" : " · no model"}</option>`).join("")}</optgroup>`;
+    sel.value = [...sel.options].some((o) => o.value === cur && !o.disabled) ? cur : canDetect ? "auto" : (crops.find(([k]) => have.has(k)) || [""])[0];
+    adCropInfo();
+  }
+  function adCropInfo() {
+    const sc = ad.schema, c = $("#ad-crop").value, info = $("#ad-crop-info");
+    if (c === "auto") {
+      const d = sc.detectors;
+      info.innerHTML = `The crop detectors recognise ${d.original.crops} crops (${pct0(d.original.accuracy)} correct on ${d.original.test_images?.toLocaleString()} test photos) and ${d.new.crops} more (${pct0(d.new.accuracy)}). ` +
+        `${esc(sc.recognised_only.join(", "))} leaves are recognised but not diagnosed. Choose the crop if all photos are of one crop: it's faster and avoids crop mix-ups.`;
+    } else if (!sc.crops[c]) {
+      info.textContent = "Choose the models folder first.";
+    } else {
+      const k = sc.crops[c];
+      info.innerHTML = `${k.kind === "variety" ? "This model tells <b>varieties</b>, not diseases. " : ""}${k.labels.length} classes: ${k.labels.map(esc).join(", ")}. ` +
+        `Test accuracy ${pct0(k.accuracy)} on ${k.test_images?.toLocaleString() || "?"} photos.`;
+    }
+    prefs.set("ad-crop", c);
+  }
+  $("#ad-crop").onchange = adCropInfo;
+
+  function saveAdPhotos() { prefs.set("ad-photos", ad.photos.slice(0, 3000)); }
+  function addAdPhotos(list) {
+    const seen = new Set(ad.photos.map((p) => p.path));
+    const fresh = list.filter((p) => !seen.has(p.path));
+    ad.photos.push(...fresh);
+    saveAdPhotos();
+    renderAdPhotos();
+    return fresh.length;
+  }
+  function renderAdPhotos() {
+    const grid = $("#ad-photos"), n = ad.photos.length, SHOW = 48;
+    const status = Object.fromEntries((ad.result?.photos || []).map((r) => [r.path, r.status]));
+    grid.innerHTML = ad.photos.slice(0, SHOW).map((p, i) => `<figure class="ad-thumb" title="${esc(p.name)}">
+        <img loading="lazy" src="${adThumb(p.path)}" alt="${esc(p.name)}">
+        ${status[p.path] ? `<i class="ad-dot" style="background:${AD_POINT_COLORS[status[p.path]]}"></i>` : ""}
+        <button type="button" class="ad-x" data-ad-rm="${i}" title="Remove from the list" aria-label="Remove ${esc(p.name)}">×</button></figure>`).join("") +
+      (n > SHOW ? `<div class="ad-more">+${(n - SHOW).toLocaleString()} more</div>` : "");
+    $$("[data-ad-rm]", grid).forEach((b) => b.onclick = () => { ad.photos.splice(+b.dataset.adRm, 1); saveAdPhotos(); renderAdPhotos(); });
+    $("#ad-drop").classList.toggle("small", n > 0);
+    $("#ad-clear").classList.toggle("hidden", !n);
+    $("#ad-photos-hint").textContent = n ? `${n.toLocaleString()} photo${n > 1 ? "s" : ""}` : "";
+    $("#ad-run").textContent = n > 1 ? `Diagnose ${n.toLocaleString()} photos` : "Diagnose photo";
+  }
+  async function uploadAdPhotos(files) {
+    files = [...files].filter((f) => /\.(jpe?g|png|bmp|webp|tiff?|heic|heif)$/i.test(f.name));
+    if (!files.length) return toast("Choose photos (JPG, PNG, WebP, BMP or TIFF)", true);
+    let added = 0;
+    for (let i = 0; i < files.length; i += 20) {
+      status(`Adding photos… ${i} of ${files.length}`, true);
+      const fd = new FormData();
+      files.slice(i, i + 20).forEach((f) => fd.append("files", f));
+      try { added += addAdPhotos((await api("/api/agri/photos/upload", { method: "POST", body: fd })).photos); }
+      catch (e) { toast(e.message, true); break; }
+    }
+    status(`Added ${added} photo${added === 1 ? "" : "s"}`);
+  }
+  $("#ad-add").onclick = () => $("#ad-file").click();
+  $("#ad-file").onchange = (e) => { uploadAdPhotos(e.target.files); e.target.value = ""; };
+  $("#ad-folder").onclick = async () => {
+    const f = await pickFolder({ title: "Choose a folder of leaf photos", start: prefs.get("ad-last-folder", ""), okLabel: "Add its photos" });
+    if (!f) return;
+    prefs.set("ad-last-folder", f);
+    try {
+      const r = await api(`/api/agri/photos/folder?path=${encodeURIComponent(f)}&recursive=${$("#ad-recursive").checked}`);
+      if (!r.photos.length) return toast(`No photos in ${r.folder}${$("#ad-recursive").checked ? "" : " (tick “with sub-folders” to look deeper)"}`, true);
+      const n = addAdPhotos(r.photos);
+      toast(`Added ${n} photo${n === 1 ? "" : "s"}${r.truncated ? " (the first 5,000)" : ""}`);
+    } catch (e) { toast(e.message, true); }
+  };
+  $("#ad-clear").onclick = () => { ad.photos = []; saveAdPhotos(); renderAdPhotos(); };
+  const adDrop = $("#ad-drop");
+  adDrop.onclick = () => $("#ad-file").click();
+  adDrop.addEventListener("dragover", (e) => { e.preventDefault(); adDrop.classList.add("over"); });
+  adDrop.addEventListener("dragleave", () => adDrop.classList.remove("over"));
+  adDrop.addEventListener("drop", (e) => { e.preventDefault(); adDrop.classList.remove("over"); uploadAdPhotos(e.dataTransfer.files); });
+  $("#ad-name").addEventListener("input", () => $("#ad-name").dataset.touched = "1");
+
+  $("#ad-run").onclick = async () => {
+    const err = $("#ad-error"); err.classList.add("hidden");
+    if (!ad.photos.length) return toast("Add leaf photos first", true);
+    if (!ad.schema?.models.folder) return toast("Choose the disease models folder first", true);
+    const name = $("#ad-name").value.trim() || "diagnosis";
+    const body = { photos: ad.photos.map((p) => p.path), crop: $("#ad-crop").value, strict: $("#ad-strict").checked, device: $("#ad-device").value, name };
+    const btn = $("#ad-run"); btn.disabled = true; $("#ad-result").classList.add("hidden");
+    try {
+      const job = await api("/api/agri/diagnose", { method: "POST", json: body });
+      const done = await trackJob(job, { tool: "agridisease", title: `Diagnosing ${body.photos.length} photo${body.photos.length > 1 ? "s" : ""}` });
+      ad.result = { ...done.result, name };
+      ad.showAll = false;
+      if (ad.result.geojson) {
+        const fc = ad.result.geojson;
+        fc.features.forEach((f) => f.properties.class = AD_STATUS[f.properties.status]?.[0] || f.properties.status);
+        const classes = [...new Set(fc.features.map((f) => f.properties.status))].map((s) => ({ name: AD_STATUS[s]?.[0] || s, color: AD_POINT_COLORS[s] || "#64748b" }));
+        addVectorLayer(fc, name, { color: classes[0].color, weight: 1.5, fillOpacity: 0.85, path: ad.result.geojson_path, classes,
+                                   classColors: Object.fromEntries(classes.map((c) => [c.name, c.color])) });
+        saveLayers();
+      }
+      addItem({ kind: "table", name: `${name}.csv`, path: ad.result.csv });
+      renderAdResult();
+      renderAdPhotos();
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+  function renderAdResult() {
+    const r = ad.result, box = $("#ad-result"), c = r.counts, n = r.photos.length;
+    const parts = [c.disease && `<b>${c.disease}</b> diseased`, c.healthy && `<b>${c.healthy}</b> healthy`, c.variety && `<b>${c.variety}</b> variety`,
+                   c.retake && `<b>${c.retake}</b> to retake`, c.no_model && `<b>${c.no_model}</b> without a model`, c.error && `<b>${c.error}</b> unreadable`].filter(Boolean);
+    const max = Math.max(1, ...r.summary.map((s) => s.count));
+    const LIMIT = 30, list = ad.showAll ? r.photos : r.photos.slice(0, LIMIT);
+    box.innerHTML = `<div class="card rm-head-card">
+        <h2 style="margin:0">✓ ${n.toLocaleString()} photo${n > 1 ? "s" : ""} checked</h2>
+        <div class="pca-sum">${parts.join(" · ")} · ${esc(r.device)} · ${r.seconds} s</div>
+        ${r.summary.length ? `<div class="home-label" style="margin-top:10px">Diagnoses</div><div class="dist">${r.summary.map((s) => `<div style="grid-template-columns:minmax(0,2fr) minmax(0,1.3fr) auto">
+            <span>${esc(s.crop)} · <b>${esc(s.diagnosis)}</b></span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(2, 100 * s.count / max)}%;background:${AD_POINT_COLORS[s.status]}"></span></span><b>${s.count}</b></div>`).join("")}</div>` : ""}
+        <div class="row tight" style="margin-top:10px;flex-wrap:wrap;gap:6px">
+          <button class="btn small" data-ad-table>Open results table</button>
+          ${r.located ? `<button class="btn small" data-ad-zoom>Zoom to the ${r.located} photo${r.located > 1 ? "s" : ""} on the map</button>` : ""}
+          <button class="btn small" data-ad-reveal>Show in folder</button>
+        </div>
+        <p class="hint">${r.located ? `${r.located} of ${n} photos had a GPS position and are on the map (red diseased, green healthy, orange retake). ` : "No photo had a GPS position, so nothing was put on the map. "}The table (${esc(r.csv.split("/").pop())}) has one row per photo with the top 3 diagnoses and confidences.</p>
+      </div>
+      ${list.map(adCard).join("")}
+      ${!ad.showAll && n > LIMIT ? `<button class="btn" style="width:100%" data-ad-all>Show all ${n.toLocaleString()} photos</button>` : ""}`;
+    box.classList.remove("hidden");
+    $("[data-ad-table]", box).onclick = () => { const it = dataItems.find((d) => d.path === r.csv); it ? openItem(it) : addItem({ kind: "table", name: `${r.name}.csv`, path: r.csv }, { open: true }); };
+    $("[data-ad-zoom]", box)?.addEventListener("click", () => { const l = layers.find((x) => x.path === r.geojson_path); if (l?.leaflet) map.fitBounds(l.leaflet.getBounds(), { maxZoom: 17, padding: [30, 30] }); });
+    $("[data-ad-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: (r.outputs?.[0] || r.csv).replace(/[\\/][^\\/]+$/, "") } }).catch((e) => toast(e.message, true));
+    $("[data-ad-all]", box)?.addEventListener("click", () => { ad.showAll = true; renderAdResult(); });
+    $$("[data-ad-guide]", box).forEach((a) => a.onclick = (e) => { e.preventDefault(); openGuide(a.dataset.crop, a.dataset.adGuide); });
+    $$("[data-ad-big]", box).forEach((im) => im.onclick = () => window.open(adThumb(im.dataset.adBig, 0), "_blank", "noopener"));
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function adCard(p) {
+    const [stText, stCls] = AD_STATUS[p.status] || [p.status, "c1"];
+    const diag = ["disease", "healthy", "variety"].includes(p.status);
+    const reasons = [p.reason, ...(p.warnings || [])].filter(Boolean).map((x) => AD_REASON[x] || x);
+    const top = (p.top || []).map((t, i) => `<div class="ad-bar"><span>${i ? esc(t.name) : `<b>${esc(t.name)}</b>`}</span><span class="rb-track"><span class="rb-fill" style="width:${Math.max(1, 100 * t.conf)}%;${i ? "opacity:.45" : ""}"></span></span><span>${pct0(t.conf)}</span></div>`).join("");
+    const crop = p.crop_name ? `${esc(p.crop_name)}${p.crop_conf != null ? ` <small>(${pct0(p.crop_conf)} sure${p.crop_top?.[1] && p.crop_top[1].conf > 0.1 ? `; or ${esc(p.crop_top[1].name)} ${pct0(p.crop_top[1].conf)}` : ""})</small>` : ""}` : "";
+    return `<div class="card ad-card">
+      <img class="ad-photo" src="${adThumb(p.path, 240)}" alt="" data-ad-big="${esc(p.path)}" title="Open the full photo">
+      <div class="ad-body">
+        <div class="ad-file"><span class="pill ${stCls}">${stText}</span> <span title="${esc(p.path)}">${esc(p.file)}</span>${p.lat != null ? ` <span class="ad-gps" title="${p.lat}, ${p.lon}${p.taken ? ` · ${esc(p.taken)}` : ""}">📍</span>` : ""}</div>
+        ${crop ? `<div class="ad-crop">${crop}</div>` : ""}
+        ${diag ? `<div class="ad-diag">${esc(p.diagnosis)}</div>` : ""}
+        ${top ? `<div class="ad-bars">${top}</div>` : ""}
+        ${reasons.length ? `<div class="hint" style="color:var(--warn)">${reasons.map(esc).join(" · ")}</div>` : ""}
+        ${p.note && !reasons.length ? `<div class="hint">${esc(p.note)}</div>` : ""}
+        ${diag && p.status !== "variety" ? `<a href="#" class="small" data-ad-guide="${esc(p.diagnosis)}" data-crop="${esc(p.crop)}">${p.status === "healthy" ? `About ${esc(p.crop_name)} in the guide →` : `Symptoms &amp; treatment of ${esc(p.diagnosis)} →`}</a>` : ""}
+      </div></div>`;
+  }
+
+  // ------------------------------------------------------------------ Agri: Crop disease guide (the knowledge base)
+  const ag = { schema: null, crop: prefs.get("ag-crop", "Mango"), disease: null, section: null, diseases: [], seq: 0 };
+  async function refreshAg() {
+    if (!ag.schema) {
+      try { ag.schema = await api("/api/agri/schema"); } catch (e) { toast(e.message, true); return; }
+      const crops = Object.entries(ag.schema.crops).sort((a, b) => a[1].name.localeCompare(b[1].name));
+      const full = crops.filter(([, c]) => !c.limited_kb), lim = crops.filter(([, c]) => c.limited_kb);
+      const opt = ([k, c]) => `<option value="${esc(k)}">${esc(c.name)}${c.aliases.length ? ` (${esc(c.aliases.slice(0, 3).join(", "))})` : ""}</option>`;
+      $("#ag-crop").innerHTML = `<optgroup label="Full guide: symptoms, treatment, pests">${full.map(opt).join("")}</optgroup><optgroup label="Symptoms only">${lim.map(opt).join("")}</optgroup>`;
+      $("#ag-crop").onchange = () => { ag.crop = $("#ag-crop").value; ag.disease = null; ag.section = null; prefs.set("ag-crop", ag.crop); loadAgCrop(); };
+      let t = 0;
+      $("#ag-q").oninput = () => { clearTimeout(t); t = setTimeout(renderAgRecords, 250); };
+    }
+    if (!ag.schema.crops[ag.crop]) ag.crop = "Mango";
+    $("#ag-crop").value = ag.crop;
+    await loadAgCrop();
+  }
+  function openGuide(crop, disease) {
+    ag.crop = crop; ag.disease = disease === "Healthy" ? null : disease; ag.section = null; prefs.set("ag-crop", crop);
+    $("#ag-q").value = "";
+    switchTool("agriguide");
+  }
+  async function loadAgCrop() {
+    const c = ag.schema.crops[ag.crop];
+    $("#ag-crop-info").innerHTML = `${c.kb_records.toLocaleString()} questions &amp; answers · photo model: ${c.labels.length} classes, ${pct0(c.accuracy)} on test photos.` +
+      (c.limited_kb ? ` <span style="color:var(--warn)">Symptom descriptions only (from LeafNet): for treatment, ask your local agriculture office.</span>` : "");
+    try { ag.diseases = (await api(`/api/agri/guide/diseases?crop=${encodeURIComponent(ag.crop)}`)).diseases; } catch (e) { toast(e.message, true); return; }
+    renderAgDiseases();
+    renderAgRecords();
+  }
+  function renderAgDiseases() {
+    const box = $("#ag-diseases"), inModel = ag.diseases.filter((d) => d.in_model), other = ag.diseases.filter((d) => !d.in_model && d.records);
+    const item = (d) => `<button class="ag-item ${ag.disease === d.name ? "on" : ""}" data-ag-d="${esc(d.name)}" title="${d.in_model ? `The photo model detects this${d.f1 != null ? ` (F1 ${fmt(d.f1, 2)} on test photos)` : ""}` : "In the knowledge base only (not detected from photos)"}">
+        <span>${d.healthy ? "🌿 " : ""}${esc(d.name)}</span><small>${d.records || ""}</small></button>`;
+    box.innerHTML = `<div class="home-label" style="margin-top:0">Detected from photos</div><div class="ag-grid">${inModel.map(item).join("")}</div>
+      ${other.length ? `<details ${ag.disease && !inModel.some((d) => d.name === ag.disease) ? "open" : ""}><summary class="small" style="margin-top:8px">${other.length} more in the knowledge base (pests, disorders, practices)</summary><div class="ag-grid" style="margin-top:6px">${other.map(item).join("")}</div></details>` : ""}
+      ${ag.disease ? `<div class="row tight" style="margin-top:8px"><button class="btn small ghost" data-ag-all>← All of ${esc(ag.schema.crops[ag.crop].name)}</button></div>` : ""}`;
+    $$("[data-ag-d]", box).forEach((b) => b.onclick = () => { ag.disease = ag.disease === b.dataset.agD ? null : b.dataset.agD; ag.section = null; renderAgDiseases(); renderAgRecords(); });
+    $("[data-ag-all]", box)?.addEventListener("click", () => { ag.disease = null; ag.section = null; renderAgDiseases(); renderAgRecords(); });
+  }
+  async function renderAgRecords() {
+    const q = $("#ag-q").value.trim(), box = $("#ag-records"), seq = ++ag.seq;
+    if (!ag.disease && !q) {
+      box.innerHTML = `<p class="hint">Pick a disease or pest above, or search, to read its symptoms and how to manage it.</p>`;
+      return;
+    }
+    const params = new URLSearchParams({ crop: ag.crop, limit: "300" });
+    if (ag.disease) params.set("disease", ag.disease);
+    if (q) params.set("q", q);
+    let r;
+    try { r = await api(`/api/agri/guide/search?${params}`); } catch (e) { toast(e.message, true); return; }
+    if (seq !== ag.seq) return;   // a newer search is on its way
+    const S = ag.schema.sections, order = ["symptoms", "management", "pests", "growing"].filter((k) => r.sections[k]);
+    const sec = order.includes(ag.section) ? ag.section : null;
+    const recs = r.records.filter((x) => !sec || x.section === sec);
+    const title = ag.disease ? `${esc(ag.disease)}${q ? ` · “${esc(q)}”` : ""}` : `“${esc(q)}” in ${esc(ag.schema.crops[ag.crop].name)}`;
+    box.innerHTML = `<div class="card">
+        <h2 style="margin-bottom:6px">${title}</h2>
+        ${r.total ? `<div class="row tight" style="flex-wrap:wrap;gap:4px;margin-bottom:6px"><button class="chip ${sec ? "" : "active"}" data-ag-s="">All ${r.total}</button>${order.map((k) => `<button class="chip ${sec === k ? "active" : ""}" data-ag-s="${k}">${esc(S[k])} ${r.sections[k]}</button>`).join("")}</div>` : ""}
+        ${recs.length ? recs.map((x, i) => `<details class="ag-qa" ${i < 3 ? "open" : ""}><summary>${esc(x.question)}</summary>
+            <p>${esc(x.answer)}</p><div class="ag-meta">${[!ag.disease && x.disease, x.growth_stage && x.growth_stage.replace(/_/g, " "), x.source].filter(Boolean).map(esc).join(" · ")}</div></details>`).join("")
+          : `<p class="hint">Nothing found${q ? `: try other words, or clear the search` : ""}.${ag.schema.crops[ag.crop].limited_kb ? " This crop's guide only describes symptoms." : ""}</p>`}
+        ${r.total > r.records.length ? `<p class="hint">Showing the first ${r.records.length} of ${r.total}: search to narrow down.</p>` : ""}
+      </div>`;
+    $$("[data-ag-s]", box).forEach((b) => b.onclick = () => { ag.section = b.dataset.agS || null; renderAgRecords(); });
+  }
 
   // ------------------------------------------------------------------ Train detection model (YOLO on labelled polygons / points)
   const td = { schema: null, task: prefs.get("td-task", "detect"), layerId: null };
