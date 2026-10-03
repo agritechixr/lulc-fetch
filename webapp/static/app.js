@@ -192,6 +192,7 @@
     detect: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".45"/><rect x="6" y="7" width="7" height="6" rx=".5"/><rect x="12" y="13" width="6" height="5" rx=".5" fill="currentColor" fill-opacity=".35"/><path d="M6 5.5h3"/>',
     patches: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" opacity=".55"/><rect x="9" y="9" width="6" height="6" fill="currentColor" stroke="none" opacity=".8"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>',
+    embed: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18" opacity=".35"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 9.8V6M14.2 12H18M12 14.2V18M9.8 12H6" opacity=".7"/>',
     leaf: '<path d="M5 19C5 10 10 5 20 4c-1 10-6 15-15 15z"/><path d="M5 19l8-8" opacity=".7"/><circle cx="14" cy="9.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="10.5" cy="13.5" r="1" fill="currentColor" stroke="none"/>',
     book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M12 7.5c-2 .5-3 2-3 4 2 0 3.5-1.5 3-4zM12 7.5c1.5 1 2 2.5 1.5 4.5" opacity=".75"/>',
   };
@@ -212,11 +213,12 @@
     { id: "patches", title: "Make training data", icon: "patches", subtitle: "Cut large images and their ground truth into image / label patches for deep-learning training" },
     { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
+    { id: "embed", title: "Satellite embeddings", icon: "embed", subtitle: "Explore and download free, open AI embeddings for any area: Google AlphaEarth (64-D) and TESSERA (128-D), 10 m, 2017–2025. See what's available, get a colour view, find places similar to the ones you click, then classify or cluster them" },
     // the Agri menu
     { id: "agridisease", menu: "agri", title: "Diagnose crop disease", icon: "leaf", subtitle: "Find the disease on leaf photos of 42 crops (apple, mango, rice, tomato, maize…): the crop is recognised, then its ConvNeXt model gives the top 3 diseases. Unclear photos are refused; photos with GPS become a disease map" },
     { id: "agriguide", menu: "agri", title: "Crop disease guide", icon: "book", subtitle: "Symptoms, treatment and pests for each crop and disease, from a knowledge base of about 9,000 expert questions and answers; searchable" },
   ];
-  const AGRI_SHORTCUTS = ["analyze", "search"];   // other tools listed under Agri too
+  const AGRI_SHORTCUTS = ["analyze", "embed", "search"];   // other tools listed under Agri too
   let currentTool = "home";
 
   // Tools are listed A–Z; each explanation is behind an eye button (click it to show / hide, or hover for a tooltip)
@@ -287,6 +289,7 @@
     if (tool.id === "traindet") refreshTd();
     if (tool.id === "agridisease") refreshAd();
     if (tool.id === "agriguide") refreshAg();
+    if (tool.id === "embed") refreshEm();
     if (tool.id === "samples") renderSamples();
     if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
@@ -664,6 +667,7 @@
     if (currentTool === "patches") refreshPt();
     if (currentTool === "dlpredict" && dlx.schema) renderDpLayers();
     if (currentTool === "detect" && od.schema) renderOdLayers();
+    if (currentTool === "embed" && em.meta) renderEmLayers();
     if (currentTool === "traindet" && td.schema) { renderTdLayers(); renderTdGt(); }
     if (currentTool === "samples") renderSamples();
     if (currentTool === "stack") refreshStack();
@@ -2520,13 +2524,14 @@
     "od-area": { what: "image is searched", onChange: () => odEstimate() },
     "td-area": { what: "image is used for training", onChange: () => {} },
     "st-area": { what: "reference extent is used", onChange: () => {} },
+    "em-area": { what: "area is downloaded", onChange: () => emEstimate(), required: true },
   };
   const polygonLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
   function refreshClipPicker(id) {
     const sel = $("#" + id), cfg = clipPickers[id];
     if (!sel) return;
     const cur = sel.value;
-    const opts = [["none", "Whole " + (id === "lx-area" ? "layer" : "image")]];
+    const opts = [["none", cfg.required ? "Choose an area…" : "Whole " + (id === "lx-area" ? "layer" : "image")]];
     const lx = id === "lx-area" ? exportLayer() : null;
     if (cfg.own && lx?.render?.clip) opts.push(["own", "Same area as the layer (its analysis area)"]);
     const polys = polygonLayers();
@@ -2544,7 +2549,7 @@
   function updateClipHint(id) {
     const v = $("#" + id).value, cfg = clipPickers[id];
     const g = getClip(id);
-    $(`#${id}-hint`).innerHTML = !g ? `The whole ${esc(cfg.what)}.`
+    $(`#${id}-hint`).innerHTML = !g ? (cfg.required ? "Choose an area: draw one, use the map view, or a polygon layer." : `The whole ${esc(cfg.what)}.`)
       : `Only the selected area (<b>${fmt(geomArea(g) / 1e6, geomArea(g) < 1e7 ? 2 : 0)} km²</b>) ${esc(cfg.what)}${v.startsWith("layer:") ? ` · <a href="#" data-zoomclip="${esc(v.slice(6))}">zoom to it</a>` : ""}.`;
     $(`#${id}-hint [data-zoomclip]`)?.addEventListener("click", (e) => { e.preventDefault(); zoomTo(getLayer(e.target.dataset.zoomclip)); });
   }
@@ -3352,7 +3357,7 @@
     }
     for (const j of list) {
       // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
-      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches", "dltrain", "dlpredict", "detect", "dettrain", "dlinstall", "diagnose"].includes(j.kind)) continue;
+      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches", "dltrain", "dlpredict", "detect", "dettrain", "dlinstall", "diagnose", "embcheck", "embfetch", "embsimilar", "embcolour"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
@@ -6138,6 +6143,135 @@
       if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
     } finally { btn.disabled = false; }
   };
+
+  // ------------------------------------------------------------------ Satellite embeddings (AlphaEarth, TESSERA): explore, download, similar places
+  const em = { meta: null, source: prefs.get("em-source", "aef"), points: [], markers: L.featureGroup().addTo(map), estSeq: 0 };
+  const emRasters = () => layers.filter((l) => l.type === "raster" && l.path && (l.info?.count || 0) >= 16);
+  async function refreshEm() {
+    if (!em.meta) {
+      try { em.meta = await api("/api/emb/sources"); } catch (e) { toast(e.message, true); return; }
+      $("#em-other").innerHTML = em.meta.other.map((o) => `<p class="hint"><a href="${esc(o.url)}" target="_blank" rel="noopener"><b>${esc(o.title)}</b></a>: ${esc(o.what)}. Not per-pixel maps, so not downloadable here yet.</p>`).join("");
+      $("#em-year").innerHTML = em.meta.years.slice().reverse().map((y) => `<option>${y}</option>`).join("");
+      $("#em-year").value = prefs.get("em-year", "2024");
+    }
+    renderEmSources();
+    refreshClipPicker("em-area");
+    renderEmLayers();
+    emEstimate();
+  }
+  function renderEmSources() {
+    const box = $("#em-sources");
+    box.innerHTML = Object.entries(em.meta.sources).map(([k, s]) => `<label class="em-src ${em.source === k ? "on" : ""}">
+        <input type="radio" name="em-src" value="${k}" ${em.source === k ? "checked" : ""}>
+        <span><b>${esc(s.title)}</b> <span class="em-dims">${s.dims}-D · ${s.res} m · ${s.years[0]}–${s.years[1]}</span>
+        <small>${esc(s.about)}</small>
+        <small>${esc(s.coverage)} · by ${esc(s.by)} · <b>${esc(s.licence)}</b> · <a href="${esc(s.url)}" target="_blank" rel="noopener">about</a></small></span></label>`).join("");
+    $$("input[name=em-src]", box).forEach((r) => r.onchange = () => { em.source = r.value; prefs.set("em-source", r.value); renderEmSources(); emEstimate(); });
+    const s = em.meta.sources[em.source], cur = +($("#em-res").value || 10);
+    $("#em-res").innerHTML = s.resolutions.map((r) => `<option value="${r}">${r} m${r === 10 ? " (full detail)" : ""}</option>`).join("");
+    $("#em-res").value = s.resolutions.includes(cur) ? cur : 10;
+  }
+  async function emEstimate() {
+    const g = getClip("em-area"), seq = ++em.estSeq, out = $("#em-est");
+    if (!g || !em.meta) { out.textContent = "Choose an area to see the size."; return; }
+    try {
+      const r = await api("/api/emb/estimate", { method: "POST", json: { clip: g, source: em.source, res: +$("#em-res").value } });
+      if (seq !== em.estSeq) return;
+      const big = r.width * r.height > 25e6;
+      out.innerHTML = `${fmt(r.area_km2, r.area_km2 < 10 ? 2 : 0)} km² → ${r.width.toLocaleString()} × ${r.height.toLocaleString()} pixels in ${esc(r.crs)}, a ${fmt(r.output_mb, 0)} MB GeoTIFF; about ${fmt(r.download_mb, 0)} MB to download.` +
+        (big ? ` <span style="color:var(--err)">Too large: choose a smaller area${em.source === "aef" ? " or a coarser resolution" : ""}.</span>`
+             : r.download_mb > 1500 ? ` <span style="color:var(--warn)">That's a big download: it can take a while.</span>` : "");
+    } catch (e) { if (seq === em.estSeq) out.innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; }
+  }
+  $("#em-res").onchange = emEstimate;
+  $("#em-year").onchange = () => prefs.set("em-year", $("#em-year").value);
+  $("#em-check").onclick = async () => {
+    const g = getClip("em-area");
+    if (!g) return toast("Choose an area first", true);
+    const btn = $("#em-check"); btn.disabled = true;
+    try {
+      const job = await api("/api/emb/available", { method: "POST", json: { clip: g } });
+      const r = (await trackJob(job, { tool: "embed", title: "Checking what's available here" })).result;
+      const yrs = em.meta.years, S = em.meta.sources;
+      const cell = (n, of) => n ? `<td class="ok">✓${of > 1 ? ` <small>${n}/${of}</small>` : ""}</td>` : `<td class="no">–</td>`;
+      $("#em-avail").innerHTML = `<table class="em-table"><thead><tr><th>Year</th><th>${esc(S.aef.short)}</th><th>${esc(S.tessera.short)}</th></tr></thead><tbody>` +
+        yrs.slice().reverse().map((y) => `<tr data-y="${y}"><td><a href="#" data-em-year="${y}">${y}</a></td>${cell(r.aef[y] ? 1 : 0, 1)}${cell(r.tessera[y], r.tessera_tiles)}</tr>`).join("") +
+        `</tbody></table><p class="hint">${r.tessera_tiles > 1 ? `TESSERA: tiles with data out of ${r.tessera_tiles} covering the area${r.tessera_sampled ? " (estimated from a sample)" : ""}. ` : ""}Click a year to use it.</p>`;
+      $("#em-avail").classList.remove("hidden");
+      $$("[data-em-year]").forEach((a) => a.onclick = (e) => { e.preventDefault(); $("#em-year").value = a.dataset.emYear; prefs.set("em-year", a.dataset.emYear); });
+    } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+    finally { btn.disabled = false; }
+  };
+  $("#em-name").addEventListener("input", () => $("#em-name").dataset.touched = "1");
+  $("#em-run").onclick = async () => {
+    const err = $("#em-error"); err.classList.add("hidden");
+    const g = getClip("em-area");
+    if (!g) return toast("Choose an area first", true);
+    const year = +$("#em-year").value, S = em.meta.sources[em.source];
+    const name = $("#em-name").dataset.touched ? ($("#em-name").value.trim() || "embedding") : `${S.short}_${year}`;
+    const btn = $("#em-run"); btn.disabled = true; $("#em-result").classList.add("hidden");
+    try {
+      const job = await api("/api/emb/fetch", { method: "POST", json: { clip: g, source: em.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked } });
+      const r = (await trackJob(job, { tool: "embed", title: `Downloading ${S.short} ${year}` })).result;
+      const lyr = await addRasterFromPath(r.path, { name, render: { rgb: [1, 2, 3], stretch: "auto" } });
+      if (r.colour) await addRasterFromPath(r.colour.path, { name: `${name} colour view`, render: { rgb: [1, 2, 3], stretch: "none" } });
+      renderEmLayers(lyr.id);
+      const box = $("#em-result");
+      box.innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(S.short)} ${year} downloaded</h2>
+        <div class="pca-sum">${r.width.toLocaleString()} × ${r.height.toLocaleString()} pixels at ${r.res} m · ${r.dims} dimensions (${esc(S.band_prefix)}${"0".repeat(r.dims < 100 ? 2 : 3)}…) · ${esc(r.crs)} · ${r.valid_pct} % of the area has data · ${r.size_mb} MB · ${r.seconds} s</div>
+        ${r.colour ? `<p class="hint">The colour view shows the three main directions of variation (${r.colour.explained.map((v) => fmt(100 * v, 0) + " %").join(", ")} of it) as red, green and blue: alike places, alike colours.</p>` : ""}
+        <p class="hint">Next: <b>find similar places</b> below, or use the layer in <a href="#" data-go="rasterml">Classical ML for raster</a> (it is recognised as an embedding: k-NN, SVM, logistic regression and SAM with cosine distance are suggested), or cluster it. ${esc(r.attribution)} Licence ${esc(r.licence)}.</p></div>`;
+      box.classList.remove("hidden");
+      $("[data-go]", box).onclick = (e) => { e.preventDefault(); switchTool("rasterml"); };
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+  function renderEmLayers(pick) {
+    const rs = emRasters(), sel = $("#em-layer"), cur = pick || sel.value;
+    sel.innerHTML = rs.length ? rs.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info.count} bands</option>`).join("")
+      : `<option value="">No embedding layer yet: download one above, or add a GeoTIFF</option>`;
+    if (rs.some((l) => l.id === cur)) sel.value = cur;
+    const l = getLayer(sel.value);
+    $("#em-layer-hint").textContent = l ? `${l.info.count} dimensions${l.info.res ? ` · ${fmt(l.info.res[0], 0)} m pixels` : ""}. Any embedding GeoTIFF works, also your own AlphaEarth or TESSERA exports.` : "";
+    ["#em-similar", "#em-colour-btn", "#em-classify", "#em-pick"].forEach((s) => $(s).disabled = !l);
+  }
+  $("#em-layer").onchange = () => renderEmLayers();
+  function syncEmPoints() {
+    $("#em-pick-n").textContent = em.points.length ? `${em.points.length} place${em.points.length > 1 ? "s" : ""}` : "";
+    $("#em-pick-clear").classList.toggle("hidden", !em.points.length);
+  }
+  $("#em-pick").onclick = () => startDraw(L.Draw.CircleMarker, (g) => {
+    em.points.push(g.coordinates);
+    L.circleMarker([g.coordinates[1], g.coordinates[0]], { radius: 6, color: "#fff", weight: 2, fillColor: "#7c3aed", fillOpacity: 1, interactive: false }).addTo(em.markers);
+    syncEmPoints();
+  }, "#7c3aed");
+  $("#em-pick-clear").onclick = () => { em.points = []; em.markers.clearLayers(); syncEmPoints(); };
+  const emLayerPath = () => getLayer($("#em-layer").value)?.path;
+  $("#em-similar").onclick = async () => {
+    const err = $("#em-explore-error"); err.classList.add("hidden");
+    if (!emLayerPath()) return toast("Choose an embedding layer", true);
+    if (!em.points.length) return toast("Click at least one place on the map first", true);
+    const src = getLayer($("#em-layer").value), btn = $("#em-similar"); btn.disabled = true;
+    try {
+      const job = await api("/api/emb/similar", { method: "POST", json: { path: src.path, points: em.points, name: `${src.name}_similar` } });
+      const r = (await trackJob(job, { tool: "embed", title: "Finding similar places" })).result;
+      await addRasterFromPath(r.path, { name: `Similar to ${em.points.length} place${em.points.length > 1 ? "s" : ""} · ${src.name}`, zoom: false,
+                                        render: { band: 1, stretch: "auto", cmap: "Magma" } });
+      toast(`Similarity map added: median ${fmt(r.p50, 2)}, top 5 % above ${fmt(r.p95, 2)}${r.points < em.points.length ? ` (${em.points.length - r.points} place(s) outside the layer were ignored)` : ""}`);
+    } catch (e) { if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); } }
+    finally { btn.disabled = false; }
+  };
+  $("#em-colour-btn").onclick = async () => {
+    const src = getLayer($("#em-layer").value);
+    if (!src) return;
+    try {
+      const job = await api("/api/emb/colour", { method: "POST", json: { path: src.path } });
+      const r = (await trackJob(job, { tool: "embed", title: "Making a colour view" })).result;
+      await addRasterFromPath(r.path, { name: `${src.name} colour view`, zoom: false, render: { rgb: [1, 2, 3], stretch: "none" } });
+    } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+  };
+  $("#em-classify").onclick = () => switchTool("rasterml");
 
   // ------------------------------------------------------------------ searchable picker: type letters, the matching items are listed
   // items: { id, title, aliases?, keywords?, sub?, group?, disabled? }. Matches the title, the aliases (e.g. local crop names) and,

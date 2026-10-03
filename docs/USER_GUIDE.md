@@ -27,15 +27,16 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 21. [Train detection model](#21-train-detection-model)
 22. [Agri: Diagnose crop disease](#22-agri-diagnose-crop-disease)
 23. [Agri: Crop disease guide](#23-agri-crop-disease-guide)
-24. [Export data](#24-export-data)
-25. [Downloads & jobs](#25-downloads--jobs)
-26. [Credentials](#26-credentials)
-27. [Command-line tool](#27-command-line-tool)
-28. [Data sources and band conventions](#28-data-sources-and-band-conventions)
-29. [Files and folders](#29-files-and-folders)
-30. [Limits and known issues](#30-limits-and-known-issues)
-31. [Troubleshooting](#31-troubleshooting)
-32. [For developers: adding a tool](#32-for-developers-adding-a-tool)
+24. [Satellite embeddings](#24-satellite-embeddings)
+25. [Export data](#25-export-data)
+26. [Downloads & jobs](#26-downloads--jobs)
+27. [Credentials](#27-credentials)
+28. [Command-line tool](#28-command-line-tool)
+29. [Data sources and band conventions](#29-data-sources-and-band-conventions)
+30. [Files and folders](#30-files-and-folders)
+31. [Limits and known issues](#31-limits-and-known-issues)
+32. [Troubleshooting](#32-troubleshooting)
+33. [For developers: adding a tool](#33-for-developers-adding-a-tool)
 
 ---
 
@@ -53,7 +54,7 @@ python3 -m venv .venv
 - `lulc-fetch-web --port 8080` runs on another port. `--no-browser` stops it from opening a browser tab.
 - Stop the server with **Ctrl+C** in the terminal.
 
-The app runs entirely on your computer. Searching and downloading uses free public catalogues with no login. Accounts are only needed for Copernicus and USGS original-product downloads (see [Credentials](#26-credentials)).
+The app runs entirely on your computer. Searching and downloading uses free public catalogues with no login. Accounts are only needed for Copernicus and USGS original-product downloads (see [Credentials](#27-credentials)).
 
 ---
 
@@ -106,8 +107,8 @@ The window is laid out like a desktop GIS (QGIS / ArcGIS):
 | Menu | What's in it |
 |---|---|
 | **File** | New project · Open project · Close project · Show project folder · Add data from computer · Add GeoTIFF from workspace · Open Sentinel product (.SAFE) · Export / Properties / Remove the selected layer · Remove all layers · Clean up working files · Credentials |
-| **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (supervised: ↳ Train a model, ↳ Classify an image · unsupervised: ↳ Clustering, ↳ t-SNE map) · Export data · Downloads & jobs |
-| **Agri ▾** | Diagnose crop disease · Crop disease guide · shortcuts to Index analysis (crop health: NDVI, EVI…) and Find imagery |
+| **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (supervised: ↳ Train a model, ↳ Classify an image · unsupervised: ↳ Clustering, ↳ t-SNE map) · Export data · Downloads & jobs · Satellite embeddings |
+| **Agri ▾** | Diagnose crop disease · Crop disease guide · shortcuts to Index analysis (crop health: NDVI, EVI…), Satellite embeddings and Find imagery |
 | **View** | Show/hide Contents, Tool panel and Data viewer · Reset panel sizes · Basemap (Streets, Satellite, Topographic, None) · Place labels on top · Zoom to all layers · Theme (system / light / dark) |
 | **Help** | Getting started (start page, incl. your Sentinel products) · Quick guide · Keyboard shortcuts |
 
@@ -1052,7 +1053,46 @@ The CSV and GeoJSON are in the job's folder (**Show in folder**). Photo diagnosi
 
 Answers are grouped as **Symptoms & identification**, **Management & treatment**, **Pests** and **Growing the crop**; the chips filter them. Each answer shows the growth stage it applies to. **Symptoms & treatment of …** on a Diagnose crop disease result opens the guide at that disease.
 
-## 24. Export data
+## 24. Satellite embeddings
+
+**Tools ▸ Satellite embeddings** finds, downloads and explores free **AI embeddings** of the Earth. An embedding gives every
+10 m pixel a list of numbers (64 or 128) that sums up a whole year of satellite observations: places that look and behave
+alike over the year (the same crop, forest type, water, built-up) get alike numbers. So a handful of labelled points is enough
+to map crops or land cover, you can search for places like one you click, and clustering works well. No account is needed.
+
+| Embedding | Numbers per pixel | Years | Coverage | By · licence |
+|---|---|---|---|---|
+| **Google AlphaEarth Foundations** (Satellite Embedding V1) | 64 (unit vectors) | 2017–2025 | All land and coastal waters, every year | Google and Google DeepMind · CC-BY-4.0 |
+| **TESSERA** | 128 | 2017–2025 | All land for 2024; other years in many regions | University of Cambridge · CC0 |
+
+Under *Other open embeddings* the panel lists datasets that give one vector per image patch instead of per pixel (Major TOM,
+Clay); they can't be downloaded as maps here.
+
+1. **Embedding.** AlphaEarth or TESSERA.
+2. **Area** *(required)*: draw a rectangle or polygon, use the current map view, or any polygon layer (your farm, a district).
+   **What's available here?** shows, for every year, whether each embedding covers the area (for TESSERA, how many of the
+   0.1° tiles covering it have data); click a year to use it.
+3. **Year & resolution.** 10 m is full detail. AlphaEarth also comes at 20, 40, 80 or 160 m (averaged vectors from its
+   overviews): far less to download, good for large areas. The panel shows the size of the result and roughly how much is
+   downloaded. Up to 25 million pixels per download (e.g. 50 × 50 km at 10 m, or a whole district at 40 m).
+4. **Download.** The result is a GeoTIFF layer (float32, one band per dimension named `A00`–`A63` or `E000`–`E127`) in the
+   area's UTM zone. **Also make a colour view** adds a second layer where the three main directions of variation (PCA) are
+   shown as red, green and blue: alike places get alike colours.
+5. **Explore an embedding layer** (any embedding GeoTIFF in Contents, also your own AlphaEarth or TESSERA exports):
+   - **Find similar places:** click one or more places on the map (e.g. fields of the crop you're looking for), then
+     **Find similar places**: a new layer scores every pixel by cosine similarity to the average of the clicked places
+     (1 = the same; above about 0.9 is usually the same kind of place).
+   - **Colour view of this layer.**
+   - **Classify it:** opens Classical ML for raster, which recognises the layer as an embedding and suggests k-NN, SVM,
+     logistic regression and Spectral Angle Mapper (cosine distance). Clustering works on it too.
+
+**How the data is read.** AlphaEarth comes from Google's public bucket (free to download since July 2026; Source Cooperative
+as a mirror): only the 1024 × 1024-pixel blocks touching the area are read, all 64 dimensions in parallel. Its files are
+stored upside down and as 8-bit codes; the tool flips and decodes them (value = sign(v)·(v/127.5)²). The first use downloads
+AlphaEarth's file index once (70 MB), kept in `embeddings_cache/`. TESSERA comes from Source Cooperative: only the rows of
+each 0.1° tile that cross the area are downloaded, then decoded with the tile's scales and placed with its landmask.
+
+## 25. Export data
 
 **Tools ▸ Export data**, or right-click a layer ▸ **Export / save to computer**.
 
@@ -1072,7 +1112,7 @@ Files are saved to your browser's Downloads folder.
 
 ---
 
-## 25. Downloads & jobs
+## 26. Downloads & jobs
 
 **Tools ▸ Downloads & jobs** lists background jobs (downloads, composites, product downloads, Sentinel-1 processing, …). Each job shows:
 - its progress, current step and **Cancel**
@@ -1085,7 +1125,7 @@ Downloads that finish while the app is open are added to Contents automatically.
 
 ---
 
-## 26. Credentials
+## 27. Credentials
 
 Click **Credentials** (top right). Secrets are stored in your **operating-system keychain** (macOS Keychain, Windows Credential Locker, Linux Secret Service). They're never shown again or sent back to the browser, and are only used with the service they belong to. Each entry has a **Test** button.
 
@@ -1100,7 +1140,7 @@ Click **Credentials** (top right). Secrets are stored in your **operating-system
 
 ---
 
-## 27. Command-line tool
+## 28. Command-line tool
 
 `lulc-fetch` does the downloading parts without the web app. An area can be given as `--bbox minlon,minlat,maxlon,maxlat`, `--geojson file.geojson`, `--point lon,lat --buffer-km 5`, or `--match existing.tif` (reuse a raster's exact grid).
 
@@ -1130,7 +1170,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 28. Data sources and band conventions
+## 29. Data sources and band conventions
 
 | Source | Login | Notes |
 |---|---|---|
@@ -1138,6 +1178,8 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 | Microsoft Planetary Computer | none | Sentinel-2, Landsat C2 L2, WorldCover, Esri LULC, NAIP, Sentinel-1 RTC, DEM |
 | Copernicus Data Space | free S3 keys | The official ESA archive (JPEG2000) |
 | USGS EarthExplorer | ERS account + M2M token | Original Landsat product bundles |
+| Google AlphaEarth Foundations (Google Cloud Storage, Source Cooperative) | none | Satellite embeddings, 64-D, 10 m, 2017–2025 (CC-BY-4.0) |
+| TESSERA (Source Cooperative) | none | Satellite embeddings, 128-D, 10 m (CC0) |
 | Hugging Face ([ixrbhii/multicrop-disease-models](https://huggingface.co/ixrbhii/multicrop-disease-models)) | none | Crop disease models for Agri ▸ Diagnose crop disease, downloaded once per crop (CC-BY-4.0) |
 
 - **Reflectance offset:** values are made consistent across sources and dates. The −1000 DN offset of Sentinel-2 processing baseline ≥ 04.00 is applied per scene.
@@ -1146,7 +1188,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 29. Files and folders
+## 30. Files and folders
 
 With a project open, these folders are inside the project folder (next to `lulc_project.json`). Without a project they are in the app's folder (the temporary workspace). `data/` is always also read from the app's folder. The list of recent projects is stored in `~/.lulc-fetch/recent.json`.
 
@@ -1160,6 +1202,7 @@ With a project open, these folders are inside the project folder (next to `lulc_
 | `models/` | Trained models (`.joblib`) with `.json` reports and `.evaluation.html` evaluation reports; deep-learning models as folders (`best_model.pt`, `model_config.json`, `report.html`…) |
 | `addons/` | (desktop app) the deep-learning add-on (PyTorch) and the YOLO & SAM add-on (ultralytics), if installed |
 | `training_data/` | Datasets made with Make training data when no folder is chosen (images/, labels/, classes.txt, dataset.json…) |
+| `embeddings_cache/` | The AlphaEarth file index used by Satellite embeddings (downloaded once) |
 | `agri_models/` | Crop disease models downloaded from Hugging Face (shared by all projects) |
 | `uploads/`, `analysis/`, `exports/` | Uploaded files (photos added to Diagnose crop disease go to `uploads/photos/`), index exports, other exports |
 
@@ -1167,7 +1210,7 @@ All of these are excluded from git.
 
 ---
 
-## 30. Limits and known issues
+## 31. Limits and known issues
 
 - **Download size:** one download is capped at 60 M pixels (≈77 × 77 km at 10 m). Use a coarser pixel size or split the area.
 - **Map previews** of large rasters are drawn at reduced resolution (≈1400 px), and their statistics come from that preview unless you pick an area. **GeoTIFF exports are always full resolution.**
@@ -1186,7 +1229,7 @@ All of these are excluded from git.
 
 ---
 
-## 31. Troubleshooting
+## 32. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -1204,7 +1247,7 @@ All of these are excluded from git.
 
 ---
 
-## 32. For developers: adding a tool
+## 33. For developers: adding a tool
 
 The web app is a FastAPI backend (`webapp/server.py`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package.
 

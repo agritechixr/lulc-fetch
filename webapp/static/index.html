@@ -1055,6 +1055,57 @@
       </div>
     </section>
 
+    <section id="tab-embed" class="tabpanel hidden">
+      <div class="card">
+        <h2><span class="step">1</span>Embedding <button type="button" class="tip" data-tip="An embedding gives every 10 m pixel a list of numbers (64 or 128) that sums up a whole year of satellite observations. Similar places get similar numbers, so a few labelled points are enough to map crops or land cover, find places like a chosen one, or cluster an area. These open datasets are free and need no account." aria-label="Help">i</button></h2>
+        <div id="em-sources" class="em-sources"></div>
+        <details class="em-other"><summary class="small">Other open embeddings</summary><div id="em-other"></div></details>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Area <span class="req">required</span></h2>
+        <div class="area-pick" style="border-top:0;margin-top:0;padding-top:0">
+          <label>Area <button type="button" class="tip" data-tip="Embeddings are downloaded only for this area. Draw a rectangle, use the current map view, or any polygon layer (e.g. your farm or district). Up to about 200 × 200 km; at 10 m keep it to a few hundred km²." aria-label="Help">i</button><select id="em-area"></select></label>
+          <p class="hint" id="em-area-hint">Choose an area.</p>
+        </div>
+        <button class="btn small" id="em-check" style="margin-top:8px">What's available here?</button>
+        <div id="em-avail" class="hidden"></div>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Year &amp; resolution</h2>
+        <div class="grid2">
+          <label>Year<select id="em-year"></select></label>
+          <label>Resolution <button type="button" class="tip" data-tip="10 m is the full detail. AlphaEarth also comes at 20–160 m (averaged vectors, from its overviews): much less to download, good for large areas." aria-label="Help">i</button><select id="em-res"></select></label>
+        </div>
+        <p class="hint" id="em-est"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">4</span>Download</h2>
+        <label>Layer name<input id="em-name" maxlength="80" value="embedding"></label>
+        <label class="inline" style="margin-top:8px"><input type="checkbox" id="em-colour" checked> Also make a colour view <button type="button" class="tip" data-tip="The three main directions of variation (PCA) of the embedding shown as red, green and blue: places that are alike get alike colours, which shows fields, crops, water and built-up areas at a glance." aria-label="Help">i</button></label>
+        <button class="btn primary big-btn" id="em-run">Download embeddings</button>
+        <div id="em-error" class="warn err hidden"></div>
+      </div>
+      <div id="em-result" class="hidden"></div>
+      <div class="card">
+        <h2><span class="step">5</span>Explore an embedding layer</h2>
+        <label>Layer<select id="em-layer"></select></label>
+        <p class="hint" id="em-layer-hint"></p>
+        <div class="home-label" style="margin-top:12px">Find similar places</div>
+        <p class="hint" style="margin-top:0">Click one or more places on the map (e.g. a field of the crop you look for): every pixel is scored by how alike it is (cosine similarity, 1 = the same).</p>
+        <div class="row tight" style="flex-wrap:wrap;gap:6px;margin-top:6px">
+          <button class="btn small" id="em-pick">Click a place on the map…</button>
+          <button class="btn small ghost hidden" id="em-pick-clear">Clear places</button>
+          <span class="hint" id="em-pick-n" style="margin:0"></span>
+        </div>
+        <button class="btn primary" id="em-similar" style="margin-top:8px;width:100%">Find similar places</button>
+        <div class="row tight" style="flex-wrap:wrap;gap:6px;margin-top:12px">
+          <button class="btn small" id="em-colour-btn">Colour view of this layer</button>
+          <button class="btn small" id="em-classify">Classify it (Classical ML for raster)…</button>
+        </div>
+        <div id="em-explore-error" class="warn err hidden"></div>
+      </div>
+    </section>
+
     <section id="tab-agridisease" class="tabpanel hidden">
       <div class="dl-addon card hidden" data-addon></div>
       <div class="dl-body">
