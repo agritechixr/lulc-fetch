@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.min.css">
   <link rel="stylesheet" href="/static/vendor/leaflet-draw/leaflet.draw.css">
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/tools/embeddings/embeddings.css">
+  <link rel="stylesheet" href="/static/tools/agri/agri.css">
 </head>
 <body>
 <!-- ================= menu bar ================= -->
@@ -174,7 +176,7 @@
     <section id="tab-search" class="tabpanel hidden">
       <!-- 1. AOI -->
       <div class="card">
-        <h2><span class="step">1</span>Area of interest</h2>
+        <h2>Area of interest</h2>
         <div class="seg" id="aoi-tabs">
           <button class="active" data-aoi="draw">Draw</button>
           <button data-aoi="coords">Lat / Long</button>
@@ -247,7 +249,7 @@
 
       <!-- 2. Filters -->
       <div class="card">
-        <h2><span class="step">2</span>Date &amp; filters</h2>
+        <h2>Date &amp; filters</h2>
         <label>Satellite<select id="mission"></select></label>
         <label>Data source<select id="source"></select></label>
         <div class="grid2">
@@ -271,7 +273,7 @@
       <!-- 3. Results -->
       <div class="card" id="results-card">
         <div class="results-head">
-          <h2><span class="step">3</span>Results</h2>
+          <h2>Results</h2>
           <div class="seg small" id="sort">
             <button class="active" data-sort="cloud">Cloud</button>
             <button data-sort="date">Date</button>
@@ -286,7 +288,7 @@
     <section id="tab-analyze" class="tabpanel hidden">
       <!-- A1. Input layer -->
       <div class="card">
-        <h2><span class="step">1</span>Input image</h2>
+        <h2>Input image</h2>
         <select id="an-input"><option value="">Choose a raster layer…</option></select>
         <p class="hint" id="an-input-hint">Uses a raster layer from <b>Contents</b>. Add one with <b>+ Add data</b>, <b>Workspace</b>, or download from <b>Find imagery</b>.</p>
         <div class="area-pick">
@@ -316,7 +318,7 @@
 
       <!-- A2. Indices -->
       <div class="card" id="an-indices-card">
-        <h2><span class="step">2</span>Indices &amp; band combinations</h2>
+        <h2>Indices &amp; band combinations</h2>
         <div class="hint" style="margin-top:0">Band combinations</div>
         <div class="row presets" id="an-composites"></div>
         <div class="hint">Spectral indices. Dashed buttons need a band that isn't assigned yet. Click one to assign it.</div>
@@ -356,7 +358,7 @@
 
       <!-- A3. Result -->
       <div class="card hidden" id="an-result">
-        <div class="row between"><h2 style="margin:0"><span class="step">3</span><span id="an-title">Result</span></h2>
+        <div class="row between"><h2 style="margin:0"><span id="an-title">Result</span></h2>
           <span class="status running hidden" id="an-busy"><span class="spinner"></span>computing</span></div>
         <div id="an-desc" class="hint"></div>
         <div id="an-formula-show" class="mono small formula"></div>
@@ -387,7 +389,7 @@
 
     <section id="tab-pca" class="tabpanel hidden">
       <div class="card">
-        <h2><span class="step">1</span>Input image <button type="button" class="tip" data-tip="The raster layer to analyse. Any multiband image works: Sentinel-2, Landsat, drone, or the radar layer. PCA needs at least two bands." aria-label="Help">i</button></h2>
+        <h2>Input image <button type="button" class="tip" data-tip="The raster layer to analyse. Any multiband image works: Sentinel-2, Landsat, drone, or the radar layer. PCA needs at least two bands." aria-label="Help">i</button></h2>
         <select id="pca-input"><option value="">Choose a raster layer…</option></select>
         <div class="area-pick">
           <label>Area to use <button type="button" class="tip" data-tip="Limit the analysis to part of the image. Smaller areas run faster and at full resolution, and the components then describe only that area." aria-label="Help">i</button><select id="pca-area"></select></label>
@@ -395,17 +397,17 @@
         </div>
       </div>
       <div class="card">
-        <div class="row between"><h2 style="margin:0"><span class="step">2</span>Bands <button type="button" class="tip" data-tip="Which bands go into the analysis. Recommended leaves out atmospheric bands (B01 coastal aerosol, B09 water vapour) and derived bands such as indices, which mostly add noise or repeat other bands." aria-label="Help">i</button></h2>
+        <div class="row between"><h2 style="margin:0">Bands <button type="button" class="tip" data-tip="Which bands go into the analysis. Recommended leaves out atmospheric bands (B01 coastal aerosol, B09 water vapour) and derived bands such as indices, which mostly add noise or repeat other bands." aria-label="Help">i</button></h2>
           <span class="row tight"><button class="chip" id="pca-bands-rec">Recommended</button><button class="chip" id="pca-bands-all">All</button><button class="chip" id="pca-bands-none">None</button></span></div>
         <div id="pca-bands" class="bands pca-bands"></div>
         <p class="hint" id="pca-bands-hint"></p>
       </div>
       <div class="card">
-        <h2><span class="step">3</span>Method <button type="button" class="tip" data-tip="The algorithm from scikit-learn. Standard PCA is the right choice for most work. The others are for special cases. Each has its own hint." aria-label="Help">i</button></h2>
+        <h2>Method <button type="button" class="tip" data-tip="The algorithm from scikit-learn. Standard PCA is the right choice for most work. The others are for special cases. Each has its own hint." aria-label="Help">i</button></h2>
         <div id="pca-methods"></div>
       </div>
       <div class="card">
-        <div class="row between"><h2 style="margin:0"><span class="step">6</span>Parameters</h2><button class="chip" id="pca-reset">Reset to defaults</button></div>
+        <div class="row between"><h2 style="margin:0">Parameters</h2><button class="chip" id="pca-reset">Reset to defaults</button></div>
         <div id="pca-params"></div>
         <details class="an-details" id="pca-adv-wrap"><summary>Advanced</summary><div id="pca-adv"></div></details>
       </div>
@@ -439,12 +441,12 @@
       <div id="ml-sub-train" class="ml-sub hidden">
         <button class="btn small ml-back">‹ All ML tools</button>
         <div class="card">
-          <h2><span class="step">1</span>Training table <button type="button" class="tip" data-tip="A table with one row per sample: feature columns (e.g. band values) and a label column. Create one from an image and ground truth with the Raster → table tool." aria-label="Help">i</button></h2>
+          <h2>Training table <button type="button" class="tip" data-tip="A table with one row per sample: feature columns (e.g. band values) and a label column. Create one from an image and ground truth with the Raster → table tool." aria-label="Help">i</button></h2>
           <select id="mt-table"></select>
           <p class="hint" id="mt-table-info">No tables yet? Create one with <a href="#" class="goto-rt"><b>Raster → table</b></a>.</p>
         </div>
         <div class="card">
-          <h2><span class="step">2</span>Target (what to predict)</h2>
+          <h2>Target (what to predict)</h2>
           <label>Target column (dependent variable) <button type="button" class="tip" data-tip="The column the model learns to predict, usually the ground-truth class added by Raster → table (the last column). You can also pick it with Role → Target in the column table below." aria-label="Help">i</button><select id="mt-target"></select></label>
           <div class="home-label" style="margin-top:10px">What kind of values does it hold? <button type="button" class="tip" data-tip="Categories (e.g. water, forest, or class codes 1, 2, 3) → classification: the model picks one class per pixel. Numbers on a scale (e.g. biomass, yield, NDVI, height) → regression: the model predicts a value. Class codes are numbers but still categories!" aria-label="Help">i</button></div>
           <input type="hidden" id="mt-task" value="auto">
@@ -456,7 +458,7 @@
           <div id="mt-target-info" class="mt-target-info"></div>
         </div>
         <div class="card">
-          <h2><span class="step">3</span>Input columns <button type="button" class="tip" data-tip="Choose what each column is. Role: Feature = used as model input, Ignore = left out, Target = what to predict. Type: Numeric = a measured value (bands, indices, elevation); Categorical = labels or codes with no order (soil type, land-use code, orbit). Categorical columns are one-hot encoded automatically. Coordinates and ids are ignored by default: they make a model memorise places instead of learning spectra." aria-label="Help">i</button></h2>
+          <h2>Input columns <button type="button" class="tip" data-tip="Choose what each column is. Role: Feature = used as model input, Ignore = left out, Target = what to predict. Type: Numeric = a measured value (bands, indices, elevation); Categorical = labels or codes with no order (soil type, land-use code, orbit). Categorical columns are one-hot encoded automatically. Coordinates and ids are ignored by default: they make a model memorise places instead of learning spectra." aria-label="Help">i</button></h2>
           <div class="row between" style="gap:6px;flex-wrap:wrap">
             <input id="mt-col-filter" placeholder="Filter columns…" style="flex:1;min-width:120px">
             <span class="row tight"><button class="chip" id="mt-feats-bands" title="Use only the image band columns">Bands only</button><button class="chip" id="mt-feats-all" title="Use every column except target, coordinates and ids">All</button><button class="chip" id="mt-feats-none" title="Ignore every column">None</button></span>
@@ -465,23 +467,23 @@
           <p class="hint" id="mt-feats-hint"></p>
         </div>
         <div class="card">
-          <div class="row between"><h2 style="margin:0"><span class="step">4</span>Preprocessing <button type="button" class="tip" data-tip="How the data is cleaned and transformed before it reaches the model. Every step is learned from the training rows only (also inside each cross-validation / tuning fold) and saved inside the model, so Classify an image repeats exactly the same steps. The defaults are safe for every model." aria-label="Help">i</button></h2>
+          <div class="row between"><h2 style="margin:0">Preprocessing <button type="button" class="tip" data-tip="How the data is cleaned and transformed before it reaches the model. Every step is learned from the training rows only (also inside each cross-validation / tuning fold) and saved inside the model, so Classify an image repeats exactly the same steps. The defaults are safe for every model." aria-label="Help">i</button></h2>
             <button class="chip" id="mt-prep-reset">Defaults</button></div>
           <div id="mt-prep"></div>
           <div class="prep-flow" id="mt-prep-flow"></div>
         </div>
         <div class="card">
-          <h2><span class="step">5</span>Model <button type="button" class="tip" data-tip="All models come from scikit-learn, XGBoost and LightGBM, with defaults tuned for pixel data. Random Forest is the safest first choice. Stars show typical accuracy and speed on pixel tables." aria-label="Help">i</button></h2>
+          <h2>Model <button type="button" class="tip" data-tip="All models come from scikit-learn, XGBoost and LightGBM, with defaults tuned for pixel data. Random Forest is the safest first choice. Stars show typical accuracy and speed on pixel tables." aria-label="Help">i</button></h2>
           <div class="seg small" id="mt-family" style="margin-bottom:8px"></div>
           <div id="mt-models"></div>
         </div>
         <div class="card">
-          <div class="row between"><h2 style="margin:0"><span class="step">6</span>Parameters</h2><button class="chip" id="mt-reset">Reset to defaults</button></div>
+          <div class="row between"><h2 style="margin:0">Parameters</h2><button class="chip" id="mt-reset">Reset to defaults</button></div>
           <div id="mt-params"></div>
           <details class="an-details" id="mt-adv-wrap"><summary>Advanced (validation, cross-validation, seed…)</summary><div id="mt-adv"></div></details>
         </div>
         <div class="card">
-          <div class="row between"><h2 style="margin:0"><span class="step">7</span>Hyperparameter tuning <button type="button" class="tip" data-tip="Let the computer try many parameter combinations and keep the best. Each combination is scored by cross-validation on the training rows only (the test split stays untouched), using the same polygon / spatial-block grouping, so the chosen settings are honest. Slower: total fits = tries × folds." aria-label="Help">i</button></h2>
+          <div class="row between"><h2 style="margin:0">Hyperparameter tuning <button type="button" class="tip" data-tip="Let the computer try many parameter combinations and keep the best. Each combination is scored by cross-validation on the training rows only (the test split stays untouched), using the same polygon / spatial-block grouping, so the chosen settings are honest. Slower: total fits = tries × folds." aria-label="Help">i</button></h2>
             <label class="switch"><input type="checkbox" id="mt-tune"><span>Tune</span></label></div>
           <div id="mt-tune-body" class="hidden">
             <div class="seg small" id="mt-tune-method" style="margin:8px 0"><button data-m="random" class="active">Random search</button><button data-m="grid">Grid search</button></div>
@@ -511,12 +513,12 @@
       <div id="ml-sub-cluster" class="ml-sub hidden">
         <button class="btn small ml-back">‹ All ML tools</button>
         <div class="card">
-          <h2><span class="step">1</span>Table <button type="button" class="tip" data-tip="Any table in Contents ▸ Tabular data or made by Raster → table. No label column is needed." aria-label="Help">i</button></h2>
+          <h2>Table <button type="button" class="tip" data-tip="Any table in Contents ▸ Tabular data or made by Raster → table. No label column is needed." aria-label="Help">i</button></h2>
           <select id="uc-table"></select>
           <p class="hint" id="uc-table-info"></p>
         </div>
         <div class="card">
-          <h2><span class="step">2</span>Columns to cluster on <button type="button" class="tip" data-tip="Tick the columns that describe each row (bands, indices, measurements). Rows that are similar in these columns end up in the same cluster. Leave out ids, coordinates and the label column. Tick Categorical for codes / categories (one-hot encoded)." aria-label="Help">i</button></h2>
+          <h2>Columns to cluster on <button type="button" class="tip" data-tip="Tick the columns that describe each row (bands, indices, measurements). Rows that are similar in these columns end up in the same cluster. Leave out ids, coordinates and the label column. Tick Categorical for codes / categories (one-hot encoded)." aria-label="Help">i</button></h2>
           <div class="row between" style="gap:6px;flex-wrap:wrap">
             <input class="uc-col-filter" placeholder="Filter columns…" style="flex:1;min-width:120px">
             <span class="row tight"><button class="chip" data-colset="numeric">Numeric</button><button class="chip" data-colset="all">All</button><button class="chip" data-colset="none">None</button></span>
@@ -526,16 +528,16 @@
           <label style="margin-top:10px">Compare with a known label <span class="muted">(optional)</span> <button type="button" class="tip" data-tip="If the table has a label column (e.g. land-cover class or risk group), the results show how well the clusters match it (adjusted Rand index, NMI, cross-table). It is never used to make the clusters." aria-label="Help">i</button><select id="uc-compare"></select></label>
         </div>
         <div class="card">
-          <h2><span class="step">3</span>Method <button type="button" class="tip" data-tip="K-means is the safest first choice. DBSCAN / HDBSCAN find any shape and mark outliers as noise. Hierarchical shows a dendrogram. Spectral finds non-round groups. Gaussian mixture gives soft memberships." aria-label="Help">i</button></h2>
+          <h2>Method <button type="button" class="tip" data-tip="K-means is the safest first choice. DBSCAN / HDBSCAN find any shape and mark outliers as noise. Hierarchical shows a dendrogram. Spectral finds non-round groups. Gaussian mixture gives soft memberships." aria-label="Help">i</button></h2>
           <div id="uc-methods"></div>
         </div>
         <div class="card">
-          <div class="row between"><h2 style="margin:0"><span class="step">4</span>Settings</h2><button class="chip" id="uc-reset">Reset to defaults</button></div>
+          <div class="row between"><h2 style="margin:0">Settings</h2><button class="chip" id="uc-reset">Reset to defaults</button></div>
           <div id="uc-params"></div>
           <details class="an-details"><summary>Advanced</summary><div id="uc-adv"></div></details>
         </div>
         <div class="card">
-          <h2><span class="step">5</span>Preprocessing <button type="button" class="tip" data-tip="Clustering compares distances between rows, so scaling matters: without it the column with the biggest numbers decides everything. Standard scaling is the default." aria-label="Help">i</button></h2>
+          <h2>Preprocessing <button type="button" class="tip" data-tip="Clustering compares distances between rows, so scaling matters: without it the column with the biggest numbers decides everything. Standard scaling is the default." aria-label="Help">i</button></h2>
           <div id="uc-prep"></div>
         </div>
         <div class="card">
@@ -550,12 +552,12 @@
       <div id="ml-sub-tsne" class="ml-sub hidden">
         <button class="btn small ml-back">‹ All ML tools</button>
         <div class="card">
-          <h2><span class="step">1</span>Table</h2>
+          <h2>Table</h2>
           <select id="ut-table"></select>
           <p class="hint" id="ut-table-info"></p>
         </div>
         <div class="card">
-          <h2><span class="step">2</span>Columns to map <button type="button" class="tip" data-tip="t-SNE places every row as a point in 2D so that rows that are similar in these columns lie close together. Use it to see whether classes or clusters separate." aria-label="Help">i</button></h2>
+          <h2>Columns to map <button type="button" class="tip" data-tip="t-SNE places every row as a point in 2D so that rows that are similar in these columns lie close together. Use it to see whether classes or clusters separate." aria-label="Help">i</button></h2>
           <div class="row between" style="gap:6px;flex-wrap:wrap">
             <input class="uc-col-filter" placeholder="Filter columns…" style="flex:1;min-width:120px">
             <span class="row tight"><button class="chip" data-colset="numeric">Numeric</button><button class="chip" data-colset="all">All</button><button class="chip" data-colset="none">None</button></span>
@@ -565,12 +567,12 @@
           <label style="margin-top:10px">Colour points by <button type="button" class="tip" data-tip="A column used only to colour the map, e.g. the class label or a cluster column. You can switch colours after the run." aria-label="Help">i</button><select id="ut-color"></select></label>
         </div>
         <div class="card">
-          <div class="row between"><h2 style="margin:0"><span class="step">3</span>Settings</h2><button class="chip" id="ut-reset">Reset to defaults</button></div>
+          <div class="row between"><h2 style="margin:0">Settings</h2><button class="chip" id="ut-reset">Reset to defaults</button></div>
           <div id="ut-params"></div>
           <details class="an-details"><summary>Advanced</summary><div id="ut-adv"></div></details>
         </div>
         <div class="card">
-          <h2><span class="step">4</span>Preprocessing</h2>
+          <h2>Preprocessing</h2>
           <div id="ut-prep"></div>
         </div>
         <div class="card">
@@ -585,18 +587,18 @@
       <div id="ml-sub-predict" class="ml-sub hidden">
         <button class="btn small ml-back">‹ All ML tools</button>
         <div class="card">
-          <h2><span class="step">1</span>Model <button type="button" class="tip" data-tip="A model you trained in 'Train a model'. Its accuracy is shown so you can pick the best one." aria-label="Help">i</button></h2>
+          <h2>Model <button type="button" class="tip" data-tip="A model you trained in 'Train a model'. Its accuracy is shown so you can pick the best one." aria-label="Help">i</button></h2>
           <select id="mp-model"></select>
           <div id="mp-model-info" class="hint"></div>
         </div>
         <div class="card">
-          <h2><span class="step">2</span>Image to classify <button type="button" class="tip" data-tip="The raster to apply the model to: the same image used for training, or another one with the same bands (e.g. another date or area)." aria-label="Help">i</button></h2>
+          <h2>Image to classify <button type="button" class="tip" data-tip="The raster to apply the model to: the same image used for training, or another one with the same bands (e.g. another date or area)." aria-label="Help">i</button></h2>
           <select id="mp-raster"></select>
           <div id="mp-match"></div>
           <label class="inline" style="margin-top:8px"><input type="checkbox" id="mp-refl"> Convert values like the training table <span id="mp-refl-val" class="hint" style="margin:0"></span> <button type="button" class="tip" data-tip="The model must see values on the same scale as during training. If the training table was converted to reflectance, the same scale/offset is applied here. This is set automatically from the training table." aria-label="Help">i</button></label>
         </div>
         <div class="card">
-          <h2><span class="step">3</span>Area &amp; output</h2>
+          <h2>Area &amp; output</h2>
           <div class="area-pick" style="border-top:0;margin-top:0;padding-top:0">
             <label>Area <button type="button" class="tip" data-tip="Classify only part of the image. Faster, and runs at full resolution." aria-label="Help">i</button><select id="mp-area"></select></label>
             <p class="hint" id="mp-area-hint">The whole image is used.</p>
@@ -616,18 +618,18 @@
 
     <section id="tab-samples" class="tabpanel hidden">
       <div class="card">
-        <h2><span class="step">1</span>Sample set <button type="button" class="tip" data-tip="A vector layer that holds your training polygons and points, one class per feature. Keep one set per project. It appears in Contents and can be exported as a shapefile." aria-label="Help">i</button></h2>
+        <h2>Sample set <button type="button" class="tip" data-tip="A vector layer that holds your training polygons and points, one class per feature. Keep one set per project. It appears in Contents and can be exported as a shapefile." aria-label="Help">i</button></h2>
         <div class="row" style="margin-top:0"><select id="ts-set" class="grow"></select><button class="btn" id="ts-new">+ New</button></div>
         <div id="ts-set-info" class="hint"></div>
       </div>
       <div class="card" id="ts-classes-card">
-        <div class="row between"><h2 style="margin:0"><span class="step">2</span>Classes <button type="button" class="tip" data-tip="The land-cover classes you want to map. Pick the active class (radio button), then draw. Colours carry through to the final classified map." aria-label="Help">i</button></h2>
+        <div class="row between"><h2 style="margin:0">Classes <button type="button" class="tip" data-tip="The land-cover classes you want to map. Pick the active class (radio button), then draw. Colours carry through to the final classified map." aria-label="Help">i</button></h2>
           <select id="ts-preset" class="preset-sel"><option value="">Load preset…</option><option value="lulc">Land cover (6 classes)</option><option value="worldcover">ESA WorldCover (11)</option><option value="water">Water / non-water</option></select></div>
         <div id="ts-classes"></div>
         <div class="row"><input id="ts-newclass" placeholder="New class name, e.g. Cropland" maxlength="40"><button class="btn" id="ts-addclass">Add</button></div>
       </div>
       <div class="card">
-        <h2><span class="step">3</span>Draw samples <button type="button" class="tip" data-tip="Draw over areas you are sure about, using the satellite basemap or an image layer as reference. Many small polygons spread across the map are better than a few big ones: they give the model variety and allow an honest accuracy check." aria-label="Help">i</button></h2>
+        <h2>Draw samples <button type="button" class="tip" data-tip="Draw over areas you are sure about, using the satellite basemap or an image layer as reference. Many small polygons spread across the map are better than a few big ones: they give the model variety and allow an honest accuracy check." aria-label="Help">i</button></h2>
         <div class="draw-active" id="ts-active"></div>
         <div class="row draw-btns">
           <button class="btn" id="ts-draw-poly">⬠ Polygon</button>
@@ -638,12 +640,12 @@
         <div class="row tight" style="margin-top:8px"><button class="btn small" id="ts-undo">↶ Undo last</button><button class="btn small" id="ts-satellite">Satellite basemap</button></div>
       </div>
       <div class="card">
-        <h2><span class="step">4</span>Your samples</h2>
+        <h2>Your samples</h2>
         <div id="ts-summary"></div>
         <div id="ts-advice" class="hint"></div>
       </div>
       <div class="card">
-        <h2><span class="step">5</span>Next</h2>
+        <h2>Next</h2>
         <button class="btn primary big-btn" id="ts-to-table">Use these samples in Raster → table →</button>
         <div class="row"><button class="btn small" id="ts-export">Export as shapefile…</button><button class="btn small" id="ts-zoom">Zoom to samples</button></div>
       </div>
@@ -651,11 +653,11 @@
 
     <section id="tab-stack" class="tabpanel hidden">
       <div class="card">
-        <h2><span class="step">1</span>Layers to stack <button type="button" class="tip" data-tip="Tick the layers to combine, e.g. Sentinel-2 + Sentinel-1 radar + an NDVI result + elevation. Index layers (from Index analysis) become one band each. Untick bands you don't need." aria-label="Help">i</button></h2>
+        <h2>Layers to stack <button type="button" class="tip" data-tip="Tick the layers to combine, e.g. Sentinel-2 + Sentinel-1 radar + an NDVI result + elevation. Index layers (from Index analysis) become one band each. Untick bands you don't need." aria-label="Help">i</button></h2>
         <div id="st-layers"></div>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Grid <button type="button" class="tip" data-tip="All layers are resampled onto the reference layer's grid: its projection, pixel size and extent. Class maps use nearest neighbour, so class codes stay intact; continuous data uses bilinear." aria-label="Help">i</button></h2>
+        <h2>Grid <button type="button" class="tip" data-tip="All layers are resampled onto the reference layer's grid: its projection, pixel size and extent. Class maps use nearest neighbour, so class codes stay intact; continuous data uses bilinear." aria-label="Help">i</button></h2>
         <label>Reference layer (projection, pixel size, extent)<select id="st-ref"></select></label>
         <div class="area-pick">
           <label>Area<select id="st-area"></select></label>
@@ -674,7 +676,7 @@
 
     <section id="tab-rasterml" class="tabpanel hidden">
       <div class="card">
-        <h2><span class="step">1</span>Image <button type="button" class="tip" data-tip="Any raster layer: RGB photo, multispectral (Sentinel-2, Landsat), hyperspectral (100+ bands), SAR, or pixel embeddings such as Google AlphaEarth (64-D) or TESSERA (128-D). The tool works on the raster directly." aria-label="Help">i</button></h2>
+        <h2>Image <button type="button" class="tip" data-tip="Any raster layer: RGB photo, multispectral (Sentinel-2, Landsat), hyperspectral (100+ bands), SAR, or pixel embeddings such as Google AlphaEarth (64-D) or TESSERA (128-D). The tool works on the raster directly." aria-label="Help">i</button></h2>
         <select id="rm-input"><option value="">Choose a raster layer…</option></select>
         <div id="rm-info" class="hint"></div>
         <div id="rm-kind" class="rm-kind hidden"></div>
@@ -686,7 +688,7 @@
         <label class="inline" style="margin-top:6px"><input type="checkbox" id="rm-refl"> Convert to reflectance <button type="button" class="tip" data-tip="Apply the layer's scale and offset (e.g. Sentinel-2 DN × 0.0001 − 0.1). The same conversion is applied when the map is made." aria-label="Help">i</button></label>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Ground truth <button type="button" class="tip" data-tip="Where the classes are known: a class raster (e.g. a land-cover map) or polygons / points (shapefile, GeoJSON, or drawn with Training samples) with a class attribute. Only the labelled pixels are used for training." aria-label="Help">i</button></h2>
+        <h2>Ground truth <button type="button" class="tip" data-tip="Where the classes are known: a class raster (e.g. a land-cover map) or polygons / points (shapefile, GeoJSON, or drawn with Training samples) with a class attribute. Only the labelled pixels are used for training." aria-label="Help">i</button></h2>
         <select id="rm-gt"></select>
         <div id="rm-gt-raster" class="hidden"><label>Band<select id="rm-gt-band"></select></label></div>
         <div id="rm-gt-vector" class="hidden"><label>Class attribute<select id="rm-gt-field"></select></label></div>
@@ -703,11 +705,11 @@
         </div>
       </div>
       <div class="card">
-        <h2><span class="step">3</span>Model <button type="button" class="tip" data-tip="Classical (non-deep-learning) classifiers. Models marked ★ suit the kind of image detected above. Every model handles any number of bands." aria-label="Help">i</button></h2>
+        <h2>Model <button type="button" class="tip" data-tip="Classical (non-deep-learning) classifiers. Models marked ★ suit the kind of image detected above. Every model handles any number of bands." aria-label="Help">i</button></h2>
         <div id="rm-models"></div>
       </div>
       <div class="card">
-        <div class="row between"><h2 style="margin:0"><span class="step">4</span>Settings</h2><button class="chip" id="rm-reset">Recommended settings</button></div>
+        <div class="row between"><h2 style="margin:0">Settings</h2><button class="chip" id="rm-reset">Recommended settings</button></div>
         <div id="rm-params"></div>
         <div class="home-label" style="margin-top:12px">Preprocessing</div>
         <div id="rm-prep"></div>
@@ -715,7 +717,7 @@
         <details class="an-details"><summary>Advanced (validation, class balancing, seed…)</summary><div id="rm-adv"></div></details>
       </div>
       <div class="card">
-        <h2><span class="step">5</span>Output</h2>
+        <h2>Output</h2>
         <div class="grid2">
           <label>Map name<input id="rm-name" maxlength="80" value="classified"></label>
           <label>Map pixel size<select id="rm-res"><option value="auto">Auto</option><option value="1">Native</option><option value="2">2× coarser</option><option value="4">4× coarser</option></select></label>
@@ -729,13 +731,13 @@
 
     <section id="tab-patches" class="tabpanel hidden">
       <div class="card">
-        <h2><span class="step">1</span>Input layers <span class="req">required</span> <button type="button" class="tip" data-tip="The image(s) to cut into patches, e.g. a Sentinel-2 scene, or Sentinel-2 + Sentinel-1 + DEM. All ticked layers are stacked band by band onto the reference layer's grid (its projection and pixel size), so every image patch holds all their bands." aria-label="Help">i</button></h2>
+        <h2>Input layers <span class="req">required</span> <button type="button" class="tip" data-tip="The image(s) to cut into patches, e.g. a Sentinel-2 scene, or Sentinel-2 + Sentinel-1 + DEM. All ticked layers are stacked band by band onto the reference layer's grid (its projection and pixel size), so every image patch holds all their bands." aria-label="Help">i</button></h2>
         <div id="pt-layers"></div>
         <label>Reference grid (projection, pixel size) <button type="button" class="tip" data-tip="Patches follow this layer's pixel grid. The other layers are resampled onto it (nearest neighbour for class maps, bilinear for the rest)." aria-label="Help">i</button><select id="pt-ref"></select></label>
         <p class="hint" id="pt-info"></p>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Ground truth <span class="opt-tag">optional</span> <button type="button" class="tip" data-tip="Known classes for the same area: a class raster (GeoTIFF land-cover map) or polygons / points (shapefile, GeoJSON, training samples) with a class attribute. It is cut into label patches on exactly the same grid as the images. Leave empty to export image patches only (e.g. for self-supervised pre-training or prediction)." aria-label="Help">i</button></h2>
+        <h2>Ground truth <span class="opt-tag">optional</span> <button type="button" class="tip" data-tip="Known classes for the same area: a class raster (GeoTIFF land-cover map) or polygons / points (shapefile, GeoJSON, training samples) with a class attribute. It is cut into label patches on exactly the same grid as the images. Leave empty to export image patches only (e.g. for self-supervised pre-training or prediction)." aria-label="Help">i</button></h2>
         <select id="pt-gt"></select>
         <div id="pt-gt-raster" class="hidden"><label>Band<select id="pt-gt-band"></select></label></div>
         <div id="pt-gt-vector" class="hidden"><label>Class attribute<select id="pt-gt-field"></select></label></div>
@@ -747,7 +749,7 @@
         </div>
       </div>
       <div class="card">
-        <h2><span class="step">3</span>Patch size &amp; overlap</h2>
+        <h2>Patch size &amp; overlap</h2>
         <div class="grid2">
           <label>Patch width X (m) <span class="req">required</span><input type="number" id="pt-sx" min="1" step="any"></label>
           <label>Patch height Y (m) <span class="req">required</span><input type="number" id="pt-sy" min="1" step="any"></label>
@@ -772,7 +774,7 @@
         <p class="hint" id="pt-plan"></p>
       </div>
       <div class="card">
-        <h2><span class="step">4</span>Output</h2>
+        <h2>Output</h2>
         <label>Save in folder <button type="button" class="tip" data-tip="A dataset folder is created inside it with images/, labels/, classes.txt, dataset.json and patches.csv. No train / validation split is made: the training tool decides that. Empty = the project's training_data folder." aria-label="Help">i</button></label>
         <div class="row tight"><input id="pt-folder" placeholder="Project folder ▸ training_data" style="flex:1"><button class="btn" id="pt-browse">Browse…</button></div>
         <label>Dataset name<input id="pt-name" maxlength="80" value="training_patches"></label>
@@ -787,12 +789,12 @@
       <div class="dl-addon card hidden" data-addon></div>
       <div class="dl-body">
       <div class="card">
-        <h2><span class="step">1</span>Training data <span class="req">required</span> <button type="button" class="tip" data-tip="A folder made with Make training data: images/ and labels/ patches plus dataset.json. Datasets made in this project are listed; Browse… opens any other." aria-label="Help">i</button></h2>
+        <h2>Training data <span class="req">required</span> <button type="button" class="tip" data-tip="A folder made with Make training data: images/ and labels/ patches plus dataset.json. Datasets made in this project are listed; Browse… opens any other." aria-label="Help">i</button></h2>
         <div class="row tight"><select id="dt-ds" style="flex:1"></select><button class="btn" id="dt-ds-browse">Browse…</button></div>
         <div id="dt-ds-info" class="hint"></div>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Model <button type="button" class="tip" data-tip="The segmentation architecture and its backbone (the encoder that extracts features). U-Net + MobileNetV3 is fast and a good start; DeepLabV3+ or U-Net++ with ResNet / EfficientNet are usually more accurate but slower. YOLO26 semantic (ultralytics) is very fast; its size is chosen under Backbone." aria-label="Help">i</button></h2>
+        <h2>Model <button type="button" class="tip" data-tip="The segmentation architecture and its backbone (the encoder that extracts features). U-Net + MobileNetV3 is fast and a good start; DeepLabV3+ or U-Net++ with ResNet / EfficientNet are usually more accurate but slower. YOLO26 semantic (ultralytics) is very fast; its size is chosen under Backbone." aria-label="Help">i</button></h2>
         <div id="dt-archs"></div>
         <div id="dt-yolo" class="hidden" style="margin-top:8px"></div>
         <div class="grid2" style="margin-top:8px">
@@ -801,12 +803,12 @@
         </div>
       </div>
       <div class="card">
-        <h2><span class="step">3</span>Training</h2>
+        <h2>Training</h2>
         <div id="dt-basic" class="dl-params"></div>
         <details class="an-details"><summary>Advanced (loss, optimiser, schedule, augmentation, device…)</summary><div id="dt-adv" class="dl-params"></div></details>
       </div>
       <div class="card">
-        <h2><span class="step">4</span>Output</h2>
+        <h2>Output</h2>
         <label>Model name<input id="dt-name" maxlength="80" value="dl_model"></label>
         <label>Save in folder <button type="button" class="tip" data-tip="A model folder is created inside it with best_model.pt, last_model.pt, model_config.json, training_log.csv and report.html. Empty = the project's models folder." aria-label="Help">i</button></label>
         <div class="row tight"><input id="dt-folder" placeholder="Project folder ▸ models" style="flex:1"><button class="btn" id="dt-browse">Browse…</button></div>
@@ -823,18 +825,18 @@
       <div class="dl-addon card hidden" data-addon></div>
       <div class="dl-body">
       <div class="card">
-        <h2><span class="step">1</span>Model <span class="req">required</span> <button type="button" class="tip" data-tip="A model trained with Train classify model. Models from other projects or computers: Browse… to their folder (with model_config.json and best_model.pt)." aria-label="Help">i</button></h2>
+        <h2>Model <span class="req">required</span> <button type="button" class="tip" data-tip="A model trained with Train classify model. Models from other projects or computers: Browse… to their folder (with model_config.json and best_model.pt)." aria-label="Help">i</button></h2>
         <div class="row tight"><select id="dp-model" style="flex:1"></select><button class="btn" id="dp-browse">Browse…</button></div>
         <div id="dp-model-info" class="hint"></div>
         <div id="dp-yolo" class="hidden" style="margin-top:8px"></div>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The image to classify: the same bands, in the same order, as the training data (e.g. the same Sentinel-2 bands). Tick several layers to stack them like in Make training data." aria-label="Help">i</button></h2>
+        <h2>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The image to classify: the same bands, in the same order, as the training data (e.g. the same Sentinel-2 bands). Tick several layers to stack them like in Make training data." aria-label="Help">i</button></h2>
         <div id="dp-layers"></div>
         <p class="hint" id="dp-check"></p>
       </div>
       <div class="card">
-        <h2><span class="step">3</span>Area &amp; settings</h2>
+        <h2>Area &amp; settings</h2>
         <div class="area-pick" style="border-top:0;margin-top:0;padding-top:0">
           <label>Area <button type="button" class="tip" data-tip="Classify only part of the image." aria-label="Help">i</button><select id="dp-area"></select></label>
           <p class="hint" id="dp-area-hint">The whole image is used.</p>
@@ -848,7 +850,7 @@
         <label class="inline" style="margin-top:6px"><input type="checkbox" id="dp-conf" checked> Also make a confidence layer <button type="button" class="tip" data-tip="A second band with how sure the model is (0–100 %) at every pixel." aria-label="Help">i</button></label>
       </div>
       <div class="card">
-        <h2><span class="step">4</span>Output</h2>
+        <h2>Output</h2>
         <label>Map name<input id="dp-name" maxlength="80" value="dl_map"></label>
         <button class="btn primary big-btn" id="dp-run">Classify image</button>
         <div id="dp-error" class="warn err hidden"></div>
@@ -861,7 +863,7 @@
       <div class="dl-addon card hidden" data-addon></div>
       <div class="dl-body">
       <div class="card">
-        <h2><span class="step">1</span>Model <span class="req">required</span> <button type="button" class="tip" data-tip="Open-source pretrained detectors: YOLO26 (ultralytics; COCO, or DOTA aerial images), torchvision Faster R-CNN, RetinaNet, FCOS, SSD, Mask R-CNN (COCO), and SAM 2.1 (Segment Anything) which outlines everything without classes. Models you trained with Train detection model are listed too. Weights are downloaded once, the first time a model is used." aria-label="Help">i</button></h2>
+        <h2>Model <span class="req">required</span> <button type="button" class="tip" data-tip="Open-source pretrained detectors: YOLO26 (ultralytics; COCO, or DOTA aerial images), torchvision Faster R-CNN, RetinaNet, FCOS, SSD, Mask R-CNN (COCO), and SAM 2.1 (Segment Anything) which outlines everything without classes. Models you trained with Train detection model are listed too. Weights are downloaded once, the first time a model is used." aria-label="Help">i</button></h2>
         <div id="od-models"></div>
         <div class="grid2" style="margin-top:8px">
           <label id="od-size-wrap" class="hidden">Model size <button type="button" class="tip" data-tip="Bigger models are more accurate but slower and need more memory. Nano / tiny run fine on a laptop CPU but miss small objects (e.g. cars at 0.5 m): medium is a good default." aria-label="Help">i</button><select id="od-size"></select></label>
@@ -871,7 +873,7 @@
         <div id="od-yolo" class="hidden"></div>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The models were trained on ordinary photos, so they work on high-resolution aerial, drone or satellite images (about 0.1–1 m pixels) where cars, boats, planes, people… are clearly visible. They can't see such objects in 10 m Sentinel-2 pixels." aria-label="Help">i</button></h2>
+        <h2>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The models were trained on ordinary photos, so they work on high-resolution aerial, drone or satellite images (about 0.1–1 m pixels) where cars, boats, planes, people… are clearly visible. They can't see such objects in 10 m Sentinel-2 pixels." aria-label="Help">i</button></h2>
         <select id="od-layer"></select>
         <div class="grid2" id="od-bands" style="margin-top:8px"></div>
         <label>Brightness stretch <button type="button" class="tip" data-tip="The models expect a normal-looking colour photo. 2–98 % stretches each band so the image is neither too dark nor too bright (best for satellite data). Use 0–255 for ordinary 8-bit photos and drone orthomosaics." aria-label="Help">i</button>
@@ -879,14 +881,14 @@
         <p class="hint" id="od-check"></p>
       </div>
       <div class="card" id="od-classes-card">
-        <h2><span class="step">3</span>What to find</h2>
+        <h2>What to find</h2>
         <div class="row tight" style="flex-wrap:wrap;margin-bottom:6px" id="od-presets"></div>
         <div id="od-classes" class="chk-grid"></div>
         <details style="margin-top:6px"><summary class="small">More classes (indoor and street objects)</summary><div id="od-classes-more" class="chk-grid" style="margin-top:6px"></div></details>
         <p class="hint" id="od-cls-hint"></p>
       </div>
       <div class="card">
-        <h2><span class="step">4</span>Area &amp; settings</h2>
+        <h2>Area &amp; settings</h2>
         <div class="area-pick" style="border-top:0;margin-top:0;padding-top:0">
           <label>Area <button type="button" class="tip" data-tip="Search only part of the image. Objects whose centre is outside the area are left out." aria-label="Help">i</button><select id="od-area"></select></label>
           <p class="hint" id="od-area-hint">The whole image is searched.</p>
@@ -907,7 +909,7 @@
         <p class="hint" id="od-est"></p>
       </div>
       <div class="card">
-        <h2><span class="step">5</span>Output</h2>
+        <h2>Output</h2>
         <label>Layer name<input id="od-name" maxlength="80" value="objects"></label>
         <button class="btn primary big-btn" id="od-run">Detect objects</button>
         <div id="od-error" class="warn err hidden"></div>
@@ -922,14 +924,14 @@
       <div id="td-yolo" class="hidden"></div>
       <div class="td-body">
       <div class="card">
-        <h2><span class="step">1</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The image with the objects you labelled: aerial, drone or high-resolution satellite. Three bands are used as red, green and blue (or one band as greyscale), stretched like in Detect object." aria-label="Help">i</button></h2>
+        <h2>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The image with the objects you labelled: aerial, drone or high-resolution satellite. Three bands are used as red, green and blue (or one band as greyscale), stretched like in Detect object." aria-label="Help">i</button></h2>
         <select id="td-layer"></select>
         <div class="grid2" id="td-bands" style="margin-top:8px"></div>
         <label>Brightness stretch <button type="button" class="tip" data-tip="2–98 % for satellite or 16-bit data; None (0–255) for 8-bit photos and drone orthomosaics. The model remembers it, and Detect object uses the same stretch." aria-label="Help">i</button>
           <select id="td-stretch"><option value="percent">2–98 % (satellite / 16-bit data)</option><option value="minmax">Min–max</option><option value="byte">None: values are 0–255 (8-bit photos)</option></select></label>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Labelled objects <span class="req">required</span> <button type="button" class="tip" data-tip="A vector layer with your objects: polygons drawn around them (Training samples, or a shapefile / GeoJSON), or points on them. The class attribute names each object's class. Label every object of these classes in the area you train on: unlabelled ones teach the model that they are background." aria-label="Help">i</button></h2>
+        <h2>Labelled objects <span class="req">required</span> <button type="button" class="tip" data-tip="A vector layer with your objects: polygons drawn around them (Training samples, or a shapefile / GeoJSON), or points on them. The class attribute names each object's class. Label every object of these classes in the area you train on: unlabelled ones teach the model that they are background." aria-label="Help">i</button></h2>
         <select id="td-gt"></select>
         <label>Class attribute<select id="td-field"></select></label>
         <label id="td-point-wrap" class="hidden">Box size for points (m) <button type="button" class="tip" data-tip="Points become square boxes of this size, e.g. 5 m for cars, 20 m for trucks or small boats." aria-label="Help">i</button><input type="number" id="td-point" value="5" min="0.1" step="0.5"></label>
@@ -940,7 +942,7 @@
         </div>
       </div>
       <div class="card">
-        <h2><span class="step">3</span>Model</h2>
+        <h2>Model</h2>
         <div id="td-tasks"></div>
         <div class="grid2" style="margin-top:8px">
           <label>YOLO version<select id="td-family"></select></label>
@@ -949,7 +951,7 @@
         <label class="inline"><input type="checkbox" id="td-pre" checked> Start from pretrained weights <button type="button" class="tip" data-tip="Start from YOLO weights trained on COCO (or DOTA aerial images for rotated boxes), downloaded once. Learns much faster and better from a few hundred objects." aria-label="Help">i</button></label>
       </div>
       <div class="card">
-        <h2><span class="step">4</span>Tiles</h2>
+        <h2>Tiles</h2>
         <div class="grid2">
           <label>Tile size (px) <button type="button" class="tip" data-tip="The model's input size. The image is cut into tiles of this size (bigger tiles see more context but need more memory). Detect object uses the same size." aria-label="Help">i</button>
             <select id="td-tile"><option>320</option><option>416</option><option>512</option><option selected>640</option><option>800</option><option>1024</option></select></label>
@@ -960,12 +962,12 @@
         <p class="hint" id="td-tile-hint"></p>
       </div>
       <div class="card">
-        <h2><span class="step">5</span>Training</h2>
+        <h2>Training</h2>
         <div id="td-basic" class="dl-params"></div>
         <details class="an-details"><summary>Advanced (optimiser, augmentation, empty tiles, device…)</summary><div id="td-adv" class="dl-params"></div></details>
       </div>
       <div class="card">
-        <h2><span class="step">6</span>Output</h2>
+        <h2>Output</h2>
         <label>Model name<input id="td-name" maxlength="80" value="detector"></label>
         <label>Save in folder <button type="button" class="tip" data-tip="A model folder is created inside it with best.pt, last.pt, model_config.json, training_log.csv, report.html and the training tiles. Empty = the project's models folder." aria-label="Help">i</button></label>
         <div class="row tight"><input id="td-folder" placeholder="Project folder ▸ models" style="flex:1"><button class="btn" id="td-browse">Browse…</button></div>
@@ -980,7 +982,7 @@
 
     <section id="tab-raster2table" class="tabpanel hidden">
       <div class="card">
-        <h2><span class="step">1</span>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The raster to convert: GeoTIFF, Sentinel-2, Landsat, multispectral, hyperspectral (any number of bands) or SAR. Each pixel becomes one row and each band one column." aria-label="Help">i</button></h2>
+        <h2>Image <span class="req">required</span> <button type="button" class="tip" data-tip="The raster to convert: GeoTIFF, Sentinel-2, Landsat, multispectral, hyperspectral (any number of bands) or SAR. Each pixel becomes one row and each band one column." aria-label="Help">i</button></h2>
         <select id="rt-input"><option value="">Choose a raster layer…</option></select>
         <div id="rt-info" class="hint"></div>
         <div class="row between" style="margin-top:10px"><b class="small">Bands → columns</b>
@@ -989,7 +991,7 @@
         <label class="inline" style="margin-top:6px"><input type="checkbox" id="rt-refl"> Convert to reflectance <button type="button" class="tip" data-tip="Apply the layer's scale and offset (e.g. Sentinel-2 DN × 0.0001 − 0.1) so values are surface reflectance (0–1). Recommended when combining images from different sensors or dates. Turn off to keep the raw stored values." aria-label="Help">i</button></label>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Area &amp; pixel size</h2>
+        <h2>Area &amp; pixel size</h2>
         <div class="area-pick" style="border-top:0;margin-top:0;padding-top:0">
           <label>Area <button type="button" class="tip" data-tip="Convert only part of the image. Whole images can produce very large tables (a full Sentinel-2 tile has 120 million pixels)." aria-label="Help">i</button><select id="rt-area"></select></label>
           <p class="hint" id="rt-area-hint">The whole image is used.</p>
@@ -997,7 +999,7 @@
         <label>Pixel size <button type="button" class="tip" data-tip="Native keeps the image's own resolution: one row per pixel. Coarser options average blocks of pixels into one row (e.g. 2× turns 10 m into 20 m), giving 4×, 16× … fewer rows." aria-label="Help">i</button><select id="rt-factor"></select></label>
       </div>
       <div class="card">
-        <h2><span class="step">3</span>Ground truth <span class="opt-tag">optional</span> <button type="button" class="tip" data-tip="Known classes or values, added as the last column so the table can train a model. Use a raster (e.g. a land-cover map, resampled to the image grid with nearest neighbour) or a vector layer (shapefile / GeoJSON polygons or points) and choose its attribute." aria-label="Help">i</button></h2>
+        <h2>Ground truth <span class="opt-tag">optional</span> <button type="button" class="tip" data-tip="Known classes or values, added as the last column so the table can train a model. Use a raster (e.g. a land-cover map, resampled to the image grid with nearest neighbour) or a vector layer (shapefile / GeoJSON polygons or points) and choose its attribute." aria-label="Help">i</button></h2>
         <select id="rt-gt"></select>
         <div id="rt-gt-raster" class="hidden"><label>Band<select id="rt-gt-band"></select></label></div>
         <div id="rt-gt-vector" class="hidden"><label>Attribute holding the class or value <button type="button" class="tip" data-tip="Text attributes (e.g. 'forest') get a numeric code column plus the name column. Number attributes are used as they are, for classification codes or regression targets." aria-label="Help">i</button><select id="rt-gt-field"></select></label><p class="hint" id="rt-gt-classes"></p></div>
@@ -1007,7 +1009,7 @@
         </div>
       </div>
       <div class="card">
-        <h2><span class="step">4</span>Rows &amp; output</h2>
+        <h2>Rows &amp; output</h2>
         <div class="opts" id="rt-sampling">
           <label class="opt"><input type="radio" name="rts" value="all" checked><span><b>All pixels</b><small>Every valid pixel becomes a row.</small></span></label>
           <label class="opt"><input type="radio" name="rts" value="random"><span><b>Random sample</b> <input type="number" id="rt-n" value="100000" min="10" class="inline-num"> rows<small>Spread evenly over the image. Good for exploring or unsupervised work.</small></span></label>
@@ -1032,19 +1034,19 @@
 
     <section id="tab-export" class="tabpanel hidden">
       <div class="card">
-        <h2><span class="step">1</span>Layer</h2>
+        <h2>Layer</h2>
         <select id="lx-layer"></select>
         <p class="hint" id="lx-layer-info">Choose a layer from Contents (or right-click a layer ▸ Export / save to computer).</p>
       </div>
       <div class="card">
-        <h2><span class="step">2</span>Area</h2>
+        <h2>Area</h2>
         <div class="area-pick">
           <label>Export only this area<select id="lx-area"></select></label>
           <p class="hint" id="lx-area-hint">The whole layer is exported.</p>
         </div>
       </div>
       <div class="card">
-        <h2><span class="step">3</span>Format</h2>
+        <h2>Format</h2>
         <div class="opts" id="lx-formats"></div>
         <div id="lx-shp" class="dl-section hidden">
           <b>Polygon classes</b>
@@ -1060,232 +1062,12 @@
         </div>
       </div>
       <div class="card">
-        <h2><span class="step">4</span>Save to computer</h2>
+        <h2>Save to computer</h2>
         <label>File name<input id="lx-name"></label>
         <div id="lx-error" class="warn hidden"></div>
         <div class="row"><button class="btn primary grow" id="lx-go">⬇ Export and download</button></div>
         <p class="hint">The file goes to your browser's Downloads folder.</p>
       </div>
-    </section>
-
-    <section id="tab-embed" class="tabpanel hidden">
-      <div class="card">
-        <h2><span class="step">1</span>Embedding <button type="button" class="tip" data-tip="An embedding gives every 10 m pixel a list of numbers (64 or 128) that sums up a whole year of satellite observations. Similar places get similar numbers, so a few labelled points are enough to map crops or land cover, find places like a chosen one, or cluster an area. These open datasets are free and need no account." aria-label="Help">i</button></h2>
-        <div id="em-sources" class="em-sources"></div>
-        <details class="em-other"><summary class="small">Other open embeddings</summary><div id="em-other"></div></details>
-      </div>
-      <div class="card">
-        <h2><span class="step">2</span>Area <span class="req">required</span></h2>
-        <div class="area-pick" style="border-top:0;margin-top:0;padding-top:0">
-          <label>Area <button type="button" class="tip" data-tip="Embeddings are downloaded only for this area. Draw a rectangle, use the current map view, or any polygon layer (e.g. your farm or district). Up to about 200 × 200 km; at 10 m keep it to a few hundred km²." aria-label="Help">i</button><select id="em-area"></select></label>
-          <p class="hint" id="em-area-hint">Choose an area.</p>
-        </div>
-        <button class="btn small" id="em-check" style="margin-top:8px">What's available here?</button>
-        <div id="em-avail" class="hidden"></div>
-      </div>
-      <div class="card">
-        <h2><span class="step">3</span>Year &amp; resolution</h2>
-        <div class="grid2">
-          <label>Year<select id="em-year"></select></label>
-          <label>Resolution <button type="button" class="tip" data-tip="10 m is the full detail. AlphaEarth also comes at 20–160 m (averaged vectors, from its overviews): much less to download, good for large areas." aria-label="Help">i</button><select id="em-res"></select></label>
-        </div>
-        <p class="hint" id="em-est"></p>
-      </div>
-      <div class="card">
-        <h2><span class="step">4</span>Download</h2>
-        <label>Layer name<input id="em-name" maxlength="80" value="embedding"></label>
-        <label class="inline" style="margin-top:8px"><input type="checkbox" id="em-colour"> Also save the colour view as a 3-band GeoTIFF <button type="button" class="tip" data-tip="The downloaded layer always keeps all its bands and is shown in colour on the map from them (their three main directions of variation, PCA, as red, green and blue). Tick this to also save that picture as its own small 3-band file, e.g. for other software or a report." aria-label="Help">i</button></label>
-        <button class="btn primary big-btn" id="em-run">Download embeddings</button>
-        <div id="em-error" class="warn err hidden"></div>
-      </div>
-      <div id="em-result" class="hidden"></div>
-    </section>
-
-    <section id="tab-embconvert" class="tabpanel hidden">
-      <div class="card">
-        <h2><span class="step">1</span>Embedding layer <span class="req">required</span></h2>
-        <label>Layer<select id="ec-layer"></select></label>
-        <p class="hint" id="ec-info"></p>
-      </div>
-      <div class="card">
-        <h2><span class="step">2</span>Convert to <button type="button" class="tip" data-tip="The numbers keep their meaning; only how precisely, and in how many bytes, they are stored changes. Keep embeddings small as 8-bit or 16-bit, and convert to 32-bit float to train models, cluster or compute similarity. Converting 8-bit to float is exact; float to 8-bit rounds every value (the result shows by how much)." aria-label="Help">i</button></h2>
-        <div id="ec-formats" class="em-sources"></div>
-        <label class="inline" style="margin-top:10px"><input type="checkbox" id="ec-unit"> Make every vector unit length <button type="button" class="tip" data-tip="Divide each pixel's vector by its length, so all have length 1 (L2 normalisation). Then cosine similarity is a plain dot product and k-NN, SAM and similarity search treat every pixel alike. AlphaEarth vectors are unit length already; TESSERA's are not. Needed to store TESSERA with the AlphaEarth coding." aria-label="Help">i</button></label>
-      </div>
-      <div class="card">
-        <h2><span class="step">3</span>Output</h2>
-        <label>Layer name<input id="ec-name" maxlength="80"></label>
-        <button class="btn primary big-btn" id="ec-run">Convert</button>
-        <div id="ec-error" class="warn err hidden"></div>
-      </div>
-      <div id="ec-result" class="hidden"></div>
-    </section>
-
-    <section id="tab-embtrain" class="tabpanel hidden">
-      <div class="dl-addon card hidden" data-addon></div>
-      <div class="dl-body">
-      <div class="card">
-        <h2><span class="step">1</span>Embedding layer <span class="req">required</span> <button type="button" class="tip" data-tip="Every band (all 64 AlphaEarth or 128 TESSERA dimensions, or any other embedding / image) goes into the model as it is. Run PCA first only if you want fewer. The layer needs a coordinate system in metres, as Download embeddings gives." aria-label="Help">i</button></h2>
-        <select id="et-layer"></select>
-        <p class="hint" id="et-layer-info"></p>
-      </div>
-      <div class="card">
-        <h2><span class="step">2</span>Labels <span class="req">required</span> <button type="button" class="tip" data-tip="Where you know the class: polygons or points you drew in Training samples (or a shapefile / GeoJSON) with a class field, or a class raster (one band of class numbers). Only labelled pixels are learned from; draw a few polygons per class, spread over the area." aria-label="Help">i</button></h2>
-        <select id="et-gt"></select>
-        <label id="et-field-wrap">Class field<select id="et-field"></select></label>
-        <p class="hint" id="et-gt-info"></p>
-        <div class="area-pick">
-          <label>Area <button type="button" class="tip" data-tip="Optional: train and map only part of the layer." aria-label="Help">i</button><select id="et-area"></select></label>
-          <p class="hint" id="et-area-hint"></p>
-        </div>
-      </div>
-      <div class="card">
-        <h2><span class="step">3</span>Model</h2>
-        <div id="et-models"></div>
-        <p class="hint" id="et-model-info"></p>
-      </div>
-      <div class="card">
-        <h2><span class="step">4</span>Training</h2>
-        <div class="grid2">
-          <label>Patch size <button type="button" class="tip" data-tip="The embedding is cut into square patches of this many pixels (all bands) for training. 256 × 256 is the default; use 128 or 64 for small labelled areas (more patches), 512 for large ones." aria-label="Help">i</button>
-            <select id="et-patch"><option value="64">64 × 64</option><option value="128">128 × 128</option><option value="256" selected>256 × 256 (recommended)</option><option value="512">512 × 512</option></select></label>
-          <label>Patch overlap<select id="et-overlap"><option value="0">None</option><option value="0.25" selected>25 %</option><option value="0.5">50 % (small areas)</option></select></label>
-          <label>Epochs <button type="button" class="tip" data-tip="Passes over the training patches. Early stopping ends sooner when the validation score stops improving, keeping the best model." aria-label="Help">i</button><input type="number" id="et-epochs" value="60" min="1" max="1000"></label>
-          <label>Batch size<input type="number" id="et-batch" value="8" min="1" max="128"></label>
-          <label>Learning rate<input type="number" id="et-lr" value="0.003" min="0.00001" max="0.1" step="0.0005"></label>
-          <label>Validation %<input type="number" id="et-val" value="20" min="5" max="50"></label>
-          <label>Stop after no gain for (epochs)<input type="number" id="et-patience" value="12" min="2" max="200"></label>
-          <label>Device<select id="et-device"><option value="auto">Auto</option><option value="mps">Apple GPU (MPS)</option><option value="cuda">NVIDIA GPU (CUDA)</option><option value="cpu">CPU</option></select></label>
-        </div>
-        <label class="inline" style="margin-top:8px"><input type="checkbox" id="et-weights" checked> Rarer classes count more <button type="button" class="tip" data-tip="Class weights: a class with few labelled pixels gets more weight in the loss, so the model doesn't ignore it." aria-label="Help">i</button></label>
-        <label class="inline" style="margin-top:4px"><input type="checkbox" id="et-augment" checked> Flip and rotate patches (more variety)</label>
-        <p class="hint" id="et-est"></p>
-      </div>
-      <div class="card">
-        <h2><span class="step">5</span>Output</h2>
-        <label>Model name<input id="et-name" maxlength="80" value="embedding_model"></label>
-        <label class="inline" style="margin-top:8px"><input type="checkbox" id="et-map" checked> Map the layer (or the area) with the trained model</label>
-        <button class="btn primary big-btn" id="et-run">Train embedding model</button>
-        <div id="et-error" class="warn err hidden"></div>
-      </div>
-      <div id="et-result" class="hidden"></div>
-      </div>
-    </section>
-
-    <section id="tab-embpredict" class="tabpanel hidden">
-      <div class="dl-addon card hidden" data-addon></div>
-      <div class="dl-body">
-      <div class="card">
-        <h2><span class="step">1</span>Model <span class="req">required</span> <button type="button" class="tip" data-tip="Models trained with Train embedding model (light models), with their number of bands and validation score. Add a model folder trained elsewhere with “Add a model…”." aria-label="Help">i</button></h2>
-        <select id="ep-model"></select>
-        <p class="hint" id="ep-model-info"></p>
-        <div class="row tight" style="margin-top:6px"><button class="btn small" id="ep-add">Add a model…</button></div>
-      </div>
-      <div class="card">
-        <h2><span class="step">2</span>Embedding layer <span class="req">required</span> <button type="button" class="tip" data-tip="The layer to map: the same kind of embedding the model was trained on (same number of bands, e.g. AlphaEarth for an AlphaEarth model), for any area or year." aria-label="Help">i</button></h2>
-        <select id="ep-layer"></select>
-        <p class="hint" id="ep-check"></p>
-        <div class="area-pick">
-          <label>Area<select id="ep-area"></select></label>
-          <p class="hint" id="ep-area-hint"></p>
-        </div>
-      </div>
-      <div class="card">
-        <h2><span class="step">3</span>Output</h2>
-        <div class="grid2">
-          <label>Device<select id="ep-device"><option value="auto">Auto</option><option value="mps">Apple GPU (MPS)</option><option value="cuda">NVIDIA GPU (CUDA)</option><option value="cpu">CPU</option></select></label>
-          <label>Tile overlap<select id="ep-overlap"><option value="0">None</option><option value="0.25" selected>25 % (seamless)</option><option value="0.5">50 %</option></select></label>
-        </div>
-        <label class="inline" style="margin-top:8px"><input type="checkbox" id="ep-conf" checked> Add a confidence band</label>
-        <label>Layer name<input id="ep-name" maxlength="80" value="embedding_map"></label>
-        <button class="btn primary big-btn" id="ep-run">Classify</button>
-        <div id="ep-error" class="warn err hidden"></div>
-      </div>
-      <div id="ep-result" class="hidden"></div>
-      </div>
-    </section>
-
-    <section id="tab-embexplore" class="tabpanel hidden">
-      <div class="card">
-        <h2><span class="step">1</span>Embedding layer</h2>
-        <label>Layer<select id="em-layer"></select></label>
-        <p class="hint" id="em-layer-hint"></p>
-        </div>
-      <div class="card">
-        <h2><span class="step">2</span>Find similar places</h2>
-        <p class="hint" style="margin-top:0">Click one or more places on the map (e.g. a field of the crop you look for): every pixel is scored by how alike it is (cosine similarity, 1 = the same).</p>
-        <div class="row tight" style="flex-wrap:wrap;gap:6px;margin-top:6px">
-          <button class="btn small" id="em-pick">Click a place on the map…</button>
-          <button class="btn small ghost hidden" id="em-pick-clear">Clear places</button>
-          <span class="hint" id="em-pick-n" style="margin:0"></span>
-        </div>
-        <button class="btn primary" id="em-similar" style="margin-top:8px;width:100%">Find similar places</button>
-      </div>
-      <div class="card">
-        <h2><span class="step">3</span>More</h2>
-        <div class="row tight" style="flex-wrap:wrap;gap:6px">
-          <button class="btn small" id="em-colour-btn" title="The layer is already shown in colour; this saves that picture as its own 3-band GeoTIFF">Save the colour view as a 3-band GeoTIFF</button>
-          <button class="btn small" id="em-classify">Classify it (Classical ML for raster)…</button>
-        </div>
-        <div id="em-explore-error" class="warn err hidden"></div>
-      </div>
-      <div class="card">
-        <h2><span class="step">4</span>Output</h2>
-        <p class="hint" style="margin-top:0">New layers: every result is added to Contents, nothing is overwritten.</p>
-        <div id="em-save-anchor"></div>
-      </div>
-    </section>
-
-    <section id="tab-agridisease" class="tabpanel hidden">
-      <div class="dl-addon card hidden" data-addon></div>
-      <div class="dl-body">
-      <div class="card">
-        <h2><span class="step">1</span>Disease models <button type="button" class="tip" data-tip="The photo models of the Multi-Crop Disease Decision Support System: one ConvNeXt model per crop (42 crops) and two crop detectors. Each one downloads from Hugging Face the first time it's needed (about 95 MB per crop) and is kept, or use your own copy of the disease app (data/&lt;Crop&gt;/convnext_best.pth and master_model/)." aria-label="Help">i</button></h2>
-        <div id="ad-models"></div>
-      </div>
-      <div class="card">
-        <h2><span class="step">2</span>Leaf photos <span class="req">required</span> <button type="button" class="tip" data-tip="One leaf per photo, filling most of the picture, in daylight and in focus. JPG, PNG, WebP, BMP or TIFF (HEIC from iPhones needs pillow-heif: save as JPG instead). Photos taken with location on (GPS) are also put on the map." aria-label="Help">i</button></h2>
-        <div class="row tight" style="flex-wrap:wrap;gap:6px">
-          <button class="btn small" id="ad-add">Add photos…</button>
-          <button class="btn small" id="ad-folder">Add a folder…</button>
-          <label class="inline" style="margin:0;font-size:12px"><input type="checkbox" id="ad-recursive"> with sub-folders</label>
-          <button class="btn small ghost hidden" id="ad-clear" style="margin-left:auto">Clear all</button>
-        </div>
-        <input type="file" id="ad-file" accept="image/*,.heic,.heif" multiple hidden>
-        <div class="ad-drop" id="ad-drop">Drop leaf photos here</div>
-        <div class="ad-grid" id="ad-photos"></div>
-        <p class="hint" id="ad-photos-hint"></p>
-      </div>
-      <div class="card">
-        <h2><span class="step">3</span>Crop</h2>
-        <div id="ad-crop"></div>
-        <p class="hint" id="ad-crop-info"></p>
-        <label class="inline" style="margin-top:8px"><input type="checkbox" id="ad-strict" checked> Refuse unclear photos <button type="button" class="tip" data-tip="As in the disease app: photos that are too dark, blank, too small, or not confidently a leaf of a supported crop get 'retake' instead of a guess. Blurry or very bright photos are refused only when the models are unsure. Untick to diagnose every photo anyway (doubtful results are marked)." aria-label="Help">i</button></label>
-        <div class="grid2"><label>Device<select id="ad-device"><option value="auto">Auto</option><option value="mps">Apple GPU (MPS)</option><option value="cuda">NVIDIA GPU (CUDA)</option><option value="cpu">CPU</option></select></label></div>
-      </div>
-      <div class="card">
-        <h2><span class="step">4</span>Output</h2>
-        <label>Name <button type="button" class="tip" data-tip="The results table (CSV, one row per photo) and, for photos with a GPS position, a point layer get this name." aria-label="Help">i</button><input id="ad-name" maxlength="80" value="diagnosis"></label>
-        <button class="btn primary big-btn" id="ad-run">Diagnose photos</button>
-        <div id="ad-error" class="warn err hidden"></div>
-      </div>
-      <div id="ad-result" class="hidden"></div>
-      <p class="hint">Photo diagnosis supports, but doesn't replace, a local agriculture expert. Field photos can score lower than the test results shown.</p>
-      </div>
-    </section>
-
-    <section id="tab-agriguide" class="tabpanel hidden">
-      <div class="card">
-        <label style="margin-top:0">Crop</label>
-        <div id="ag-crop"></div>
-        <p class="hint" id="ag-crop-info"></p>
-        <label>Search this crop <input type="search" id="ag-q" placeholder="e.g. yellow leaves, spray schedule, fruit drop" autocomplete="off"></label>
-      </div>
-      <div class="card">
-        <h2>Diseases &amp; pests</h2>
-        <div class="ag-list" id="ag-diseases"></div>
-      </div>
-      <div id="ag-records"></div>
     </section>
 
     <section id="tab-jobs" class="tabpanel hidden">
@@ -1643,6 +1425,17 @@
 
 <script src="/static/vendor/leaflet/leaflet.min.js"></script>
 <script src="/static/vendor/leaflet-draw/leaflet.draw.js"></script>
+<!-- the shared core, then each menu's tools (one file per tool), then the app that starts them -->
+<script src="/static/tools/lf.js"></script>
+<script src="/static/tools/embeddings/common.js"></script>
+<script src="/static/tools/embeddings/download.js"></script>
+<script src="/static/tools/embeddings/train.js"></script>
+<script src="/static/tools/embeddings/classify.js"></script>
+<script src="/static/tools/embeddings/convert.js"></script>
+<script src="/static/tools/embeddings/explore.js"></script>
+<script src="/static/tools/agri/common.js"></script>
+<script src="/static/tools/agri/diagnose.js"></script>
+<script src="/static/tools/agri/guide.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

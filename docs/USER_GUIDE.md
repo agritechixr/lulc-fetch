@@ -1355,13 +1355,22 @@ All of these are excluded from git.
 
 ## 33. For developers: adding a tool
 
-The web app is a FastAPI backend (`webapp/server.py`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package.
+The web app is a FastAPI backend (`webapp/`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package. Each menu with its own tools keeps them together, on all three levels, so changing one tool never touches another:
 
-1. Add a panel to `webapp/static/index.html`: `<section id="tab-mytool" class="tabpanel hidden">…</section>`.
-2. Add an entry to `TOOLS` in `webapp/static/app.js`: `{ id: "mytool", title, icon, subtitle }`. The Tools-menu item and start-page card are generated from it. Add `menu: "agri"` or `menu: "embed"` to list it in the Agri or Embeddings menu instead (menus and their shortcuts are set in `MENUS`); its code goes in that menu's folder, `lulc_fetch/agri/` or `lulc_fetch/embeddings/`.
-3. Add server endpoints in `webapp/server.py` and processing code in `lulc_fetch/`. Long tasks should run as jobs (`jobs.submit(...)`) and call `lulc_fetch.progress.update(fraction, message)` at checkpoints, so the progress bar and Cancel work.
-4. Add results to Contents with `addRasterFromPath(path)` or `addVectorLayer(geojson, name)`, so they get layer styling, identify and export for free. Track jobs in the UI with `trackJob(job, { tool })`.
-5. **Classical ML sub-tools:** add `{ id, title, icon, subtitle }` to `ML_SUBTOOLS` in `app.js` and a `<div id="ml-sub-<id>" class="ml-sub hidden">` inside the ML panel. `/api/tables` and `/api/models` list the available tables and models.
+| Level | Shared by every tool ("universe") | One menu's tools |
+|---|---|---|
+| Science (Python) | `lulc_fetch/` (`analysis.py`, `progress.py`, `dl.py`…) | `lulc_fetch/embeddings/`, `lulc_fetch/agri/`, `lulc_fetch/lightseg/` |
+| Server (FastAPI) | `webapp/core.py`: `jobs`, `raster_path`, `clip`, `abs_user_folder`, `safe_stem`, `unique`, `one_output`, `read_settings` / `write_settings`, `dl_status` / `require_dl`, the project folders | `webapp/routes/embeddings.py`, `webapp/routes/agri.py` (an `APIRouter` each, included by `server.py`) |
+| Browser | `webapp/static/tools/lf.js` (the `LF` object, documented at its top; `app.js` fills it in) | `webapp/static/tools/embeddings/*.js`, `webapp/static/tools/agri/*.js`, one file per tool (its panel, its code), plus `common.js` and a `.css` per menu |
+
+**Add a tool to a menu (Embeddings, Agri, or a new one):**
+
+1. Processing code in that menu's `lulc_fetch/<menu>/` package.
+2. Server endpoints in `webapp/routes/<menu>.py`, using `core.*`. Long tasks run as jobs: `return core.jobs.submit(kind, title, {}, run).to_dict()`; inside `run(job)`, write into `job.dir` and call `lulc_fetch.progress.update(fraction, message)` at checkpoints so the progress bar, ⓘ details, Cancel and History work. A new routes file is added with `app.include_router(...)` in `server.py`.
+3. A file `webapp/static/tools/<menu>/<tool>.js` that calls `LF.tool({ id, menu, title, icon, subtitle, kinds, save, clip, panel, setup })` (see the existing ones, e.g. `convert.js`), and a `<script>` line for it in `index.html` before `app.js`. The menu entry, the start-page card, the panel, "Also save to a folder", the area pickers and History all come from that one call. In `setup(LF)`: `LF.runButton("xx", async () => {...})` for the Run button, `LF.runJob(endpoint, body, { tool, title, save })` to run and follow a job, `LF.showResult("xx", html)`, `LF.addRasterFromPath(path)` / `LF.addVectorLayer(geojson, name)` to add results to Contents; return `{ open(arg), layersChanged(), clipChanged(id) }`. Open another tool with `LF.openTool(id, arg)`.
+4. A new menu: add a button to the menu bar in `index.html` and an entry in `MENUS` in `app.js`.
+
+**Tools of the Tools menu** (older, still inside `app.js`, `index.html` and `server.py`): a `<section id="tab-mytool" class="tabpanel hidden">` panel in `index.html`, an entry in `TOOLS` in `app.js`, endpoints in `server.py`. **Classical ML sub-tools:** add `{ id, title, icon, subtitle }` to `ML_SUBTOOLS` in `app.js` and a `<div id="ml-sub-<id>" class="ml-sub hidden">` inside the ML panel. `/api/tables` and `/api/models` list the available tables and models.
 
 | Module | Purpose |
 |---|---|

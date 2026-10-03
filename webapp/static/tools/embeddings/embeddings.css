@@ -1,0 +1,18 @@
+/* Embeddings menu: styles of its tools (the rest comes from style.css) */
+
+/* Satellite embeddings */
+.em-sources { display: grid; gap: 8px; }
+.em-src { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px; border: 1px solid var(--border); border-radius: 9px; cursor: pointer; color: var(--text); font-size: 13px; }
+.em-src:hover { border-color: var(--accent); }
+.em-src.on { border-color: var(--accent); background: var(--accent-2); }
+.em-src input { margin-top: 3px; }
+.em-src small { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; line-height: 1.4; }
+.em-dims { font-size: 11px; color: var(--accent); font-weight: 600; margin-left: 4px; }
+.em-other { margin-top: 8px; }
+.em-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+.em-table th, .em-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.em-table th { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+.em-table td.ok { color: var(--ok); font-weight: 600; }
+.em-table td.no { color: var(--muted); }
+.em-table small { color: var(--muted); font-weight: 400; }
+.em-src .tip { margin-left: 4px; vertical-align: 1px; }

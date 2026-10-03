@@ -95,3 +95,25 @@ def test_folder_browser(client, tmp_path):
     assert any(e["name"] == "sub" for e in r["dirs"])
     ok(client.post("/api/fs/mkdir", json={"parent": str(tmp_path), "name": "made_by_test"}))
     assert (tmp_path / "made_by_test").is_dir()
+
+
+def test_tool_files_register_themselves(client):
+    """Tools kept in their own files (webapp/static/tools/<menu>/<tool>.js): each is loaded, registers one id with a
+    panel, and the shared core (tools/lf.js) comes before them and app.js after them."""
+    import re
+
+    html = client.get("/").text
+    scripts = re.findall(r'<script src="/static/(tools/[^"]+\.js)"></script>', html)
+    assert scripts[0] == "tools/lf.js"
+    assert html.index("/static/tools/") < html.index("/static/app.js"), "the tool files must load before app.js"
+    ids = []
+    for s in scripts:
+        js = client.get(f"/static/{s}")
+        assert js.status_code == 200, f"{s} isn't served"
+        ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
+        if "LF.tool(" in js.text:
+            assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide"])
+    assert len(ids) == len(set(ids)), "a tool id is registered twice"
+    for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
+        assert client.get(f"/static/{css}").status_code == 200
