@@ -32,7 +32,7 @@ lulc-fetch-web = "webapp.server:main"
 lulc-fetch-app = "webapp.desktop:main"
 
 [tool.setuptools]
-packages = ["lulc_fetch", "lulc_fetch.agri", "webapp"]
+packages = ["lulc_fetch", "lulc_fetch.agri", "lulc_fetch.embeddings", "webapp"]
 
 [tool.setuptools.package-data]
 webapp = ["static/*"]

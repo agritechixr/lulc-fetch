@@ -1,4 +1,4 @@
-"""Satellite embeddings: sources, size estimate, AlphaEarth / TESSERA decoding, colour view, similar places.
+"""Embeddings menu (lulc_fetch/embeddings): sources, size estimate, AlphaEarth / TESSERA decoding, colour view, similar places.
 
 The download tests read real AlphaEarth and TESSERA data for a small area of Bengaluru (marker network)."""
 
@@ -8,7 +8,7 @@ import rasterio
 from rasterio.transform import from_origin
 
 import webapp.workspace as ws
-from lulc_fetch import embeddings as em
+from lulc_fetch.embeddings import alphaearth, tessera
 from tests.helpers import ok, run
 
 BLR = {"type": "Polygon", "coordinates": [[[77.585, 12.965], [77.595, 12.965], [77.595, 12.975], [77.585, 12.975], [77.585, 12.965]]]}
@@ -61,16 +61,16 @@ def test_estimate(client):
 
 def test_decoding():
     q = np.array([[[127]], [[-127]], [[0]], [[-128]]], np.int8)
-    v = em._dequantize_aef(q[:3])
+    v = alphaearth.dequantize(q[:3])
     assert abs(v[0, 0, 0] - (127 / 127.5) ** 2) < 1e-6 and abs(v[1, 0, 0] + (127 / 127.5) ** 2) < 1e-6 and v[2, 0, 0] == 0
-    nod = em._dequantize_aef(np.full((64, 1, 1), -128, np.int8))
+    nod = alphaearth.dequantize(np.full((64, 1, 1), -128, np.int8))
     assert np.isnan(nod).all()
-    assert em._tess_tiles(BLR) == [(77.55, 12.95)]
-    assert em._tess_url(77.55, 12.95, 2024).endswith("/npy/v1/2024/grid_77.55_12.95/grid_77.55_12.95.npy")
+    assert tessera.tiles(BLR) == [(77.55, 12.95)]
+    assert tessera.url(77.55, 12.95, 2024).endswith("/npy/v1/2024/grid_77.55_12.95/grid_77.55_12.95.npy")
     two = {"type": "Polygon", "coordinates": [[[77.58, 12.95], [77.62, 12.95], [77.62, 12.99], [77.58, 12.99], [77.58, 12.95]]]}
-    assert em._tess_tiles(two) == [(77.55, 12.95), (77.65, 12.95)]   # crosses 77.6° east, not a latitude line
+    assert tessera.tiles(two) == [(77.55, 12.95), (77.65, 12.95)]   # crosses 77.6° east, not a latitude line
     four = {"type": "Polygon", "coordinates": [[[77.58, 12.95], [77.62, 12.95], [77.62, 13.02], [77.58, 13.02], [77.58, 12.95]]]}
-    assert len(em._tess_tiles(four)) == 4
+    assert len(tessera.tiles(four)) == 4
 
 
 def test_colour_view(client, emb_tif):

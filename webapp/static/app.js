@@ -193,6 +193,7 @@
     patches: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" opacity=".55"/><rect x="9" y="9" width="6" height="6" fill="currentColor" stroke="none" opacity=".8"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>',
     embed: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18" opacity=".35"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 9.8V6M14.2 12H18M12 14.2V18M9.8 12H6" opacity=".7"/>',
+    similar: '<rect x="3" y="3" width="12" height="12" rx="1.5" opacity=".45"/><path d="M3 7h12M3 11h12M7 3v12M11 3v12" opacity=".3"/><circle cx="15.5" cy="15.5" r="4"/><path d="M18.5 18.5L21 21"/>',
     leaf: '<path d="M5 19C5 10 10 5 20 4c-1 10-6 15-15 15z"/><path d="M5 19l8-8" opacity=".7"/><circle cx="14" cy="9.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="10.5" cy="13.5" r="1" fill="currentColor" stroke="none"/>',
     book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M12 7.5c-2 .5-3 2-3 4 2 0 3.5-1.5 3-4zM12 7.5c1.5 1 2 2.5 1.5 4.5" opacity=".75"/>',
   };
@@ -213,12 +214,22 @@
     { id: "patches", title: "Make training data", icon: "patches", subtitle: "Cut large images and their ground truth into image / label patches for deep-learning training" },
     { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
-    { id: "embed", title: "Satellite embeddings", icon: "embed", subtitle: "Explore and download free, open AI embeddings for any area: Google AlphaEarth (64-D) and TESSERA (128-D), 10 m, 2017–2025. See what's available, get a colour view, find places similar to the ones you click, then classify or cluster them" },
+    // the Embeddings menu
+    { id: "embed", menu: "embed", title: "Download embeddings", icon: "embed", subtitle: "Free, open AI embeddings for any area: Google AlphaEarth (64-D) and TESSERA (128-D), 10 m, 2017–2025. See which years exist for your area and download them as a GeoTIFF, with a colour view" },
+    { id: "embexplore", menu: "embed", title: "Explore embeddings", icon: "similar", subtitle: "Find places similar to the ones you click (cosine similarity), make a colour view, or classify any embedding layer" },
     // the Agri menu
     { id: "agridisease", menu: "agri", title: "Diagnose crop disease", icon: "leaf", subtitle: "Find the disease on leaf photos of 42 crops (apple, mango, rice, tomato, maize…): the crop is recognised, then its ConvNeXt model gives the top 3 diseases. Unclear photos are refused; photos with GPS become a disease map" },
     { id: "agriguide", menu: "agri", title: "Crop disease guide", icon: "book", subtitle: "Symptoms, treatment and pests for each crop and disease, from a knowledge base of about 9,000 expert questions and answers; searchable" },
   ];
-  const AGRI_SHORTCUTS = ["analyze", "embed", "search"];   // other tools listed under Agri too
+  // menus of their own (besides Tools): their tools have menu: "<key>"; shortcuts list tools of other menus there too
+  const MENUS = {
+    agri: { el: "#agri-menu", label: "Also useful for crops", shortcuts: ["analyze", "embed", "search"],
+            subtitles: { analyze: "Crop health and vigour from satellite images: NDVI, EVI, SAVI, NDRE, NDWI and more" } },
+    embed: { el: "#embed-menu", label: "Use embeddings with", shortcuts: ["rasterml", "ml", "pca"],
+             subtitles: { rasterml: "Map crops or land cover from an embedding layer and a few labelled points (k-NN, SVM, SAM…)",
+                          ml: "Cluster an embedding (Raster → table first) without labels, or train on tables",
+                          pca: "Reduce the 64 / 128 dimensions to a few components" } },
+  };
   let currentTool = "home";
 
   // Tools are listed A–Z; each explanation is behind an eye button (click it to show / hide, or hover for a tooltip)
@@ -242,11 +253,14 @@
     $("#tools-menu").innerHTML = tools.filter((t) => !t.menu).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t) +
         (t.id === "ml" ? subs.map((st) => toolEntry("tool-item sub", `data-tool="ml" data-sub="${st.id}"`, st, false)).join("") : "")).join("");
     wireEntries($("#tools-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); if (b.dataset.tool === "ml") openMlSub(b.dataset.sub || null); toggleMenu(null); });
-    $("#agri-menu").innerHTML = TOOLS.filter((t) => t.menu === "agri").map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t)).join("") +
-      `<hr><div class="menu-label">Also useful for crops</div>` +
-      AGRI_SHORTCUTS.map((id) => TOOLS.find((t) => t.id === id)).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`,
-        t.id === "analyze" ? { ...t, subtitle: "Crop health and vigour from satellite images: NDVI, EVI, SAVI, NDRE, NDWI and more" } : t)).join("");
-    wireEntries($("#agri-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });
+    Object.entries(MENUS).forEach(([key, m]) => {
+      const el = $(m.el);
+      el.innerHTML = TOOLS.filter((t) => t.menu === key).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t)).join("") +
+        (m.shortcuts.length ? `<hr><div class="menu-label">${esc(m.label)}</div>` : "") +
+        m.shortcuts.map((id) => TOOLS.find((t) => t.id === id)).filter(Boolean)
+          .map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, m.subtitles?.[t.id] ? { ...t, subtitle: m.subtitles[t.id] } : t)).join("");
+      wireEntries(el, "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });
+    });
     $("#tool-cards").innerHTML = tools.map((t) => toolEntry("tool-card", `data-tool="${t.id}"`, t)).join("");
     wireEntries($("#tool-cards"), "[data-tool]", (b) => switchTool(b.dataset.tool));
   }
@@ -270,7 +284,7 @@
     $("#tool-eye").title = tool.subtitle;
     $("#tool-eye").classList.toggle("hidden", tool.id === "home");
     $("#active-tool").innerHTML = tool.id === "home" ? "" : `Tool: <b>${esc(tool.title)}</b>`;
-    $$("#tools-menu [data-tool], #agri-menu [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === tool.id));
+    $$(["#tools-menu", ...Object.values(MENUS).map((m) => m.el)].map((e) => `${e} [data-tool]`).join(", ")).forEach((b) => b.classList.toggle("on", b.dataset.tool === tool.id));
     document.title = tool.id === "home" ? "LULC Fetch" : `${tool.title} · LULC Fetch`;
     setPane("tools", true);
     renderRunBar();
@@ -290,6 +304,7 @@
     if (tool.id === "agridisease") refreshAd();
     if (tool.id === "agriguide") refreshAg();
     if (tool.id === "embed") refreshEm();
+    if (tool.id === "embexplore") refreshEmExplore();
     if (tool.id === "samples") renderSamples();
     if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
@@ -667,7 +682,7 @@
     if (currentTool === "patches") refreshPt();
     if (currentTool === "dlpredict" && dlx.schema) renderDpLayers();
     if (currentTool === "detect" && od.schema) renderOdLayers();
-    if (currentTool === "embed" && em.meta) renderEmLayers();
+    if (currentTool === "embexplore") renderEmLayers();
     if (currentTool === "traindet" && td.schema) { renderTdLayers(); renderTdGt(); }
     if (currentTool === "samples") renderSamples();
     if (currentTool === "stack") refreshStack();
@@ -6156,9 +6171,9 @@
     }
     renderEmSources();
     refreshClipPicker("em-area");
-    renderEmLayers();
     emEstimate();
   }
+  function refreshEmExplore() { renderEmLayers(); }
   function renderEmSources() {
     const box = $("#em-sources");
     box.innerHTML = Object.entries(em.meta.sources).map(([k, s]) => `<label class="em-src ${em.source === k ? "on" : ""}">
@@ -6215,14 +6230,16 @@
       const r = (await trackJob(job, { tool: "embed", title: `Downloading ${S.short} ${year}` })).result;
       const lyr = await addRasterFromPath(r.path, { name, render: { rgb: [1, 2, 3], stretch: "auto" } });
       if (r.colour) await addRasterFromPath(r.colour.path, { name: `${name} colour view`, render: { rgb: [1, 2, 3], stretch: "none" } });
-      renderEmLayers(lyr.id);
+      em.lastLayer = lyr.id;
       const box = $("#em-result");
       box.innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(S.short)} ${year} downloaded</h2>
         <div class="pca-sum">${r.width.toLocaleString()} × ${r.height.toLocaleString()} pixels at ${r.res} m · ${r.dims} dimensions (${esc(S.band_prefix)}${"0".repeat(r.dims < 100 ? 2 : 3)}…) · ${esc(r.crs)} · ${r.valid_pct} % of the area has data · ${r.size_mb} MB · ${r.seconds} s</div>
         ${r.colour ? `<p class="hint">The colour view shows the three main directions of variation (${r.colour.explained.map((v) => fmt(100 * v, 0) + " %").join(", ")} of it) as red, green and blue: alike places, alike colours.</p>` : ""}
-        <p class="hint">Next: <b>find similar places</b> below, or use the layer in <a href="#" data-go="rasterml">Classical ML for raster</a> (it is recognised as an embedding: k-NN, SVM, logistic regression and SAM with cosine distance are suggested), or cluster it. ${esc(r.attribution)} Licence ${esc(r.licence)}.</p></div>`;
+        <div class="row tight" style="margin-top:8px;flex-wrap:wrap;gap:6px"><button class="btn small primary" data-em-explore>Explore it: find similar places…</button></div>
+        <p class="hint">Or use the layer in <a href="#" data-go="rasterml">Classical ML for raster</a> (it is recognised as an embedding: k-NN, SVM, logistic regression and SAM with cosine distance are suggested), or cluster it. ${esc(r.attribution)} Licence ${esc(r.licence)}.</p></div>`;
       box.classList.remove("hidden");
       $("[data-go]", box).onclick = (e) => { e.preventDefault(); switchTool("rasterml"); };
+      $("[data-em-explore]", box).onclick = () => { switchTool("embexplore"); renderEmLayers(em.lastLayer); };
     } catch (e) {
       if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
     } finally { btn.disabled = false; }
