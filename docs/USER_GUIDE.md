@@ -1138,6 +1138,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 | Microsoft Planetary Computer | none | Sentinel-2, Landsat C2 L2, WorldCover, Esri LULC, NAIP, Sentinel-1 RTC, DEM |
 | Copernicus Data Space | free S3 keys | The official ESA archive (JPEG2000) |
 | USGS EarthExplorer | ERS account + M2M token | Original Landsat product bundles |
+| Hugging Face ([ixrbhii/multicrop-disease-models](https://huggingface.co/ixrbhii/multicrop-disease-models)) | none | Crop disease models for Agri ▸ Diagnose crop disease, downloaded once per crop (CC-BY-4.0) |
 
 - **Reflectance offset:** values are made consistent across sources and dates. The −1000 DN offset of Sentinel-2 processing baseline ≥ 04.00 is applied per scene.
 - **Landsat band names:** Landsat bands are stored under their Sentinel-2-equivalent names: B02 blue, B03 green, B04 red, B08 NIR, B11 / B12 SWIR. So every index and model works for both satellites. Landsat clouds are masked with the QA_PIXEL flags.
@@ -1197,6 +1198,9 @@ All of these are excluded from git.
 | The table or export is huge | Pick an area, a coarser pixel size, or a random / stratified sample |
 | Copernicus / USGS download fails | Check the credentials with **Test**; USGS needs M2M access approved on your account |
 | Nothing happens on the map after drawing | Press Esc and try again; make sure a class is selected (Training samples) |
+| Diagnose crop disease: "Couldn't reach Hugging Face" | The first diagnosis of each crop downloads its model (about 95 MB): connect to the internet once. Models already downloaded (listed in the Disease models card) work offline |
+| Diagnose crop disease: "The … model download was damaged" | The download was interrupted or changed on the way: run it again (only that model is downloaded again) |
+| Free up the space of downloaded disease models | Delete the `agri_models/` folder in the app's folder; models download again when needed |
 
 ---
 
