@@ -6,7 +6,6 @@ whatever the source's own storage.
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import time
@@ -168,7 +167,6 @@ def fetch(geom: dict, source: str, year: int, out_path: str, cache_dir: str | Pa
             "valid_pct": round(100 * valid / max(1, int((~outside).sum())), 1), "pieces": len(parts),
             "size_mb": round(Path(out_path).stat().st_size / 1e6, 1), "seconds": round(time.time() - t0, 1),
             "licence": spec["licence"], "attribution": spec["attribution"]}
-    Path(str(out_path) + ".json").write_text(json.dumps(meta, indent=1))
     log.info("%s %d: %d × %d pixels at %g m, %d dimensions, %.1f %% of the area covered", spec["short"], year, w, h, res, dims, meta["valid_pct"])
     progress.update(1, "Done")
     return {**meta, "path": str(out_path)}

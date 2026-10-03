@@ -72,11 +72,17 @@ def clip(geometry: dict | None) -> dict | None:
 def raster_path(rel: str, roots=RASTER_ROOTS) -> Path:
     """Resolve a client-supplied relative path, refusing anything outside the allowed folders."""
     path = (ws.root() / rel).resolve()
-    for root in roots:
-        base = (ws.root() / root).resolve()
-        if path.is_relative_to(base) and path.suffix.lower() in RASTER_EXTS and path.is_file():
-            return path
-    raise HTTPException(404, "No such GeoTIFF")
+    inside = any(path.is_relative_to((ws.root() / root).resolve()) for root in roots)
+    if inside and path.suffix.lower() in RASTER_EXTS and path.is_file():
+        return path
+    # say what is wrong, so a missing file isn't mistaken for a bug in the tool
+    name = Path(rel).name
+    if not inside:
+        raise HTTPException(404, f"“{name}” isn't in this project's folders: add it with + Add data (it is copied in)")
+    if path.suffix.lower() not in RASTER_EXTS:
+        raise HTTPException(404, f"“{name}” isn't a GeoTIFF (.tif / .tiff)")
+    raise HTTPException(404, f"The file of this layer is missing: {rel}. It was moved, renamed or deleted (or the project "
+                             "folder changed): add it again with + Add data, or remove the layer")
 
 
 def abs_user_folder(folder: str) -> Path:

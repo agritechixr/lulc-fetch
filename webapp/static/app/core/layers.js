@@ -152,8 +152,16 @@
     return { band: 1, stretch: "fixed" };  // index files named e.g. "NDVI" get that index's colours; class maps their palette
   }
 
+  // files being opened: shown at the top of Contents until their layer appears (reading a large file takes a while)
+  const pendingLoads = new Map();
   async function addRasterFromPath(path, { name, render, select = true, zoom = true } = {}) {
-    const info = await api(`/api/rasters/info?path=${encodeURIComponent(path)}`);
+    const token = Symbol(path), label = name || path.split(/[\\/]/).pop();
+    pendingLoads.set(token, label);
+    renderContents();
+    let info;
+    try { info = await api(`/api/rasters/info?path=${encodeURIComponent(path)}`); }
+    catch (e) { toast(`Couldn't open ${label}: ${e.message}`, true); throw e; }
+    finally { pendingLoads.delete(token); renderContents(); }
     const l = addLayer({ type: "raster", name: name || info.name, path, info, band_map: { ...info.band_map },
                          scale: info.scale, offset: info.offset, render: render || defaultRender(info), userSet: [] }, { select });
     try {
@@ -176,7 +184,7 @@
     const r = l.render || {};
     if (r.composite) return state.catalog?.composites[r.composite]?.title || r.composite;
     if (r.pca) return `${l.info?.count || ""} bands · colour view`;
-    if (r.rgb) return l.legend?.bands ? "RGB " + l.legend.bands.join("/") : "RGB";
+    if (r.rgb) return `${l.info?.count > 3 ? `${l.info.count} bands · shown ` : ""}${l.legend?.bands ? "RGB " + l.legend.bands.join("/") : "RGB"}`;
     if (r.index) return r.index;
     if (r.formula) return "formula";
     if (r.band) return l.legend?.kind === "classes" ? "classes" : `band ${r.band}`;
@@ -211,7 +219,8 @@
   }
 
   function renderContents() {
-    $("#layer-list").innerHTML = layers.map((l) => `
+    $("#layer-list").innerHTML = [...pendingLoads.values()].map((n) => `<div class="layer pending"><div class="lyr-row"><span class="spinner"></span>
+        <span class="lyr-name">${esc(n)}<small>Opening the file…</small></span></div></div>`).join("") + layers.map((l) => `
       <div class="layer ${l.id === selectedId ? "selected" : ""} ${l.open ? "open" : ""}" data-id="${esc(l.id)}" draggable="true">
         <div class="lyr-row">
           <button class="lyr-caret" title="Show legend & opacity">▶</button>
@@ -222,19 +231,22 @@
           <button class="lyr-zoom" title="Zoom to layer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M11 8v6M8 11h6"/></svg></button>
           <button class="lyr-more" title="Layer options">⋯</button>
         </div>
-        ${l.error ? `<div class="lyr-err">⚠ ${esc(l.error)}</div>` : ""}
+        ${l.busy && !l.image ? `<div class="lyr-note">Loading…${l.info?.count > 3 ? ` ${l.info.count} bands` : ""}${l.info?.size_mb > 150 ? ` · ${fmt(l.info.size_mb, 0)} MB: a large file takes a little while the first time` : ""}</div>` : ""}
+        ${l.error ? `<div class="lyr-err">⚠ ${esc(l.error)} <span class="lyr-err-act"><button type="button" class="btn small" data-lyr-retry>Try again</button><button type="button" class="btn small ghost" data-lyr-rm>Remove</button></span></div>` : ""}
         <div class="lyr-body">
           ${legendHtml(l)}
           <label>Opacity <input type="range" min="0" max="100" value="${Math.round(l.opacity * 100)}" data-op></label>
           ${l.path ? `<div class="lyr-meta">${esc(l.path)}${l.info ? ` · ${esc(l.info.crs)} · ${l.info.width}×${l.info.height}` : ""}</div>` : ""}
         </div>
       </div>`).join("");
-    $$("#layer-list .layer").forEach((el) => {
+    $$("#layer-list .layer[data-id]").forEach((el) => {
       const l = getLayer(el.dataset.id);
       el.onclick = (e) => { if (!e.target.closest("input, button")) selectLayer(l.id); };
       el.ondblclick = (e) => { if (!e.target.closest("input, button")) zoomTo(l); };
       el.oncontextmenu = (e) => { e.preventDefault(); selectLayer(l.id); showCtx(l, e.clientX, e.clientY); };
       $("input[type=checkbox]", el).onchange = (e) => setVisible(l, e.target.checked);
+      $("[data-lyr-retry]", el)?.addEventListener("click", (e) => { e.stopPropagation(); renderRaster(l).catch(() => {}); });
+      $("[data-lyr-rm]", el)?.addEventListener("click", (e) => { e.stopPropagation(); removeLayer(l.id); });
       $(".lyr-caret", el).onclick = () => { l.open = !l.open; el.classList.toggle("open", l.open); };
       $(".lyr-zoom", el).onclick = (e) => { e.stopPropagation(); selectLayer(l.id); zoomTo(l); };
       $(".lyr-more", el).onclick = (e) => { e.stopPropagation(); selectLayer(l.id); const r = e.currentTarget.getBoundingClientRect(); showCtx(l, r.right, r.bottom); };

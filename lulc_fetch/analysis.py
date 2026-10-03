@@ -88,6 +88,8 @@ def detect_scale(src, band_map: dict[str, int]) -> tuple[str, float, float, str]
     """Guess how pixel values convert to reflectance. Returns (preset, scale, offset, reason)."""
     tags = src.tags()
     units = (tags.get("units") or "").lower()
+    if is_embedding(src):   # embedding values are used as they are (no reflectance scaling), nothing to sample
+        return "asis", 1.0, 0.0, "embedding: values used as they are"
     if "reflectance_scale" in tags:  # written by the .SAFE importer
         sc, off = float(tags["reflectance_scale"]), float(tags.get("reflectance_offset", 0))
         preset = next((k for k, (_, s, o) in SCALE_PRESETS.items() if abs(s - sc) < 1e-12 and abs(o - off) < 1e-12), "")
@@ -111,11 +113,62 @@ def detect_scale(src, band_map: dict[str, int]) -> tuple[str, float, float, str]
     return "s2dn", 1e-4, 0.0, f"integer-like values (99th percentile {p99:.0f}) — assumed ×10000"
 
 
+def _read_strips(src, indexes: list[int], max_px: int, window: Window | None) -> np.ndarray:
+    """Many bands of a pixel-interleaved file (embeddings: every block holds all 64 / 128 bands), decimated: read in
+    strips with all bands at once, so each block is decompressed once, and averaged over k × k pixels. GDAL's own
+    decimated read decompresses every block again for each band (minutes instead of seconds for a 2000 × 2000 × 64
+    embedding)."""
+    import warnings
+
+    from rasterio.windows import Window as W
+    c0, r0, w, h = (int(window.col_off), int(window.row_off), int(window.width), int(window.height)) if window else (0, 0, src.width, src.height)
+    k = int(np.ceil(max(h, w) / max_px))
+    oh, ow = -(-h // k), -(-w // k)
+    out = np.empty((len(indexes), oh, ow), np.float32)
+    strip = max(k, (src.block_shapes[0][0] // k) * k or k)
+    for y in range(0, h, strip):
+        sh = min(strip, h - y)
+        d = src.read(indexes, window=W(c0, r0 + y, w, sh), masked=True).astype("float32").filled(np.nan)
+        ph, pw = -(-sh // k) * k, ow * k
+        if (ph, pw) != (sh, w):   # pad the last partial cells with NaN: they average what is there
+            d = np.pad(d, ((0, 0), (0, ph - sh), (0, pw - w)), constant_values=np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)   # all-NaN cells stay NaN
+            out[:, y // k:y // k + ph // k] = np.nanmean(d.reshape(len(indexes), ph // k, k, ow, k), axis=(2, 4))
+    return out
+
+
+_STRIPS: dict = {}   # the last few all-band reads (a redraw, the band statistics, … don't read the file again)
+
+
+def _many_bands(src) -> bool:
+    """A file whose blocks each hold many bands (pixel interleaved, e.g. an embedding): read all bands in one pass."""
+    return src.count >= 8 and getattr(src.interleaving, "name", "").lower() == "pixel"
+
+
+def _read_strips_cached(src, indexes, max_px, window):
+    """All bands of the file in one pass (cached), then the bands asked for."""
+    import os
+    allb = list(range(1, src.count + 1))
+    try:
+        st = os.stat(src.name)
+        key = (src.name, st.st_mtime_ns, st.st_size, max_px, tuple(window.flatten()) if window else None)
+    except OSError:
+        return _read_strips(src, indexes, max_px, window)
+    if key not in _STRIPS:
+        while len(_STRIPS) >= 3:
+            _STRIPS.pop(next(iter(_STRIPS)))
+        _STRIPS[key] = _read_strips(src, allb, max_px, window)
+    return _STRIPS[key][[i - 1 for i in indexes]].copy()
+
+
 def _read(src, indexes: list[int], max_px: int | None = None, window: Window | None = None) -> np.ndarray:
     """Read bands as float32 with NaN nodata, optionally decimated so the longest side <= max_px."""
     h, w = (window.height, window.width) if window else (src.height, src.width)
     out_shape = None
     if max_px and max(h, w) > max_px:
+        if _many_bands(src):
+            return _read_strips_cached(src, indexes, max_px, window)
         f = max_px / max(h, w)
         out_shape = (len(indexes), max(1, int(h * f)), max(1, int(w * f)))
     data = src.read(indexes, window=window, out_shape=out_shape, masked=True,
@@ -277,8 +330,11 @@ def _band_stats(src, max_px: int = 256) -> list[dict]:
         with rasterio.open(src.name) as ds:
             return _read(ds, [i], max_px=max_px)[0]
 
-    with ThreadPoolExecutor(min(8, src.count)) as ex:
-        sample = list(ex.map(one, range(1, src.count + 1)))
+    if _many_bands(src):   # one pass over the file instead of one per band
+        sample = list(_read(src, list(range(1, src.count + 1)), max_px=max_px))
+    else:
+        with ThreadPoolExecutor(min(8, src.count)) as ex:
+            sample = list(ex.map(one, range(1, src.count + 1)))
     out = []
     for i, (desc, a) in enumerate(zip(src.descriptions, sample), start=1):
         v = a[np.isfinite(a)]
