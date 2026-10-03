@@ -2367,6 +2367,128 @@ def det_train(req: DetTrainRequest):
     return jobs.submit("dettrain", title, {"image": Path(inp["path"]).name}, run).to_dict()
 
 
+# ------------------------------------------------------------------ Satellite embeddings (AlphaEarth, TESSERA)
+
+EMB_CACHE = ws.APP_DIR / "embeddings_cache"   # the AlphaEarth file index (shared by all projects)
+
+
+@app.get("/api/emb/sources")
+def emb_sources():
+    from lulc_fetch import embeddings as em
+    return {"sources": em.SOURCES, "other": em.OTHER, "years": em.YEARS}
+
+
+class EmbArea(BaseModel):
+    clip: dict
+    source: str = Field("aef", pattern="^(aef|tessera)$")
+    res: float = Field(10, ge=10, le=160)
+
+
+def _emb_clip(clip: dict) -> dict:
+    from shapely.geometry import shape
+    g = _clip(clip)
+    if not g:
+        raise HTTPException(400, "Choose an area")
+    if shape(g).area > 4:   # degrees²: about 200 × 200 km near the equator
+        raise HTTPException(400, "The area is too large: choose an area up to about 200 × 200 km")
+    return g
+
+
+@app.post("/api/emb/estimate")
+def emb_estimate(req: EmbArea):
+    from lulc_fetch import embeddings as em
+    return em.estimate(_emb_clip(req.clip), req.source, req.res)
+
+
+class EmbAvailRequest(BaseModel):
+    clip: dict
+
+
+@app.post("/api/emb/available")
+def emb_available(req: EmbAvailRequest):
+    from lulc_fetch import embeddings as em
+    g = _emb_clip(req.clip)
+    return jobs.submit("embcheck", "Satellite embeddings · what's available here", {}, lambda job: em.available(g, EMB_CACHE)).to_dict()
+
+
+class EmbFetchRequest(EmbArea):
+    year: int = Field(2024, ge=2017, le=2030)
+    name: str = Field("embedding", max_length=80)
+    colour: bool = True
+
+
+@app.post("/api/emb/fetch")
+def emb_fetch(req: EmbFetchRequest):
+    import re
+
+    from lulc_fetch import embeddings as em
+    g = _emb_clip(req.clip)
+    if req.res not in em.SOURCES[req.source]["resolutions"]:
+        raise HTTPException(400, f"{em.SOURCES[req.source]['short']} is available at {', '.join(map(str, em.SOURCES[req.source]['resolutions']))} m")
+    est = em.estimate(g, req.source, req.res)
+    if est["width"] * est["height"] > 25_000_000:
+        raise HTTPException(400, f"The area is too large at {req.res:g} m ({est['width']} × {est['height']} pixels): choose a smaller area"
+                                 + (" or a coarser resolution" if req.source == "aef" else ""))
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "embedding"
+
+    def run(job):
+        res = em.fetch(g, req.source, req.year, str(job.dir / f"{stem}.tif"), EMB_CACHE, req.res)
+        outs = [res["path"]]
+        if req.colour:
+            log.info("Colour view: the three main directions of variation (PCA) as red, green and blue")
+            res["colour"] = em.colour_view(res["path"], str(job.dir / f"{stem}_colour.tif"))
+            res["colour"]["path"] = ws.rel(res["colour"]["path"])
+            outs.append(res["colour"]["path"])
+        res["path"] = ws.rel(res["path"])
+        res["outputs"] = [res["path"]] + outs[1:]
+        return res
+
+    title = f"Satellite embeddings · {em.SOURCES[req.source]['short']} {req.year} · {req.name}"
+    return jobs.submit("embfetch", title, {"source": req.source, "year": req.year}, run).to_dict()
+
+
+class EmbLayerRequest(BaseModel):
+    path: str
+    points: list[list[float]] | None = Field(None, max_length=500)   # [lon, lat] (similar places)
+    name: str = Field("similarity", max_length=80)
+
+
+@app.post("/api/emb/similar")
+def emb_similar(req: EmbLayerRequest):
+    import re
+
+    from lulc_fetch import embeddings as em
+    src = _raster_path(req.path)
+    if not req.points:
+        raise HTTPException(400, "Click at least one place on the map")
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "similarity"
+
+    def run(job):
+        r = em.similarity(str(src), req.points, str(job.dir / f"{stem}.tif"))
+        r["path"] = ws.rel(r["path"])
+        r["outputs"] = [r["path"]]
+        return r
+
+    return jobs.submit("embsimilar", f"Similar places · {req.name}", {}, run).to_dict()
+
+
+@app.post("/api/emb/colour")
+def emb_colour(req: EmbLayerRequest):
+    import re
+
+    from lulc_fetch import embeddings as em
+    src = _raster_path(req.path)
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", src.stem).strip("_")[:60] or "embedding"
+
+    def run(job):
+        r = em.colour_view(str(src), str(job.dir / f"{stem}_colour.tif"))
+        r["path"] = ws.rel(r["path"])
+        r["outputs"] = [r["path"]]
+        return r
+
+    return jobs.submit("embcolour", f"Colour view · {src.stem}", {}, run).to_dict()
+
+
 # ------------------------------------------------------------------ Agri: crop disease diagnosis and the crop disease guide
 
 # where a copy of the disease repository (with its model weights) is often kept, tried when no models folder is chosen yet

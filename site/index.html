@@ -205,7 +205,7 @@ footer .links2 { display: flex; gap: 18px; }
 
 <header class="hero center">
   <div class="wrap">
-    <span class="eyebrow">Free · Open source · Mac &amp; Windows · <b>Coming next: crop disease diagnosis &amp; object detection</b></span>
+    <span class="eyebrow">Free · Open source · Mac &amp; Windows · <b>Coming next: crop disease diagnosis, satellite embeddings &amp; object detection</b></span>
     <h1>Land-cover maps from satellite images, <span>on your own computer</span></h1>
     <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning and deep-learning models, classify images into land-use / land-cover maps and detect objects such as vehicles and ships, and diagnose crop diseases from leaf photos, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
     <div class="cta">
@@ -223,7 +223,7 @@ footer .links2 { display: flex; gap: 18px; }
     </div>
     <div class="chips">
       <span>Sentinel-2</span><span>Landsat 8–9</span><span>Sentinel-1 SAR</span><span>Copernicus .SAFE</span><span>ESA WorldCover</span>
-      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings</span><span>U-Net · DeepLabV3+ · SegFormer</span><span>YOLO26 · SAM 2.1</span><span>Crop disease · 42 crops</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
+      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings (download free)</span><span>U-Net · DeepLabV3+ · SegFormer</span><span>YOLO26 · SAM 2.1</span><span>Crop disease · 42 crops</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
     </div>
   </div>
 </header>
@@ -253,6 +253,8 @@ footer .links2 { display: flex; gap: 18px; }
     <div class="grid">
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 19C5 10 10 5 20 4c-1 10-6 15-15 15z"/><path d="M5 19l8-8"/></svg></div>
         <h3>Crop disease diagnosis <span class="new-tag">next release</span></h3><p>The new <b>Agri</b> menu: photograph a leaf and get the crop and its disease, for 42 crops, with the top 3 diagnoses. Geotagged field photos become a disease map, and a guide of 9,000 expert answers explains symptoms and treatment. <a href="#agriculture">See it in action →</a></p></div>
+      <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18" opacity=".35"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg></div>
+        <h3>Satellite embeddings <span class="new-tag">next release</span></h3><p>Free AI embeddings for any area, no account: Google AlphaEarth (64-D) and TESSERA (128-D), 10 m, 2017–2025. See which years exist, download only your area, view it in colour, and click a field to find all places like it. Then classify or cluster.</p></div>
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2" opacity=".5"/><rect x="6" y="7" width="7" height="6" rx=".5"/><rect x="12" y="13" width="6" height="5" rx=".5"/></svg></div>
         <h3>Detect object <span class="new-tag">next release</span></h3><p>Find vehicles, ships, planes, storage tanks, people and more in aerial, drone and very-high-resolution satellite images. Open-source pretrained YOLO26 (including a model trained on DOTA aerial images, with rotated boxes), Faster R-CNN, RetinaNet and Mask R-CNN, or SAM 2.1 to outline everything. Results are a vector layer with class, score and size.</p></div>
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2" opacity=".5"/><rect x="6" y="6" width="7" height="6" rx=".5"/><path d="M14 19l2.5-2.5L19 19M16.5 16.5V21"/></svg></div>
@@ -346,6 +348,20 @@ footer .links2 { display: flex; gap: 18px; }
         </ul>
       </div>
       <img width="1800" height="1100" class="shot" src="assets/detect.jpg" alt="Aerial image of downtown Seattle with about 850 vehicles outlined by rotated boxes, detected by YOLO26 trained on DOTA" loading="lazy">
+    </div>
+
+    <div class="show rev">
+      <div class="txt">
+        <span class="tag">Satellite embeddings · next release</span>
+        <h3>Click a place, find every place like it</h3>
+        <p><b>Satellite embeddings</b> downloads free AI embeddings for your area straight from Google AlphaEarth or TESSERA: every 10 m pixel becomes a vector that sums up a whole year of satellite data. Click a place and LULC Fetch scores every pixel by how alike it is. Here: one click on a place in central Bengaluru, and every pixel that is alike lights up, from 13 km² of AlphaEarth downloaded in 16 seconds.</p>
+        <ul>
+          <li>See which years (2017–2025) exist for your area before downloading</li>
+          <li>A colour view (PCA) shows fields, crops, water and built-up areas at a glance</li>
+          <li>Classify or cluster the embeddings with the other tools; a few labelled points are enough</li>
+        </ul>
+      </div>
+      <img width="1800" height="1125" class="shot" src="assets/embeddings.jpg" alt="Similarity map from AlphaEarth embeddings over Bengaluru: places similar to the clicked point are bright" loading="lazy">
     </div>
 
     <div class="show">
@@ -489,7 +505,7 @@ footer .links2 { display: flex; gap: 18px; }
     <h2>Your data stays on your computer</h2>
     <div class="local" style="text-align:left">
       <div class="card"><h3>Runs locally</h3><p>Everything runs on your own machine: no upload, no cloud processing, no account needed for analysis.</p></div>
-      <div class="card"><h3>Works offline</h3><p>All analysis, machine learning and editing work without internet. Internet is only used to find and download imagery, for basemaps, for address search, and once per crop to download its disease model.</p></div>
+      <div class="card"><h3>Works offline</h3><p>All analysis, machine learning and editing work without internet. Internet is only used to find and download imagery, for basemaps, for address search, to download satellite embeddings, and once per crop to download its disease model.</p></div>
       <div class="card"><h3>Free &amp; open</h3><p>Open source under the Apache 2.0 licence. Inspect it, improve it, and use it in research, teaching or projects.</p></div>
     </div>
   </div>
@@ -500,7 +516,7 @@ footer .links2 { display: flex; gap: 18px; }
     <div class="center">
       <span class="eyebrow">Download</span>
       <h2>Get LULC Fetch, free</h2>
-      <p class="lead">Ready-to-run apps: Python and all libraries are included, so there's nothing else to install. Version 0.0.1 beta. The deep-learning tools install their PyTorch add-on from inside the app the first time you open them. Object detection (Detect object, Train detection model) and the Agri menu (crop disease diagnosis and guide) arrive in the next release; to try them now, run LULC Fetch from source (see GitHub).</p>
+      <p class="lead">Ready-to-run apps: Python and all libraries are included, so there's nothing else to install. Version 0.0.1 beta. The deep-learning tools install their PyTorch add-on from inside the app the first time you open them. Object detection (Detect object, Train detection model) the Agri menu (crop disease diagnosis and guide) and Satellite embeddings arrive in the next release; to try them now, run LULC Fetch from source (see GitHub).</p>
     </div>
     <div class="dl">
       <div class="dlcard" id="dl-mac">
@@ -544,6 +560,7 @@ footer .links2 { display: flex; gap: 18px; }
       <details><summary>Which machine-learning models are included?</summary><p>Random Forest, Extra Trees, Decision Tree, XGBoost, LightGBM, Histogram Gradient Boosting, SVM (RBF, linear, polynomial), Logistic Regression, SGD, Naive Bayes, Maximum Likelihood, Linear Discriminant, Minimum Distance, Spectral Angle Mapper, k-Nearest Neighbours and a neural network (MLP); for clustering K-means, hierarchical, DBSCAN, HDBSCAN, spectral and Gaussian mixture, plus t-SNE.</p></details>
       <details><summary>Can it do deep learning?</summary><p>Yes. <b>Make training data</b> cuts your image and ground truth into patches, <b>Train classify model</b> trains U-Net, DeepLabV3+, PSPNet, SegFormer, FCN, YOLO26 semantic and more, and <b>Classify image</b> maps whole scenes. <b>Detect object</b> finds vehicles, ships, planes, storage tanks, people and more in high-resolution aerial or drone images with open-source pretrained models (YOLO26, including an aerial model trained on DOTA, Faster R-CNN, RetinaNet, Mask R-CNN, and SAM 2.1 segment-everything), and <b>Train detection model</b> teaches YOLO your own objects from labelled polygons or points (both in the next release; available now when running from source). The first time, the app offers to install the free PyTorch add-on (about 0.8 GB on Mac; on Windows 1.1 GB for CPU only or 3.5 GB with NVIDIA GPU support); YOLO and SAM need a second, smaller add-on (ultralytics, AGPL-3.0). Training uses the Apple GPU on Macs and an NVIDIA GPU on Windows if there is one.</p></details>
       <details><summary>Can it tell which disease my crop has?</summary><p>Yes, from the next release. <b>Agri ▸ Diagnose crop disease</b> recognises the crop on a leaf photo (42 crops, from apple and mango to rice, maize, tomato and sugarcane) and gives the top 3 diseases with confidence, using one ConvNeXt model per crop. Unclear photos get "retake" instead of a guess, and photos with GPS become a disease map. <b>Agri ▸ Crop disease guide</b> has about 9,000 expert answers on symptoms, treatment and pests, and works offline. The models download from Hugging Face the first time each crop is needed (about 95 MB per crop); after that it works offline.</p></details>
+      <details><summary>What are satellite embeddings, and are they free?</summary><p>An embedding turns every 10 m pixel into a list of numbers that sums up a whole year of satellite observations, so alike places get alike numbers. <b>Tools ▸ Satellite embeddings</b> downloads them for your area from two open datasets, Google AlphaEarth Foundations (64-D, CC-BY-4.0) and TESSERA from the University of Cambridge (128-D, CC0), for 2017–2025, free and without an account. Then find places similar to the ones you click, or classify and cluster them with a few labelled points.</p></details>
       <details><summary>Where are my files stored?</summary><p>In <b>Documents ▸ LULC Fetch</b> by default, or in a project folder you choose. You can save any result to another folder as well.</p></details>
     </div>
   </div>
