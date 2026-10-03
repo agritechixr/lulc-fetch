@@ -1128,3 +1128,5 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .hist-head-card .pill { margin-left: 6px; }
 .menu-pop .hist-row .rb-info { width: 18px; height: 18px; padding: 0; display: inline-block; flex: none; border: 1px solid var(--muted); border-radius: 50%; }
 .menu-pop .hist-row .rb-info:hover { background: var(--accent); }
+.hist-edit { width: 100%; min-height: 180px; resize: vertical; font: 11.5px/1.45 var(--mono); margin: 4px 0 0; }
+.aoi-emb { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }

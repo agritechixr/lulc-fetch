@@ -27,6 +27,50 @@ def history_file() -> Path:
     return ws.APP_DIR / "logs" / "history.jsonl"
 
 
+def requests_dir() -> Path:
+    """The complete request of each run (for Run again), one small JSON file per run."""
+    return ws.APP_DIR / "logs" / "history_requests"
+
+
+def _has_secret(v) -> bool:
+    if isinstance(v, dict):
+        return any((SECRET.search(k) and x) or _has_secret(x) for k, x in v.items())
+    if isinstance(v, list):
+        return any(_has_secret(x) for x in v[:1000])
+    return False
+
+
+def _save_request(job, req: dict) -> tuple[bool, str]:
+    """Keep the run's exact request so it can be run again; not when it holds a password or key, or is very large."""
+    body = req.get("body")
+    if not req.get("endpoint") or body in (None, {}):
+        return False, "This run has no settings to repeat."
+    if _has_secret(body):
+        return False, "Not kept: its settings include a password or key."
+    text = json.dumps({"endpoint": req["endpoint"], "body": body, "workspace": str(ws.root())}, default=str, ensure_ascii=False)
+    if len(text) > 10_000_000:
+        return False, "Not kept: its settings are too large (over 10 MB)."
+    try:
+        d = requests_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{job.id}.json").write_text(text, encoding="utf-8")
+        old = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        for p in old[:-3000]:   # keep the newest 3,000
+            p.unlink(missing_ok=True)
+    except OSError as e:
+        return False, f"Couldn't keep it: {e}"
+    return True, ""
+
+
+def get_request(job_id: str) -> dict | None:
+    f = requests_dir() / f"{job_id}.json"
+    if not f.is_file() or not job_id.replace("-", "").isalnum():
+        return None
+    r = json.loads(f.read_text(encoding="utf-8"))
+    r["same_workspace"] = r.get("workspace") == str(ws.root())
+    return r
+
+
 # ------------------------------------------------------------------ making requests safe and small
 
 def _bbox(coords) -> list[float] | None:
@@ -115,6 +159,7 @@ def record(job):
     inputs = {k: body[k] for k in INPUT_KEYS if isinstance(body, dict) and k in body and body[k] not in (None, "", [], {})}
     settings = {k: v for k, v in body.items() if k not in inputs} if isinstance(body, dict) else {"request": body}
     proj = ws.project()
+    repeatable, why = _save_request(job, req) if job.kind not in ("dlinstall",) else (False, "Installing an add-on isn't repeated here.")
     entry = {
         "type": "run", "id": job.id, "kind": job.kind, "title": job.title, "status": job.status, "endpoint": req.get("endpoint"),
         "started": job.started or job.created, "finished": job.finished or time.time(),
@@ -123,6 +168,7 @@ def record(job):
         "params": safe(job.params), "inputs": inputs, "settings": settings,
         "outputs": _outputs(job) if job.status == "done" else [], "summary": _summary(job) if job.status == "done" else {},
         "error": job.error, "log": [str(x)[:300] for x in job.logs[-40:]],
+        "repeatable": repeatable, "repeat_note": why,
     }
     _append(entry)
 

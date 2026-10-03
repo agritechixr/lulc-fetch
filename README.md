@@ -47,7 +47,7 @@ Across the app:
   - inline cell editing, deleting / adding rows, undo, restoring the previous version, and new tables or layers from filtered rows.
 - **Resizable panels:** drag the edges of Contents, the tool panel and the data viewer.
 - **Area picker:** every tool can work on just an area of your choice.
-- **History menu:** every tool run with its time taken, input data, settings and where the results (models, maps, exports) went; searchable, kept across restarts.
+- **History menu:** every tool run with its time taken, input data, settings and where the results (models, maps, exports) went; searchable, kept across restarts. **Run again** repeats a run, or runs it with changed settings.
 - **Progress and Cancel** for every long task, with the time taken; **ⓘ** shows every step in a resizable box. A failed run stays on screen with the reason, and every failure is recorded in `logs/errors.log` (**Help ▸ Error log**).
 - **ⓘ hints** on every option.
 - **Credentials** for Copernicus and USGS EarthExplorer, kept in your OS keychain.

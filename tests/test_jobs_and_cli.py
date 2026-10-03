@@ -83,3 +83,24 @@ def test_history(client, data):
     assert client.get("/api/history/nope").status_code == 404
     ok(client.delete("/api/history"))
     assert ok(client.get("/api/history"))["total"] == 0
+
+
+def test_history_run_again(client, data):
+    """A run's exact request is kept so it can be run again (as it was, or changed); not when it holds a key."""
+    r = run(client, "/api/pca/run", {"path": data["s2"], "bands": [1, 2, 3, 4], "method": "pca", "params": {"n_components": 2}, "name": "again"})
+    jid = r["path"].split("/")[1]
+    e = ok(client.get(f"/api/history/{jid}"))
+    assert e["repeatable"] is True
+    req = ok(client.get(f"/api/history/{jid}/request"))
+    assert req["endpoint"] == "/api/pca/run" and req["same_workspace"] and req["body"]["params"] == {"n_components": 2}
+    again = run(client, req["endpoint"], {**req["body"], "params": {"n_components": 3}, "name": "again3"})   # changed: 3 components
+    import rasterio
+
+    import webapp.workspace as ws
+    with rasterio.open(ws.root() / again["path"]) as s:
+        assert s.count == 3
+    secret = run(client, "/api/pca/run", {"path": data["s2"], "bands": [1, 2, 3, 4], "method": "pca", "params": {"n_components": 2},
+                                          "name": "with_key", "token": "abc"})
+    sid = secret["path"].split("/")[1]
+    assert ok(client.get(f"/api/history/{sid}"))["repeatable"] is False
+    assert client.get(f"/api/history/{sid}/request").status_code == 404

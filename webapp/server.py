@@ -2410,6 +2410,16 @@ def history_get(job_id: str):
     return e
 
 
+@app.get("/api/history/{job_id}/request")
+def history_request(job_id: str):
+    """The exact settings a run was started with, to run it again (as they were, or changed)."""
+    from . import history
+    r = history.get_request(job_id)
+    if r is None:
+        raise HTTPException(404, "This run's settings weren't kept, so it can't be repeated")
+    return r
+
+
 @app.delete("/api/history")
 def history_clear():
     from . import history

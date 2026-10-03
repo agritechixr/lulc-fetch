@@ -317,6 +317,12 @@
       ${(e.copies || []).length ? `<div class="hist-sec">Copies saved to a folder</div>` + e.copies.map((c) => `<p class="hint" style="margin:4px">${esc(when(c.time))} → <code>${esc(c.folder)}</code></p>` + c.files.map(fileRow).join("")).join("") : ""}
       ${e.error ? `<div class="hist-sec" style="color:var(--err)">Why it failed</div><p style="margin:4px;font-size:12.5px;color:var(--err)">${esc(e.error)}</p>` : ""}
       ${(e.log || []).length ? `<div class="hist-sec">Steps</div><pre class="hist-json">${esc(e.log.join("\n"))}</pre>` : ""}
+      <div class="hist-sec">Run again</div>
+      ${e.repeatable ? `<div class="row tight" style="margin:4px;gap:6px;flex-wrap:wrap"><button class="btn small primary" data-hrerun>↻ Run again</button><button class="btn small" data-hedit>Change settings &amp; run…</button></div>
+        <p class="hint" style="margin:4px">Runs it again with the same settings (or the ones you change); the results are added to Contents as new layers.</p>
+        <div class="hidden" data-heditbox><textarea class="hist-edit" spellcheck="false" aria-label="Settings (JSON)"></textarea>
+          <div class="row tight" style="margin:6px 0 0;gap:6px"><button class="btn small primary" data-hrunedit>Run with these settings</button><button class="btn small ghost" data-hcancel>Cancel</button><span class="hint" data-hjsonerr style="margin:0;color:var(--err)"></span></div></div>`
+        : `<p class="hint" style="margin:4px">${esc(e.repeat_note || "This run can't be repeated from here (it was recorded before Run again existed).")}</p>`}
       <div class="row tight" style="margin:12px 4px 0;gap:6px;flex-wrap:wrap"><button class="btn small" data-hcopy>Copy as JSON</button>${tool ? `<button class="btn small" data-htool="${esc(tool.id)}">Open ${esc(tool.title)}</button>` : ""}${e.error ? `<button class="btn small ghost" data-herrlog>Error log</button>` : ""}</div>`;
     $$("[data-hreveal]", body).forEach((b) => b.onclick = () => {
       api("/api/project/reveal", { method: "POST", json: { path: b.dataset.hreveal } }).catch((x) => toast(x.message, true));   // opens its folder
@@ -325,7 +331,42 @@
     $$("[data-htool]", body).forEach((a) => a.onclick = (ev) => { ev.preventDefault(); switchTool(a.dataset.htool); });
     $("[data-hcopy]", body).onclick = async () => { try { await navigator.clipboard.writeText(JSON.stringify(e, null, 2)); toast("Copied"); } catch { toast("Couldn't copy", true); } };
     $("[data-herrlog]", body)?.addEventListener("click", () => window.open("/api/errors/file", "_blank", "noopener"));
+    if (e.repeatable) {
+      const box = $("[data-heditbox]", body), ta = $(".hist-edit", box);
+      $("[data-hrerun]", body).onclick = () => rerunHistory(e);
+      $("[data-hedit]", body).onclick = async () => {
+        try { const r = await api(`/api/history/${encodeURIComponent(e.id)}/request`); ta.value = JSON.stringify(r.body, null, 2); box.classList.remove("hidden"); ta.focus(); }
+        catch (x) { toast(x.message, true); }
+      };
+      $("[data-hcancel]", body).onclick = () => box.classList.add("hidden");
+      $("[data-hrunedit]", body).onclick = () => {
+        let changed;
+        try { changed = JSON.parse(ta.value); } catch (x) { $("[data-hjsonerr]", body).textContent = `Not valid JSON: ${x.message}`; return; }
+        $("[data-hjsonerr]", body).textContent = "";
+        rerunHistory(e, changed);
+      };
+    }
     body.scrollTop = 0;
+  }
+  // Run a recorded run again: the same request (or a changed copy) to the same tool; its results are added to Contents
+  async function rerunHistory(e, changedBody = null) {
+    let req;
+    try { req = await api(`/api/history/${encodeURIComponent(e.id)}/request`); } catch (x) { return toast(x.message, true); }
+    if (!req.same_workspace && !confirm(`This run was made in another project or workspace:\n${req.workspace}\n\nIts layers and files are looked up in the one open now, so it may not find them. Run it anyway?`)) return;
+    const tool = toolOfKind(e.kind);
+    if (tool) switchTool(tool.id);
+    try {
+      const job = await api(req.endpoint, { method: "POST", json: changedBody || req.body });
+      if (!job?.id) { toast("Done"); return; }
+      const done = await trackJob(job, { title: `${changedBody ? "Run with changed settings" : "Run again"} · ${e.title}` });
+      let added = 0;
+      for (const p of outputPaths(done)) {
+        if (/\.(tiff?)$/i.test(p) && !/_colour\.tif$/i.test(p)) { try { await addRasterFromPath(p, { name: p.split("/").pop().replace(/\.tiff?$/i, ""), zoom: added === 0 }); added++; } catch {} }
+        else if (/^tables\/.+\.(csv|parquet)$/i.test(p)) { addItem({ kind: "table", name: p.split("/").pop(), path: p }); added++; }
+      }
+      toast(`Finished: ${added ? `${added} result${added > 1 ? "s" : ""} added to Contents` : "see History for its files"}`);
+      if (hist.win?.open && !hist.id) showHistoryList();
+    } catch (x) { if (notCancelled(x)) toast(x.message, true); }
   }
 
   function finishRun(tool, run, state, error) {
@@ -1000,7 +1041,7 @@
 
   function onLayerRemoved(l) {
     if (vw.tabs.some((t) => t.key === "attr:" + l.id)) closeTab("attr:" + l.id);
-    if (l.id === "aoi") { state.aoi = null; $("#aoi-summary").classList.add("hidden"); $("#aoi-warn").classList.add("hidden"); }
+    if (l.id === "aoi") { state.aoi = null; $("#aoi-summary").classList.add("hidden"); $("#aoi-warn").classList.add("hidden"); $("#aoi-emb").classList.add("hidden"); }
     if (an.layer?.id === l.id) resetAnalyze();
     if (an.resultId === l.id) { an.resultId = null; an.sel = null; $("#an-result").classList.add("hidden"); renderIndexButtons(); }
   }
@@ -3206,6 +3247,7 @@
     $("#aoi-area").textContent = `${km2 < 10 ? fmt(km2, 2) : Math.round(km2).toLocaleString()} km²${label ? " · " + label : ""}`;
     $("#aoi-detail").textContent = `${fmt(s, 4)}, ${fmt(w, 4)} → ${fmt(n, 4)}, ${fmt(e, 4)} · ${countVerts(geometry)} vertices`;
     $("#aoi-summary").classList.remove("hidden");
+    $("#aoi-emb").classList.remove("hidden");
     const warn = $("#aoi-warn");
     if (km2 > 5500) {
       warn.textContent = `This area is large (${Math.round(km2).toLocaleString()} km²). At 10 m one download is limited to ~6,000 km², so use 20–60 m pixels or split the area. Searching still works.`;
@@ -3239,6 +3281,13 @@
   }
   $("#aoi-zoom").onclick = () => getLayer("aoi") && zoomTo(getLayer("aoi"));
   $("#aoi-clear").onclick = () => removeLayer("aoi");
+  // the same area (and the year of the dates) in Embeddings ▸ Download embeddings
+  $("#aoi-embed").onclick = () => {
+    if (!getLayer("aoi")) return toast("Choose an area first", true);
+    const y = +(($("#end").value || $("#start").value || "").slice(0, 4)) || new Date().getFullYear() - 1;
+    em.pending = { area: "layer:aoi", year: String(Math.min(2025, Math.max(2017, y))) };
+    switchTool("embed");
+  };
 
   // AOI method tabs
   $$("#aoi-tabs button").forEach((b) => b.onclick = () => {
@@ -6483,6 +6532,13 @@
     }
     renderEmSources();
     refreshClipPicker("em-area");
+    if (em.pending) {   // opened from Find imagery: its area and year
+      const sel = $("#em-area");
+      if ([...sel.options].some((o) => o.value === em.pending.area)) { sel.value = em.pending.area; updateClipHint("em-area"); }
+      if ([...$("#em-year").options].some((o) => o.value === em.pending.year)) { $("#em-year").value = em.pending.year; prefs.set("em-year", em.pending.year); }
+      toast(`Area and year (${em.pending.year}) taken from Find imagery`);
+      em.pending = null;
+    }
     emEstimate();
   }
   function refreshEmExplore() { renderEmLayers(); }
