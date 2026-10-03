@@ -152,3 +152,11 @@ def test_every_tool_has_its_own_routes_file():
     for p in ("/api/pca/run", "/api/ml/train", "/api/dl/train", "/api/detect/run", "/api/emb/fetch", "/api/agri/diagnose",
               "/api/history", "/api/stack", "/api/patches/make", "/api/rasterml/run", "/api/tables/from-raster"):
         assert p in paths, f"{p} isn't served"
+
+
+def test_pixel_popup_lists_every_band(client):
+    """Clicking a pixel lists all bands (it once stopped at 20, hiding most of a 64-band embedding) in a scrolling list,
+    and right-clicking the map opens its menu (copy coordinates, what's here, tools from this point)."""
+    js = client.get("/static/app.js").text
+    assert "extra.slice(0, 20)" not in js and "px-scroll" in js
+    assert 'map.on("contextmenu"' in js and "function toUtm" in js

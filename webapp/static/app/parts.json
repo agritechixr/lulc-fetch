@@ -23,6 +23,7 @@
   "core/add-data.js",
   "core/safe-products.js",
   "core/identify.js",
+  "core/map-menu.js",
   "tools/export.js",
   "core/area-picker.js",
   "core/layer-properties.js",
