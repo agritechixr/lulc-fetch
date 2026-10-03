@@ -219,7 +219,7 @@ def make_dataset(inputs: list[dict], ground_truth: dict, out: Path, *, task: str
             val_keys.add(k)
             got += sum(len(t[4]) for t in blocks[k])
         if len(chosen) < 4 or not val_keys:
-            raise ValueError(f"Only {len(chosen)} tile(s) with objects: label more objects, use a bigger area or smaller tiles")
+            raise ValueError(f"Only {len(chosen)} tile(s) with objects (at least 4 are needed): label more objects, use a bigger area, smaller tiles or a higher zoom")
 
         for sub in ("images/train", "images/val", "labels/train", "labels/val"):
             (out / sub).mkdir(parents=True, exist_ok=True)

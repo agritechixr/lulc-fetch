@@ -117,3 +117,16 @@ def test_tool_files_register_themselves(client):
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200
+
+
+def test_no_function_is_defined_twice(client):
+    """Two top-level functions with the same name in app.js silently replace each other (the later one wins), so one
+    tool can break another (it happened once: a shared helper took the name of Index analysis's showResult)."""
+    import re
+    from collections import Counter
+
+    js = client.get("/static/app.js").text
+    names = re.findall(r"^  (?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(", js, re.M)
+    names += re.findall(r"^  (?:const|let)\s+([A-Za-z_$][\w$]*)\s*=", js, re.M)
+    twice = [n for n, k in Counter(names).items() if k > 1]
+    assert not twice, f"defined more than once in app.js: {twice}"

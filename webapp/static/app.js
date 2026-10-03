@@ -363,9 +363,18 @@
       if (!job?.id) { toast("Done"); return; }
       const done = await trackJob(job, { title: `${changedBody ? "Run with changed settings" : "Run again"} · ${e.title}` });
       let added = 0;
-      for (const p of outputPaths(done)) {
-        if (/\.(tiff?)$/i.test(p) && !/_colour\.tif$/i.test(p)) { try { await addRasterFromPath(p, { name: p.split("/").pop().replace(/\.tiff?$/i, ""), zoom: added === 0 }); added++; } catch {} }
-        else if (/^tables\/.+\.(csv|parquet)$/i.test(p)) { addItem({ kind: "table", name: p.split("/").pop(), path: p }); added++; }
+      const r = done.result || {};
+      for (const p of [...outputPaths(done), r.csv, r.output_table].filter((x, i, a) => typeof x === "string" && a.indexOf(x) === i)) {
+        const name = p.split("/").pop();
+        if (/\.(tiff?)$/i.test(p) && !/_colour\.tif$/i.test(p)) { try { await addRasterFromPath(p, { name: name.replace(/\.tiff?$/i, ""), zoom: added === 0 }); added++; } catch {} }
+        else if (/^tables\/.+\.(csv|parquet)$/i.test(p)) { addItem({ kind: "table", name, path: p }); added++; }
+        else if (/\.geojson$/i.test(p) && p.startsWith(`downloads/${done.id}/`)) {   // e.g. the photo points of a diagnosis
+          try {
+            let fc = await api(`/api/jobs/${done.id}/files/${encodeURIComponent(name)}`);
+            if (typeof fc === "string") fc = JSON.parse(fc);
+            if (fc?.features?.length) { addVectorLayer(fc, name.replace(/\.geojson$/i, ""), { path: p }); saveLayers(); added++; }
+          } catch {}
+        }
       }
       toast(`Finished: ${added ? `${added} result${added > 1 ? "s" : ""} added to Contents` : "see History for its files"}`);
       if (hist.win?.open && !hist.id) showHistoryList();
@@ -7012,7 +7021,7 @@
     };
   }
   /** put html in #<p>-result and show it; returns the box */
-  function showResult(p, html) {
+  function showRunResult(p, html) {
     const box = $(`#${p}-result`);
     box.innerHTML = html;
     box.classList.remove("hidden");
@@ -7039,7 +7048,7 @@
 
   Object.assign(LF, {
     $, $$, esc, fmt, prefs, api, toast, status, map, layers, getLayer, addRasterFromPath, addVectorLayer, saveLayers,
-    dataItems, addItem, openItem, trackJob, notCancelled, runJob, runButton, showResult, switchTool, openTool,
+    dataItems, addItem, openItem, trackJob, notCancelled, runJob, runButton, showResult: showRunResult, switchTool, openTool,
     getClip, refreshClipPicker, updateClipHint, startDraw, fillLayers, touched, autoName, limitDevices,
     renderAddon, tipBtn, starMeta, modelPicker, searchPicker, pickFolder, floatWin,
   });
