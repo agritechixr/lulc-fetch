@@ -230,7 +230,7 @@
   const KIND_TOOL = { table: "raster2table", train: "ml", predict: "ml", cluster: "ml", tsne: "ml", compare: "ml", python: "ml", pca: "pca",
     stack: "stack", rasterml: "rasterml", patches: "patches", dltrain: "dltrain", dlinstall: "dltrain", dlpredict: "dlpredict", detect: "detect",
     dettrain: "traindet", diagnose: "agridisease", embfetch: "embed", embcheck: "embed", embconvert: "embconvert", embsimilar: "embexplore",
-    embcolour: "embexplore", export: "export", product: "search" };
+    embcolour: "embexplore", embtrain: "embtrain", export: "export", product: "search" };
   const toolOfKind = (k) => TOOLS.find((t) => t.id === (KIND_TOOL[k] || "search"));
   const HIST_STATUS = { done: ["Finished", "c0"], error: ["Failed", "c2"], cancelled: ["Cancelled", "c1"], running: ["Running", "c1"], queued: ["Waiting", "c1"] };
   const ago = (t) => { const s = Date.now() / 1000 - t; return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago`
@@ -555,6 +555,8 @@
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
     // the Embeddings menu
     { id: "embed", menu: "embed", title: "Download embeddings", icon: "embed", subtitle: "Free, open AI embeddings for any area: Google AlphaEarth (64-D) and TESSERA (128-D), 10 m, 2017–2025. See which years exist for your area and download them as a GeoTIFF, with a colour view" },
+    { id: "embtrain", menu: "embed", title: "Train embedding model", icon: "dl", subtitle: "Train one of ten light segmentation models (ENet, DABNet, LEDNet… 0.15–0.95 M parameters) on an embedding layer and your labelled polygons, points or class raster: all bands used, 256 × 256 patches, early stopping, a report, and the class map" },
+    { id: "embpredict", menu: "embed", title: "Classify with embedding model", icon: "dlmap", subtitle: "Map any embedding layer (another area or year) with a model from Train embedding model, with a confidence band" },
     { id: "embconvert", menu: "embed", title: "Convert embeddings", icon: "convert", subtitle: "Change how an embedding is stored: 8-bit (AlphaEarth coding or scaled per band) ↔ 16 / 32-bit float. Small files to keep, floats to train on; shows how much the values change" },
     { id: "embexplore", menu: "embed", title: "Explore embeddings", icon: "similar", subtitle: "Find places similar to the ones you click (cosine similarity), make a colour view, or classify any embedding layer" },
     // the Agri menu
@@ -646,6 +648,8 @@
     if (tool.id === "embed") refreshEm();
     if (tool.id === "embexplore") refreshEmExplore();
     if (tool.id === "embconvert") refreshEc();
+    if (tool.id === "embtrain") refreshEt();
+    if (tool.id === "embpredict") refreshEp();
     if (tool.id === "samples") renderSamples();
     if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
@@ -1031,6 +1035,8 @@
     if (currentTool === "detect" && od.schema) renderOdLayers();
     if (currentTool === "embexplore") renderEmLayers();
     if (currentTool === "embconvert") renderEcLayers();
+    if (currentTool === "embtrain" && et.schema) renderEtLayers();
+    if (currentTool === "embpredict" && ep.ready) renderEpLayers();
     if (currentTool === "traindet" && td.schema) { renderTdLayers(); renderTdGt(); }
     if (currentTool === "samples") renderSamples();
     if (currentTool === "stack") refreshStack();
@@ -2356,6 +2362,7 @@
     ["predict", "#mp-run", "the map"], ["rasterml", "#rm-run", "the classified map and the model (with its evaluation report)"], ["dlpredict", "#dp-run", "the classified map"], ["detect", "#od-run", "the detected objects (GeoJSON)"], ["cluster", "#uc-run", "the table with clusters (and the model)"], ["tsne", "#ut-run", "the table with map coordinates"],
     ["embfetch", "#em-run", "the embedding GeoTIFF (and its colour view)"], ["embconvert", "#ec-run", "the converted GeoTIFF"],
     ["embexplore", "#em-save-anchor", "the similarity maps and colour views"],
+    ["embtrain", "#et-run", "the class map (the model stays in the project's models folder)"], ["embpredict", "#ep-run", "the class map"],
   ];
   function saveToHtml(key, what, label = "Also save to a folder on my computer") {
     const dir = prefs.get(`save-dir:${key}`, key === "train" ? prefs.get("report-dir", "") : "") || prefs.get("save-dir:last", "");
@@ -2891,6 +2898,8 @@
     "td-area": { what: "image is used for training", onChange: () => {} },
     "st-area": { what: "reference extent is used", onChange: () => {} },
     "em-area": { what: "area is downloaded", onChange: () => emEstimate(), required: true },
+    "et-area": { what: "layer is used for training and mapped", onChange: () => etEstimate() },
+    "ep-area": { what: "layer is classified", onChange: () => {} },
   };
   const polygonLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
   function refreshClipPicker(id) {
@@ -6026,7 +6035,7 @@
         await trackJob(job, { title: "Installing the deep-learning add-on" });
         await dlStatus(true);
         toast("Deep-learning add-on installed");
-        renderAddon(panel).then((ok) => ok && ({ "tab-dltrain": refreshDt, "tab-detect": refreshOd, "tab-traindet": refreshTd, "tab-agridisease": refreshAd }[panel.id] || refreshDp)());
+        renderAddon(panel).then((ok) => ok && ({ "tab-dltrain": refreshDt, "tab-detect": refreshOd, "tab-traindet": refreshTd, "tab-agridisease": refreshAd, "tab-embtrain": refreshEt, "tab-embpredict": refreshEp }[panel.id] || refreshDp)());
       } catch (err) { if (notCancelled(err)) toast(err.message, true); }
       finally { btn.disabled = false; }
     };
@@ -6721,6 +6730,162 @@
           `Largest change of a value: <b>${r.max_error.toPrecision(2)}</b> (mean ${r.mean_error.toPrecision(2)}). Each pixel's vector still points the same way: cosine similarity to the original ≥ <b>${r.cosine_min.toFixed(5)}</b> (1 = identical)${r.normalised ? ", measured after making the vectors unit length" : ""}.`}
         ${r.to === "float16" ? " To open this file in other software, it needs GDAL 3.11 or newer (QGIS 3.42+)." : ""}${r.to === "int8-scaled" ? " The scale of each band is stored in the file, so the real values are read back." : ""}</p></div>`;
       $("#ec-result").classList.remove("hidden");
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+
+  // ------------------------------------------------------------------ Train embedding model: light segmentation on an embedding layer
+  const et = { schema: null, arch: prefs.get("et-arch", "light_dabnet") };
+  const etLabelLayers = () => layers.filter((l) => (l.type === "vector" && l.geojson?.features?.length && l.id !== "aoi" && !l.ptFootprints)
+    || (l.type === "raster" && l.path && (l.info?.count || 0) === 1));
+  async function refreshEt() {
+    if (!(await renderAddon($("#tab-embtrain")))) return;
+    if (!et.schema) {
+      try { et.schema = await api("/api/dl/schema"); } catch (e) { toast(e.message, true); return; }
+      [...$("#et-device").options].forEach((o) => { if (o.value !== "auto" && !dlx.status.devices.includes(o.value)) o.disabled = true; });
+    }
+    if (!et.schema.archs[et.arch]) et.arch = "light_dabnet";
+    renderEtModels();
+    renderEtLayers();
+    refreshClipPicker("et-area");
+  }
+  function renderEtModels() {
+    const archs = Object.entries(et.schema.archs).filter(([, a]) => a.lib === "light");
+    modelPicker($("#et-models"), { value: et.arch, onChange: (k) => { et.arch = k; prefs.set("et-arch", k); renderEtModels(); etName(); },
+      items: archs.map(([k, a]) => ({ id: k, title: a.title, group: "Light segmentation models (lulc_fetch/lightseg)",
+        badge: k === "light_dabnet" ? "recommended" : k === "light_efsnet" ? "smallest" : k === "light_enet" ? "fastest" : "",
+        meta: `${starMeta(a.accuracy, a.speed, 5)}<span title="Parameters">${a.params_m} M</span>`, tip: a.desc })) });
+    $("#et-model-info").textContent = et.schema.archs[et.arch]?.desc || "";
+  }
+  function etName() {
+    const l = getLayer($("#et-layer").value);
+    if (!$("#et-name").dataset.touched) $("#et-name").value = `${(l?.name || "embedding").replace(/\.(tiff?|vrt)$/i, "")}_${et.arch.replace("light_", "")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 70);
+  }
+  function renderEtLayers() {
+    const rs = emRasters(), sel = $("#et-layer"), cur = sel.value;
+    sel.innerHTML = rs.length ? rs.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info.count} bands</option>`).join("")
+      : `<option value="">No embedding layer yet: Embeddings ▸ Download embeddings, or add a GeoTIFF</option>`;
+    if (rs.some((l) => l.id === cur)) sel.value = cur;
+    const l = getLayer(sel.value);
+    $("#et-layer-info").textContent = l ? `${l.info.count} bands, all used · ${l.info.width?.toLocaleString()} × ${l.info.height?.toLocaleString()} px${l.info.res ? ` · ${fmt(l.info.res[0], 0)} m pixels` : ""}` : "";
+    const gts = etLabelLayers(), g = $("#et-gt"), gcur = g.value;
+    g.innerHTML = gts.length ? gts.slice().reverse().map((x) => `<option value="${esc(x.id)}">${esc(x.name)} · ${x.type === "vector" ? `${x.geojson.features.length} shapes` : "class raster"}</option>`).join("")
+      : `<option value="">No labels yet: draw them with Tools ▸ Training samples, or add a shapefile / GeoJSON / class raster</option>`;
+    if (gts.some((x) => x.id === gcur)) g.value = gcur;
+    etGtChanged();
+    etName();
+  }
+  function etGtChanged() {
+    const g = getLayer($("#et-gt").value), wrap = $("#et-field-wrap"), f = $("#et-field");
+    wrap.classList.toggle("hidden", !g || g.type !== "vector");
+    if (g?.type === "vector") {
+      const keys = [...new Set(g.geojson.features.flatMap((x) => Object.keys(x.properties || {})))].filter((k) => !k.startsWith("_"));
+      const cur = f.value;
+      f.innerHTML = keys.map((k) => `<option>${esc(k)}</option>`).join("");
+      f.value = keys.includes(cur) ? cur : keys.find((k) => /^(class|label|name|lulc|landcover|type)$/i.test(k)) || keys[0] || "";
+      const vals = new Set(g.geojson.features.map((x) => x.properties?.[f.value]).filter((v) => v !== undefined && v !== null && v !== ""));
+      $("#et-gt-info").textContent = `${g.geojson.features.length} shapes · ${vals.size} class${vals.size === 1 ? "" : "es"}${vals.size ? `: ${[...vals].slice(0, 8).join(", ")}${vals.size > 8 ? " …" : ""}` : ""}`;
+    } else $("#et-gt-info").textContent = g ? "Band 1 holds the class numbers (0 = no label)." : "";
+    etEstimate();
+  }
+  function etEstimate() {
+    const l = getLayer($("#et-layer").value), px = +$("#et-patch").value;
+    if (!l?.info?.res) { $("#et-est").textContent = ""; return; }
+    const km = px * l.info.res[0] / 1000;
+    $("#et-est").textContent = `A ${px} × ${px} patch covers ${fmt(km, km < 1 ? 2 : 1)} × ${fmt(km, km < 1 ? 2 : 1)} km here, with all ${l.info.count} bands. Small labelled areas: choose 128 or 64 and 50 % overlap for more patches.`;
+  }
+  $("#et-layer").onchange = () => { renderEtLayers(); };
+  $("#et-gt").onchange = etGtChanged;
+  $("#et-field").onchange = etGtChanged;
+  $("#et-patch").onchange = etEstimate;
+  $("#et-name").addEventListener("input", () => $("#et-name").dataset.touched = "1");
+  $("#et-run").onclick = async () => {
+    const err = $("#et-error"); err.classList.add("hidden");
+    const l = getLayer($("#et-layer").value), g = getLayer($("#et-gt").value);
+    if (!l) return toast("Choose the embedding layer", true);
+    if (!g) return toast("Choose the labels", true);
+    const gt = g.type === "vector" ? { type: "vector", geojson: g.geojson, field: $("#et-field").value } : { type: "raster", path: g.path, band: 1 };
+    const name = $("#et-name").value.trim() || "embedding_model";
+    const body = { path: l.path, ground_truth: gt, clip: getClip("et-area"), arch: et.arch, patch_px: +$("#et-patch").value, overlap: +$("#et-overlap").value,
+      params: { epochs: +$("#et-epochs").value || 60, batch_size: +$("#et-batch").value || 8, lr: +$("#et-lr").value || 0.003, val_share: +$("#et-val").value || 20,
+                patience: +$("#et-patience").value || 12, early_stop: true, class_weights: $("#et-weights").checked ? "auto" : "none",
+                augment: $("#et-augment").checked ? ["flip", "rot90"] : [], device: $("#et-device").value },
+      name, map: $("#et-map").checked, class_colors: g.classColors || null };
+    const btn = $("#et-run"); btn.disabled = true; $("#et-result").classList.add("hidden");
+    try {
+      const job = await api("/api/emb/train", { method: "POST", json: body });
+      const r = (await trackJob(job, { tool: "embtrain", title: `Training ${et.schema.archs[et.arch].title} · ${name}`, save: "embtrain" })).result;
+      if (r.map) await addRasterFromPath(r.map, { name: `${name} map`, zoom: false });
+      const c = r.config || {}, v = c.test || c.val || {}, cls = c.classes || [];
+      const pct = (x) => x == null ? "–" : `${fmt(100 * x, 1)} %`;
+      $("#et-result").innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(c.arch_title || "Model")} trained</h2>
+        <div class="pca-sum">${r.patches} patches of ${r.patch_px} × ${r.patch_px} px × ${r.bands} bands · ${c.epochs_run ?? "?"} epochs (best ${c.best_epoch ?? "?"}) · ${c.test ? "test" : "validation"} scores below</div>
+        <div class="metric-tiles" style="margin-top:8px;grid-template-columns:repeat(3,1fr)"><div class="metric"><b>${pct(v.accuracy)}</b><span>Accuracy</span></div><div class="metric"><b>${pct(v.miou)}</b><span>mIoU</span></div>
+          <div class="metric"><b>${v.kappa == null ? "–" : fmt(v.kappa, 2)}</b><span>Kappa</span></div></div>
+        ${(v.iou || []).length ? `<div class="dist" style="margin-top:8px">${v.iou.map((x, i) => `<div style="grid-template-columns:minmax(0,1.6fr) 2fr auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(cls[i]?.color || "#999")}"></i> ${esc(cls[i]?.name ?? i)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(1, 100 * x)}%;background:${esc(cls[i]?.color || "")}"></span></span><b>IoU ${fmt(100 * x, 0)}</b></div>`).join("")}</div>` : ""}
+        <div class="row tight" style="margin-top:10px;flex-wrap:wrap;gap:6px">${r.report ? `<a class="btn small" href="/api/dl/report?folder=${encodeURIComponent(r.model_folder)}" target="_blank" rel="noopener">Open the report</a>` : ""}
+          <button class="btn small" data-et-use>Classify another layer with it…</button></div>
+        <p class="hint">${r.map ? "The class map was added to Contents (band 2 = confidence). " : ""}The model is in <code>${esc(r.model_folder)}</code>; the patches in <code>${esc(r.dataset)}</code>.</p></div>`;
+      $("#et-result").classList.remove("hidden");
+      $("[data-et-use]", $("#et-result")).onclick = () => { ep.pick = r.model_folder; switchTool("embpredict"); };
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
+
+  // ------------------------------------------------------------------ Classify with embedding model
+  const ep = { models: [], ready: false, pick: null };
+  async function refreshEp() {
+    if (!(await renderAddon($("#tab-embpredict")))) return;
+    [...$("#ep-device").options].forEach((o) => { if (o.value !== "auto" && !dlx.status.devices.includes(o.value)) o.disabled = true; });
+    try { ep.models = (await api("/api/dl/models")).filter((m) => (m.arch_key || "").startsWith("light_")); } catch (e) { toast(e.message, true); return; }
+    ep.ready = true;
+    const sel = $("#ep-model"), cur = ep.pick || sel.value;
+    ep.pick = null;
+    sel.innerHTML = ep.models.length ? ep.models.map((m) => `<option value="${esc(m.folder)}">${esc(m.name)} · ${esc(m.arch)} · ${m.in_channels} bands${m.miou != null ? ` · mIoU ${fmt(100 * m.miou, 0)} %` : ""}</option>`).join("")
+      : `<option value="">No embedding model yet: train one with Embeddings ▸ Train embedding model</option>`;
+    if (ep.models.some((m) => m.folder === cur)) sel.value = cur;
+    refreshClipPicker("ep-area");
+    renderEpLayers();
+  }
+  const epModel = () => ep.models.find((m) => m.folder === $("#ep-model").value);
+  function renderEpLayers() {
+    const m = epModel(), rs = emRasters(), sel = $("#ep-layer"), cur = sel.value;
+    sel.innerHTML = rs.length ? rs.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info.count} bands${m && l.info.count !== m.in_channels ? " (doesn't match the model)" : ""}</option>`).join("")
+      : `<option value="">No embedding layer yet</option>`;
+    if (rs.some((l) => l.id === cur)) sel.value = cur;
+    else { const ok = rs.slice().reverse().find((l) => m && l.info.count === m.in_channels); if (ok) sel.value = ok.id; }
+    const l = getLayer(sel.value);
+    $("#ep-model-info").innerHTML = m ? `${esc(m.arch)} · ${m.in_channels} bands · classes: ${(m.classes || []).map((c) => esc(c.name)).join(", ")}${m.has_report ? ` · <a href="/api/dl/report?folder=${encodeURIComponent(m.folder)}" target="_blank" rel="noopener">report</a>` : ""}` : "";
+    $("#ep-check").innerHTML = m && l && l.info.count !== m.in_channels ? `<span style="color:var(--err)">The model needs ${m.in_channels} bands; this layer has ${l.info.count}. Use the same kind of embedding it was trained on.</span>` : "";
+    if (m && !$("#ep-name").dataset.touched) $("#ep-name").value = `${m.name}_map`.slice(0, 70);
+    $("#ep-run").disabled = !m || !l || l.info.count !== m.in_channels;
+  }
+  $("#ep-model").onchange = renderEpLayers;
+  $("#ep-layer").onchange = renderEpLayers;
+  $("#ep-name").addEventListener("input", () => $("#ep-name").dataset.touched = "1");
+  $("#ep-add").onclick = async () => {
+    const f = await pickFolder({ title: "Choose a model folder (made with Train embedding model)", okLabel: "Use this model" });
+    if (!f) return;
+    try { await api("/api/dl/models/add", { method: "POST", json: { folder: f } }); ep.pick = f; refreshEp(); } catch (e) { toast(e.message, true); }
+  };
+  $("#ep-run").onclick = async () => {
+    const err = $("#ep-error"); err.classList.add("hidden");
+    const m = epModel(), l = getLayer($("#ep-layer").value);
+    if (!m || !l) return toast("Choose the model and the embedding layer", true);
+    const body = { model: m.folder, inputs: [{ path: l.path, name: l.name }], clip: getClip("ep-area"), overlap: +$("#ep-overlap").value, batch_size: 8,
+                   device: $("#ep-device").value, confidence: $("#ep-conf").checked, name: $("#ep-name").value.trim() || "embedding_map" };
+    const btn = $("#ep-run"); btn.disabled = true; $("#ep-result").classList.add("hidden");
+    try {
+      const job = await api("/api/dl/predict", { method: "POST", json: body });
+      const r = (await trackJob(job, { tool: "embpredict", title: `Classifying with ${m.name}`, save: "embpredict" })).result;
+      await addRasterFromPath(r.path, { name: body.name, zoom: false });
+      $("#ep-result").innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ Map ready</h2>
+        <div class="pca-sum">${r.width.toLocaleString()} × ${r.height.toLocaleString()} px · ${esc(r.device)} · ${r.seconds} s</div>
+        <div class="dist" style="margin-top:8px">${r.classes.map((c) => `<div style="grid-template-columns:minmax(0,1.6fr) 2fr auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(c.color || "#999")}"></i> ${esc(c.name)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(1, c.pct)}%;background:${esc(c.color || "")}"></span></span><b>${fmt(c.pct, 1)}%</b></div>`).join("")}</div>
+        <p class="hint">Added to Contents${body.confidence ? " (band 2 = confidence %)" : ""}.</p></div>`;
+      $("#ep-result").classList.remove("hidden");
     } catch (e) {
       if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
     } finally { btn.disabled = false; }

@@ -1121,6 +1121,90 @@
       <div id="ec-result" class="hidden"></div>
     </section>
 
+    <section id="tab-embtrain" class="tabpanel hidden">
+      <div class="dl-addon card hidden" data-addon></div>
+      <div class="dl-body">
+      <div class="card">
+        <h2><span class="step">1</span>Embedding layer <span class="req">required</span> <button type="button" class="tip" data-tip="Every band (all 64 AlphaEarth or 128 TESSERA dimensions, or any other embedding / image) goes into the model as it is. Run PCA first only if you want fewer. The layer needs a coordinate system in metres, as Download embeddings gives." aria-label="Help">i</button></h2>
+        <select id="et-layer"></select>
+        <p class="hint" id="et-layer-info"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Labels <span class="req">required</span> <button type="button" class="tip" data-tip="Where you know the class: polygons or points you drew in Training samples (or a shapefile / GeoJSON) with a class field, or a class raster (one band of class numbers). Only labelled pixels are learned from; draw a few polygons per class, spread over the area." aria-label="Help">i</button></h2>
+        <select id="et-gt"></select>
+        <label id="et-field-wrap">Class field<select id="et-field"></select></label>
+        <p class="hint" id="et-gt-info"></p>
+        <div class="area-pick">
+          <label>Area <button type="button" class="tip" data-tip="Optional: train and map only part of the layer." aria-label="Help">i</button><select id="et-area"></select></label>
+          <p class="hint" id="et-area-hint"></p>
+        </div>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Model</h2>
+        <div id="et-models"></div>
+        <p class="hint" id="et-model-info"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">4</span>Training</h2>
+        <div class="grid2">
+          <label>Patch size <button type="button" class="tip" data-tip="The embedding is cut into square patches of this many pixels (all bands) for training. 256 × 256 is the default; use 128 or 64 for small labelled areas (more patches), 512 for large ones." aria-label="Help">i</button>
+            <select id="et-patch"><option value="64">64 × 64</option><option value="128">128 × 128</option><option value="256" selected>256 × 256 (recommended)</option><option value="512">512 × 512</option></select></label>
+          <label>Patch overlap<select id="et-overlap"><option value="0">None</option><option value="0.25" selected>25 %</option><option value="0.5">50 % (small areas)</option></select></label>
+          <label>Epochs <button type="button" class="tip" data-tip="Passes over the training patches. Early stopping ends sooner when the validation score stops improving, keeping the best model." aria-label="Help">i</button><input type="number" id="et-epochs" value="60" min="1" max="1000"></label>
+          <label>Batch size<input type="number" id="et-batch" value="8" min="1" max="128"></label>
+          <label>Learning rate<input type="number" id="et-lr" value="0.003" min="0.00001" max="0.1" step="0.0005"></label>
+          <label>Validation %<input type="number" id="et-val" value="20" min="5" max="50"></label>
+          <label>Stop after no gain for (epochs)<input type="number" id="et-patience" value="12" min="2" max="200"></label>
+          <label>Device<select id="et-device"><option value="auto">Auto</option><option value="mps">Apple GPU (MPS)</option><option value="cuda">NVIDIA GPU (CUDA)</option><option value="cpu">CPU</option></select></label>
+        </div>
+        <label class="inline" style="margin-top:8px"><input type="checkbox" id="et-weights" checked> Rarer classes count more <button type="button" class="tip" data-tip="Class weights: a class with few labelled pixels gets more weight in the loss, so the model doesn't ignore it." aria-label="Help">i</button></label>
+        <label class="inline" style="margin-top:4px"><input type="checkbox" id="et-augment" checked> Flip and rotate patches (more variety)</label>
+        <p class="hint" id="et-est"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">5</span>Output</h2>
+        <label>Model name<input id="et-name" maxlength="80" value="embedding_model"></label>
+        <label class="inline" style="margin-top:8px"><input type="checkbox" id="et-map" checked> Map the layer (or the area) with the trained model</label>
+        <button class="btn primary big-btn" id="et-run">Train embedding model</button>
+        <div id="et-error" class="warn err hidden"></div>
+      </div>
+      <div id="et-result" class="hidden"></div>
+      </div>
+    </section>
+
+    <section id="tab-embpredict" class="tabpanel hidden">
+      <div class="dl-addon card hidden" data-addon></div>
+      <div class="dl-body">
+      <div class="card">
+        <h2><span class="step">1</span>Model <span class="req">required</span> <button type="button" class="tip" data-tip="Models trained with Train embedding model (light models), with their number of bands and validation score. Add a model folder trained elsewhere with “Add a model…”." aria-label="Help">i</button></h2>
+        <select id="ep-model"></select>
+        <p class="hint" id="ep-model-info"></p>
+        <div class="row tight" style="margin-top:6px"><button class="btn small" id="ep-add">Add a model…</button></div>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Embedding layer <span class="req">required</span> <button type="button" class="tip" data-tip="The layer to map: the same kind of embedding the model was trained on (same number of bands, e.g. AlphaEarth for an AlphaEarth model), for any area or year." aria-label="Help">i</button></h2>
+        <select id="ep-layer"></select>
+        <p class="hint" id="ep-check"></p>
+        <div class="area-pick">
+          <label>Area<select id="ep-area"></select></label>
+          <p class="hint" id="ep-area-hint"></p>
+        </div>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Output</h2>
+        <div class="grid2">
+          <label>Device<select id="ep-device"><option value="auto">Auto</option><option value="mps">Apple GPU (MPS)</option><option value="cuda">NVIDIA GPU (CUDA)</option><option value="cpu">CPU</option></select></label>
+          <label>Tile overlap<select id="ep-overlap"><option value="0">None</option><option value="0.25" selected>25 % (seamless)</option><option value="0.5">50 %</option></select></label>
+        </div>
+        <label class="inline" style="margin-top:8px"><input type="checkbox" id="ep-conf" checked> Add a confidence band</label>
+        <label>Layer name<input id="ep-name" maxlength="80" value="embedding_map"></label>
+        <button class="btn primary big-btn" id="ep-run">Classify</button>
+        <div id="ep-error" class="warn err hidden"></div>
+      </div>
+      <div id="ep-result" class="hidden"></div>
+      </div>
+    </section>
+
     <section id="tab-embexplore" class="tabpanel hidden">
       <div class="card">
         <h2><span class="step">1</span>Embedding layer</h2>

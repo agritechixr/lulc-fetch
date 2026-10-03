@@ -105,3 +105,13 @@ def test_yolo26_semantic(client, dataset, data, home):
     p = run(client, "/api/dl/predict", {"model": r["folder"], "inputs": [{"path": data["s2"]}], "name": "yolo_sem_map"})
     with rasterio.open(home / p["path"]) as s:
         assert set(np.unique(s.read(1))) <= {1, 2, 3}
+
+
+@pytest.mark.parametrize("arch", ["light_enet", "light_dabnet", "light_lednet", "light_efsnet"])
+def test_light_models_train_and_map(client, dataset, data, home, arch):
+    """The light segmentation models (lulc_fetch/lightseg) through Train classify model and Classify image."""
+    r = train(client, dataset, arch, "builtin", f"t_{arch}", epochs=2)
+    assert r["config"]["epochs_run"] == 2 and r["config"]["val"]["miou"] is not None and r["config"]["arch"] == arch
+    p = run(client, "/api/dl/predict", {"model": r["folder"], "inputs": [{"path": data["s2"], "name": "s2"}], "name": f"{arch}_map"})
+    with rasterio.open(home / p["path"]) as s, rasterio.open(data["folder"] / "labels.tif") as t:
+        assert s.count == 2 and (s.width, s.height) == (t.width, t.height)

@@ -2039,7 +2039,7 @@ def dl_models():
         except (OSError, ValueError):
             continue
         ev = c.get("test") or c.get("val") or {}
-        out.append({"folder": str(p), "name": c.get("name") or p.name, "arch": c.get("arch_title"), "encoder": c.get("encoder_title"),
+        out.append({"folder": str(p), "name": c.get("name") or p.name, "arch": c.get("arch_title"), "arch_key": c.get("arch"), "encoder": c.get("encoder_title"),
                     "bands": c.get("bands"), "in_channels": c.get("in_channels"), "classes": c.get("classes"),
                     "patch_size_px": c.get("patch_size_px"), "pixel_size": c.get("pixel_size"), "trained": c.get("trained"),
                     "miou": ev.get("miou"), "accuracy": ev.get("accuracy"), "epochs_run": c.get("epochs_run"),
@@ -2598,6 +2598,88 @@ def emb_similar(req: EmbLayerRequest):
         return r
 
     return jobs.submit("embsimilar", f"Similar places · {req.name}", {}, run).to_dict()
+
+
+class EmbTrainRequest(BaseModel):
+    path: str                                                # the embedding layer: every band is used
+    ground_truth: dict                                       # {"type": "vector", "geojson", "field"} | {"type": "raster", "path", "band"}
+    clip: dict | None = None
+    arch: str = Field("light_dabnet", max_length=40)
+    patch_px: int = Field(256, ge=32, le=1024)
+    overlap: float = Field(0.25, ge=0, le=0.75)              # share of a patch
+    params: dict = Field(default_factory=dict)               # epochs, batch_size, lr, val_share, early_stop, patience, loss, class_weights, …
+    name: str = Field("embedding_model", max_length=80)
+    map: bool = True                                         # also classify the whole layer (or area) with the trained model
+    class_colors: dict[str, str] | None = None
+
+
+@app.post("/api/emb/train")
+def emb_train(req: EmbTrainRequest):
+    """Train a light segmentation model on an embedding layer and labels in one go: 256 × 256 patches (all bands), training
+    with early stopping and a report, then the class map of the layer."""
+    import re
+
+    import rasterio
+
+    from lulc_fetch import dl, dlrunner, patches, progress
+    if not _dl_status()["available"]:
+        raise HTTPException(400, "The deep-learning add-on isn't installed yet")
+    if req.arch not in dl.ARCHS or dl.ARCHS[req.arch]["lib"] != "light":
+        raise HTTPException(400, f"Choose one of the light models ({', '.join(k for k, a in dl.ARCHS.items() if a['lib'] == 'light')})")
+    src = _raster_path(req.path)
+    gt = dict(req.ground_truth)
+    if gt.get("type") == "raster":
+        gt["path"] = str(_raster_path(gt["path"]))
+    elif gt.get("type") != "vector" or not gt.get("geojson", {}).get("features"):
+        raise HTTPException(400, "Choose the labels: a layer of polygons or points with a class field, or a class raster")
+    with rasterio.open(src) as s:
+        if s.crs is None or s.crs.is_geographic:
+            raise HTTPException(400, "The embedding layer needs a projected coordinate system in metres (e.g. UTM), as downloaded")
+        res, bands = abs(s.res[0]), s.count
+    patch_m = req.patch_px * res
+    clip = _clip(req.clip) if req.clip else None
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "embedding_model"
+    ds_parent = PATCH_DIR.path
+    out = DL_MODEL_DIR.path / stem
+    i = 2
+    while out.exists() and any(out.iterdir()):
+        out = DL_MODEL_DIR.path / f"{stem}_{i}"
+        i += 1
+    params = {"early_stop": True, "patience": 10, **req.params}
+
+    def run(job):
+        with progress.span(0, 0.1):
+            ds_name = f"{stem}_patches_{job.id}"
+            d = patches.make([{"path": str(src), "name": src.stem}], ds_parent, name=ds_name, ground_truth=gt, clip=clip,
+                             patch_m=[patch_m, patch_m], overlap_m=[patch_m * req.overlap] * 2, edge="pad", min_valid=0.3,
+                             require_labels=True, min_labelled=0.001, remap=True, class_colors=req.class_colors)
+            if not d.get("count"):
+                raise RuntimeError("No patch has labels: the labels don't overlap the embedding layer (or the area)")
+            log.info("%d patches of %d × %d pixels × %d bands", d["count"], req.patch_px, req.patch_px, bands)
+        p = dict(params)
+        if "split" not in req.params and d["count"] < 40:   # few patches (a small labelled area): spatial blocks can't fill both sides
+            p["split"] = "random"
+            log.info("Only %d patches: training / validation split at random (spatial blocks need more)", d["count"])
+        if d["count"] < 5:
+            raise RuntimeError(f"Only {d['count']} patch{'es' if d['count'] != 1 else ''} with labels: label a larger area, use smaller "
+                               "patches (e.g. 128) or more overlap")
+        with progress.span(0.1, 0.85 if req.map else 1):
+            tr = dlrunner.run("train", dataset=d["folder"], out_dir=str(out), arch=req.arch, encoder="builtin", pretrained=False,
+                              params=p, name=req.name)
+        _remember_dl("dl_models.json", str(out))
+        res = {"model_folder": str(out), "dataset": d["folder"], "patches": d["count"], "bands": bands, "patch_px": req.patch_px,
+               "config": tr.get("config", {}), "report": (out / "report.html").is_file(), "outputs": []}
+        if req.map:
+            with progress.span(0.85, 1):
+                pr = dlrunner.run("predict", model_dir=str(out), inputs=[{"path": str(src), "name": src.stem}],
+                                  out_path=str(job.dir / f"{stem}_map.tif"), clip=clip, overlap=0.25, batch_size=8, device=params.get("device", "auto"),
+                                  confidence=True)
+            res["map"] = ws.rel(pr["path"])
+            res["outputs"] = [res["map"]]
+        return res
+
+    title = f"Train embedding model · {dl.ARCHS[req.arch]['title']} · {req.name}"
+    return jobs.submit("embtrain", title, {"model": dl.ARCHS[req.arch]["title"], "bands": bands}, run).to_dict()
 
 
 @app.get("/api/emb/format")
