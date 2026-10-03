@@ -13,7 +13,7 @@ on:
         options: [all, windows, macos]
         default: all
       release_tag:
-        description: "Also add the apps to this existing release (e.g. v0.1.0); empty = don't"
+        description: "Also add the apps to this existing release (e.g. v0.0.2-beta); empty = don't"
         required: false
         default: ""
 
@@ -55,7 +55,7 @@ jobs:
       - name: Build (macOS)
         if: steps.skip.outputs.run == 'yes' && runner.os == 'macOS'
         env:
-          LULC_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}
+          LULC_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.0.2' }}
           LULC_MIN_MACOS: ${{ matrix.min_macos }}
         run: |
           ./packaging/build_mac.sh
