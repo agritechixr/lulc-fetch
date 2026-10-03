@@ -126,3 +126,67 @@ def test_download(client, source, dims, report):
         assert abs(np.median(n) - 1) < 0.02
     assert r["colour"]["path"].endswith("_colour.tif")
     report.metric(f"{source} seconds (1 km²)", r["seconds"])
+
+
+# ------------------------------------------------------------------ Convert embeddings (8-bit ↔ float)
+
+@pytest.fixture(scope="module")
+def raw_aef(client):
+    """A small AlphaEarth tile as Google stores it: int8 codes, −128 = no data, bottom-up (positive pixel height)."""
+    from rasterio.transform import Affine
+    p = ws.root() / "uploads" / "testdata" / "raw_aef.tif"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(1)
+    v = rng.normal(size=(64, 30, 20))
+    v /= np.linalg.norm(v, axis=0, keepdims=True)                           # unit vectors, like AlphaEarth
+    q = np.clip(np.rint(np.sign(v) * np.sqrt(np.abs(v)) * 127.5), -127, 127).astype(np.int8)
+    q[:, 0, 0] = -128                                                        # one pixel without data
+    with rasterio.open(p, "w", driver="GTiff", width=20, height=30, count=64, dtype="int8", crs="EPSG:32643", nodata=-128,
+                       transform=Affine(10, 0, 770000, 0, 10, 1434000)) as dst:   # origin at the south edge, rows go north
+        dst.write(q)
+        for i in range(64):
+            dst.set_band_description(i + 1, f"A{i:02d}")
+    return ws.rel(p), q
+
+
+def test_convert_detect(client, raw_aef, emb_tif):
+    path, _ = raw_aef
+    f = ok(client.get("/api/emb/format", params={"path": path}))
+    assert f["format"] == "int8-aef" and f["north_up"] is False and f["bands"] == 64 and "int8-aef" not in f["targets"]
+    assert ok(client.get("/api/emb/format", params={"path": emb_tif}))["format"] == "float32"
+    assert client.post("/api/emb/convert", json={"path": emb_tif, "to": "float32"}).status_code == 400   # already float32
+    assert client.post("/api/emb/convert", json={"path": emb_tif, "to": "int4"}).status_code == 422
+
+
+def test_convert_round_trip(client, raw_aef):
+    from lulc_fetch.embeddings import formats as cv
+    path, q = raw_aef
+    r = run(client, "/api/emb/convert", {"path": path, "to": "float32", "name": "aef_f32"})
+    assert r["from"] == "int8-aef" and r["flipped"] and r["max_error"] == 0
+    with rasterio.open(ws.root() / r["path"]) as s:
+        f, tf = s.read(), s.transform
+        assert s.dtypes[0] == "float32" and tf.e < 0 and abs(tf.f - 1434300) < 1e-6   # north-up, same place
+    want = cv.decode(q, "int8-aef")[:, ::-1, :]
+    assert np.allclose(f, want, equal_nan=True) and np.isnan(f[:, -1, 0]).all()
+    back = run(client, "/api/emb/convert", {"path": r["path"], "to": "int8-aef", "name": "aef_back"})
+    with rasterio.open(ws.root() / back["path"]) as s:
+        assert np.array_equal(s.read(), q[:, ::-1, :])        # Google's codes come back exactly
+    sc = run(client, "/api/emb/convert", {"path": r["path"], "to": "int8-scaled", "name": "aef_scaled"})
+    assert sc["max_error"] < 0.01 and sc["cosine_min"] > 0.999
+    with rasterio.open(ws.root() / sc["path"]) as s:
+        assert s.dtypes[0] == "int8" and all(0 < x < 0.02 for x in s.scales)
+    h = run(client, "/api/emb/convert", {"path": r["path"], "to": "float16", "name": "aef_f16"})
+    assert h["max_error"] < 1e-3 and h["size_out_mb"] <= r["size_out_mb"]
+
+
+def test_convert_refuses_big_values_for_aef_coding(client, emb_tif, tmp_path):
+    from lulc_fetch.embeddings import formats as cv
+    big = tmp_path / "big.tif"
+    with rasterio.open(ws.root() / emb_tif) as s:
+        prof, a = s.profile, s.read() * 10                      # like TESSERA: values beyond ±1
+    with rasterio.open(big, "w", **prof) as d:
+        d.write(a)
+    with pytest.raises(ValueError, match="unit length"):
+        cv.convert(big, tmp_path / "x.tif", "int8-aef")
+    r = cv.convert(big, tmp_path / "u.tif", "int8-aef", normalise=True)
+    assert r["cosine_min"] > 0.999

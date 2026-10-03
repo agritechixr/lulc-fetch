@@ -27,7 +27,7 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 21. [Train detection model](#21-train-detection-model)
 22. [Agri: Diagnose crop disease](#22-agri-diagnose-crop-disease)
 23. [Agri: Crop disease guide](#23-agri-crop-disease-guide)
-24. [Embeddings: Download and Explore](#24-embeddings-download-and-explore)
+24. [Embeddings: Download, Convert and Explore](#24-embeddings-download-convert-and-explore)
 25. [Export data](#25-export-data)
 26. [Downloads & jobs](#26-downloads--jobs)
 27. [Credentials](#27-credentials)
@@ -109,7 +109,7 @@ The window is laid out like a desktop GIS (QGIS / ArcGIS):
 | **File** | New project · Open project · Close project · Show project folder · Add data from computer · Add GeoTIFF from workspace · Open Sentinel product (.SAFE) · Export / Properties / Remove the selected layer · Remove all layers · Clean up working files · Credentials |
 | **Tools ▾** | Find imagery · Index analysis · PCA & dimensionality reduction · Training samples · Stack layers · Raster → table · Classical ML (supervised: ↳ Train a model, ↳ Classify an image · unsupervised: ↳ Clustering, ↳ t-SNE map) · Export data · Downloads & jobs |
 | **Agri ▾** | Diagnose crop disease · Crop disease guide · shortcuts to Index analysis (crop health: NDVI, EVI…), Download embeddings and Find imagery |
-| **Embeddings ▾** | Download embeddings · Explore embeddings · shortcuts to Classical ML for raster, Classical ML (tabular data) and PCA |
+| **Embeddings ▾** | Download embeddings · Convert embeddings · Explore embeddings · shortcuts to Classical ML for raster, Classical ML (tabular data) and PCA |
 | **View** | Show/hide Contents, Tool panel and Data viewer · Reset panel sizes · Basemap (Streets, Satellite, Topographic, None) · Place labels on top · Zoom to all layers · Theme (system / light / dark) |
 | **Help** | Getting started (start page, incl. your Sentinel products) · Quick guide · Keyboard shortcuts |
 
@@ -1054,9 +1054,9 @@ The CSV and GeoJSON are in the job's folder (**Show in folder**). Photo diagnosi
 
 Answers are grouped as **Symptoms & identification**, **Management & treatment**, **Pests** and **Growing the crop**; the chips filter them. Each answer shows the growth stage it applies to. **Symptoms & treatment of …** on a Diagnose crop disease result opens the guide at that disease.
 
-## 24. Embeddings: Download and Explore
+## 24. Embeddings: Download, Convert and Explore
 
-The **Embeddings** menu finds, downloads and explores free **AI embeddings** of the Earth: **Download embeddings** (steps 1–4 below) and **Explore embeddings** (step 5). An embedding gives every
+The **Embeddings** menu finds, downloads and explores free **AI embeddings** of the Earth: **Download embeddings** (steps 1–4 below), **Explore embeddings** (step 5) and **Convert embeddings** (below). An embedding gives every
 10 m pixel a list of numbers (64 or 128) that sums up a whole year of satellite observations: places that look and behave
 alike over the year (the same crop, forest type, water, built-up) get alike numbers. So a handful of labelled points is enough
 to map crops or land cover, you can search for places like one you click, and clustering works well. No account is needed.
@@ -1086,6 +1086,30 @@ Clay); they can't be downloaded as maps here.
    - **Colour view of this layer.**
    - **Classify it:** opens Classical ML for raster, which recognises the layer as an embedding and suggests k-NN, SVM,
      logistic regression and Spectral Angle Mapper (cosine distance). Clustering works on it too.
+
+### Convert embeddings
+
+**Embeddings ▸ Convert embeddings** changes how an embedding layer's numbers are stored, without changing what they mean: keep
+embeddings small for storage, and use floats to train on.
+
+| Format | Bytes per value | Use |
+|---|---|---|
+| **32-bit float** | 4 | Exact. What models train on; works everywhere |
+| **16-bit float** | 2 | Half the size, about 3 significant digits: practically lossless. Other software needs GDAL 3.11+ (QGIS 3.42+) |
+| **8-bit, AlphaEarth coding** | 1 | Google's own coding (value = sign(q)·(q/127.5)², −128 = no data): finer near 0. For unit-length vectors (−1…1) |
+| **8-bit, scaled per band** | 1 | Any embedding, e.g. TESSERA: even steps of (largest value / 127) per band, stored in the file as the band's scale |
+
+1. **Embedding layer:** any embedding GeoTIFF in Contents (16 or more bands). The panel shows its current format, also for
+   AlphaEarth tiles downloaded from Google as they are (8-bit, stored upside down: the result is written north-up).
+2. **Convert to:** one of the other formats, with the size it will have.
+   **Make every vector unit length** divides each pixel's vector by its length (L2), so cosine similarity is a plain dot
+   product (good for k-NN, SAM and similar places); it lets TESSERA be stored with the AlphaEarth coding.
+3. **Output:** a new layer. The result card shows the file size before and after, and for 8- and 16-bit how much the values
+   changed: the largest change, and the cosine similarity of every pixel's vector to the original (1 = identical).
+   8-bit → float is exact; converting a float AlphaEarth layer back to its 8-bit coding gives Google's codes back exactly.
+
+Store as 8-bit, but **convert to 32-bit float before training or analysing**: the other tools read 8-bit layers as their codes,
+not their real values. Large files are converted in strips, so whole 8192 × 8192 AlphaEarth tiles fit in memory.
 
 **How the data is read.** AlphaEarth comes from Google's public bucket (free to download since July 2026; Source Cooperative
 as a mirror): only the 1024 × 1024-pixel blocks touching the area are read, all 64 dimensions in parallel. Its files are
@@ -1266,5 +1290,5 @@ The web app is a FastAPI backend (`webapp/server.py`) with a single-page fronten
 | `pca.py`, `ml.py` | PCA family; model catalogue, training, evaluation, classification |
 | `tabular.py`, `stack.py` | Raster → table; layer stacking |
 | `vector_io.py`, `progress.py`, `extras.py` | Vector writers; progress and cancellation; reference maps and other collections |
-| `embeddings/` | Embeddings menu: `sources.py` (the datasets), `alphaearth.py` and `tessera.py` (readers), `download.py` (grid, availability, download), `explore.py` (colour view, similar places) |
+| `embeddings/` | Embeddings menu: `sources.py` (the datasets), `alphaearth.py` and `tessera.py` (readers), `download.py` (grid, availability, download), `explore.py` (colour view, similar places), `formats.py` (8-bit ↔ float conversion) |
 | `agri/` | Agri menu: `disease.py` (leaf photo → crop → disease, run in the deep-learning helper process), `knowledge.py` (crop list and the guide's search), `labels.py` (crop and disease names), `data/` (each crop's labels, test results and knowledge base). `python -m lulc_fetch.agri.import_data <disease repo folder>` refreshes `data/` after the disease models are retrained, and `python -m lulc_fetch.agri.publish <disease repo folder> <out>` converts the models for Hugging Face (then upload `<out>`), and `python -m lulc_fetch.agri.publish --repos <out> <folder> --upload` updates the 44 one-model repositories and the collection |

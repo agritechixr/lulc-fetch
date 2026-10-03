@@ -193,6 +193,7 @@
     patches: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" opacity=".55"/><rect x="9" y="9" width="6" height="6" fill="currentColor" stroke="none" opacity=".8"/>',
     image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>',
     embed: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18" opacity=".35"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 9.8V6M14.2 12H18M12 14.2V18M9.8 12H6" opacity=".7"/>',
+    convert: '<path d="M4 8h13l-3-3M20 16H7l3 3"/><text x="3.5" y="14.2" font-size="5.5" font-family="sans-serif" fill="currentColor" stroke="none">8</text><text x="14" y="12.6" font-size="5.5" font-family="sans-serif" fill="currentColor" stroke="none">32</text>',
     similar: '<rect x="3" y="3" width="12" height="12" rx="1.5" opacity=".45"/><path d="M3 7h12M3 11h12M7 3v12M11 3v12" opacity=".3"/><circle cx="15.5" cy="15.5" r="4"/><path d="M18.5 18.5L21 21"/>',
     leaf: '<path d="M5 19C5 10 10 5 20 4c-1 10-6 15-15 15z"/><path d="M5 19l8-8" opacity=".7"/><circle cx="14" cy="9.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="10.5" cy="13.5" r="1" fill="currentColor" stroke="none"/>',
     book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M12 7.5c-2 .5-3 2-3 4 2 0 3.5-1.5 3-4zM12 7.5c1.5 1 2 2.5 1.5 4.5" opacity=".75"/>',
@@ -216,6 +217,7 @@
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
     // the Embeddings menu
     { id: "embed", menu: "embed", title: "Download embeddings", icon: "embed", subtitle: "Free, open AI embeddings for any area: Google AlphaEarth (64-D) and TESSERA (128-D), 10 m, 2017–2025. See which years exist for your area and download them as a GeoTIFF, with a colour view" },
+    { id: "embconvert", menu: "embed", title: "Convert embeddings", icon: "convert", subtitle: "Change how an embedding is stored: 8-bit (AlphaEarth coding or scaled per band) ↔ 16 / 32-bit float. Small files to keep, floats to train on; shows how much the values change" },
     { id: "embexplore", menu: "embed", title: "Explore embeddings", icon: "similar", subtitle: "Find places similar to the ones you click (cosine similarity), make a colour view, or classify any embedding layer" },
     // the Agri menu
     { id: "agridisease", menu: "agri", title: "Diagnose crop disease", icon: "leaf", subtitle: "Find the disease on leaf photos of 42 crops (apple, mango, rice, tomato, maize…): the crop is recognised, then its ConvNeXt model gives the top 3 diseases. Unclear photos are refused; photos with GPS become a disease map" },
@@ -305,6 +307,7 @@
     if (tool.id === "agriguide") refreshAg();
     if (tool.id === "embed") refreshEm();
     if (tool.id === "embexplore") refreshEmExplore();
+    if (tool.id === "embconvert") refreshEc();
     if (tool.id === "samples") renderSamples();
     if (tool.id === "stack") refreshStack();
     prefs.set("tool", tool.id);
@@ -683,6 +686,7 @@
     if (currentTool === "dlpredict" && dlx.schema) renderDpLayers();
     if (currentTool === "detect" && od.schema) renderOdLayers();
     if (currentTool === "embexplore") renderEmLayers();
+    if (currentTool === "embconvert") renderEcLayers();
     if (currentTool === "traindet" && td.schema) { renderTdLayers(); renderTdGt(); }
     if (currentTool === "samples") renderSamples();
     if (currentTool === "stack") refreshStack();
@@ -3372,7 +3376,7 @@
     }
     for (const j of list) {
       // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
-      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches", "dltrain", "dlpredict", "detect", "dettrain", "dlinstall", "diagnose", "embcheck", "embfetch", "embsimilar", "embcolour"].includes(j.kind)) continue;
+      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches", "dltrain", "dlpredict", "detect", "dettrain", "dlinstall", "diagnose", "embcheck", "embfetch", "embsimilar", "embcolour", "embconvert"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>
@@ -6289,6 +6293,74 @@
     } catch (e) { if (notCancelled(e)) toast(e.message, true); }
   };
   $("#em-classify").onclick = () => switchTool("rasterml");
+
+  // ------------------------------------------------------------------ Convert embeddings: 8-bit ↔ 16 / 32-bit float
+  const ec = { info: null, to: prefs.get("ec-to", "float32"), seq: 0 };
+  async function refreshEc() {
+    if (!em.meta) {
+      try { em.meta = await api("/api/emb/sources"); } catch (e) { toast(e.message, true); return; }
+    }
+    renderEcLayers();
+  }
+  function renderEcLayers() {
+    const rs = emRasters(), sel = $("#ec-layer"), cur = sel.value;
+    sel.innerHTML = rs.length ? rs.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info.count} bands</option>`).join("")
+      : `<option value="">No embedding layer yet: download one (Embeddings ▸ Download embeddings) or add a GeoTIFF</option>`;
+    if (rs.some((l) => l.id === cur)) sel.value = cur;
+    ecLayerChanged();
+  }
+  async function ecLayerChanged() {
+    const l = getLayer($("#ec-layer").value), seq = ++ec.seq;
+    $("#ec-run").disabled = !l;
+    if (!l) { ec.info = null; $("#ec-info").textContent = ""; $("#ec-formats").innerHTML = ""; return; }
+    let info;
+    try { info = await api(`/api/emb/format?path=${encodeURIComponent(l.path)}`); } catch (e) { $("#ec-info").innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; return; }
+    if (seq !== ec.seq) return;
+    ec.info = info;
+    const F = em.meta.formats;
+    $("#ec-info").innerHTML = info.format
+      ? `Now: <b>${esc(F[info.format].title)}</b>${info.embedding ? ` · ${esc(info.embedding)}` : ""} · ${info.bands} dimensions · ${info.width.toLocaleString()} × ${info.height.toLocaleString()} pixels · ${fmt(info.size_mb, 1)} MB on disk${info.north_up ? "" : " · stored upside down (as Google's AlphaEarth tiles): written north-up"}`
+      : `<span style="color:var(--err)">${esc(info.error)}</span>`;
+    if (!info.targets.includes(ec.to)) ec.to = info.targets.includes("float32") ? "float32" : info.targets[0];
+    renderEcFormats();
+    if (!$("#ec-name").dataset.touched) $("#ec-name").value = `${l.name.replace(/\.(tiff?|vrt)$/i, "")}_${ec.to.replace("-", "_")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 70);
+  }
+  function renderEcFormats() {
+    const F = em.meta.formats, info = ec.info, box = $("#ec-formats");
+    if (!info?.format) { box.innerHTML = ""; return; }
+    box.innerHTML = info.targets.map((k) => `<label class="em-src ${ec.to === k ? "on" : ""}"><input type="radio" name="ec-to" value="${k}" ${ec.to === k ? "checked" : ""}>
+        <span><b>${esc(F[k].title)}</b> <span class="em-dims">${F[k].bytes} byte${F[k].bytes > 1 ? "s" : ""} per value · ~${fmt(info.estimates[k], info.estimates[k] < 10 ? 1 : 0)} MB uncompressed</span>
+        <small>${esc(F[k].about)}</small></span></label>`).join("");
+    $$("input[name=ec-to]", box).forEach((r) => r.onchange = () => {
+      ec.to = r.value; prefs.set("ec-to", r.value); renderEcFormats();
+      const l = getLayer($("#ec-layer").value);
+      if (l && !$("#ec-name").dataset.touched) $("#ec-name").value = `${l.name.replace(/\.(tiff?|vrt)$/i, "")}_${ec.to.replace("-", "_")}`.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 70);
+    });
+  }
+  $("#ec-layer").onchange = () => ecLayerChanged();
+  $("#ec-name").addEventListener("input", () => $("#ec-name").dataset.touched = "1");
+  $("#ec-run").onclick = async () => {
+    const err = $("#ec-error"); err.classList.add("hidden");
+    const l = getLayer($("#ec-layer").value);
+    if (!l || !ec.info?.format) return toast("Choose an embedding layer", true);
+    const F = em.meta.formats, name = $("#ec-name").value.trim() || "embedding";
+    const btn = $("#ec-run"); btn.disabled = true; $("#ec-result").classList.add("hidden");
+    try {
+      const job = await api("/api/emb/convert", { method: "POST", json: { path: l.path, to: ec.to, normalise: $("#ec-unit").checked, name } });
+      const r = (await trackJob(job, { tool: "embconvert", title: `Converting to ${F[ec.to].title}` })).result;
+      await addRasterFromPath(r.path, { name, zoom: false, render: { rgb: [1, 2, 3], stretch: "auto" } });
+      const change = r.size_in_mb ? Math.round(100 * (r.size_out_mb / r.size_in_mb - 1)) : 0;
+      const exact = r.max_error === 0;
+      $("#ec-result").innerHTML = `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(F[r.from].title)} → ${esc(F[r.to].title)}</h2>
+        <div class="pca-sum">${fmt(r.size_in_mb, 1)} MB → <b>${fmt(r.size_out_mb, 1)} MB</b> on disk (${change > 0 ? "+" : ""}${change} %) · ${r.width.toLocaleString()} × ${r.height.toLocaleString()} × ${r.bands} · ${r.seconds} s${r.normalised ? " · unit length" : ""}${r.flipped ? " · turned north-up" : ""}</div>
+        <p class="hint">${exact ? "<b>Exact</b>: every value is the same as before." :
+          `Largest change of a value: <b>${r.max_error.toPrecision(2)}</b> (mean ${r.mean_error.toPrecision(2)}). Each pixel's vector still points the same way: cosine similarity to the original ≥ <b>${r.cosine_min.toFixed(5)}</b> (1 = identical)${r.normalised ? ", measured after making the vectors unit length" : ""}.`}
+        ${r.to === "float16" ? " To open this file in other software, it needs GDAL 3.11 or newer (QGIS 3.42+)." : ""}${r.to === "int8-scaled" ? " The scale of each band is stored in the file, so the real values are read back." : ""}</p></div>`;
+      $("#ec-result").classList.remove("hidden");
+    } catch (e) {
+      if (notCancelled(e)) { err.textContent = e.message; err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; }
+  };
 
   // ------------------------------------------------------------------ searchable picker: type letters, the matching items are listed
   // items: { id, title, aliases?, keywords?, sub?, group?, disabled? }. Matches the title, the aliases (e.g. local crop names) and,
