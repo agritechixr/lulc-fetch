@@ -65,8 +65,8 @@ ARCHS = {
 # the light segmentation models (lulc_fetch/lightseg): 0.1–1 M parameters, any number of bands, no separate backbone
 from .lightseg import MODELS as _LIGHT   # noqa: E402  (no PyTorch needed to list them)
 
-_SPEED = {"enet": 5, "lsnet": 5, "lednet": 5, "leanet": 5, "efsnet": 5, "adscnet": 4, "cgnet": 4, "dabnet": 4, "fpenet": 4, "fddwnet": 3}
-_ACC = {"dabnet": 4, "lednet": 4, "leanet": 4, "fddwnet": 4, "cgnet": 4, "fpenet": 3, "adscnet": 3, "lsnet": 3, "enet": 3, "efsnet": 3}
+_SPEED = {"tinyunet": 4, "enet": 5, "lsnet": 5, "lednet": 5, "leanet": 5, "efsnet": 5, "adscnet": 4, "cgnet": 4, "dabnet": 4, "fpenet": 4, "fddwnet": 3}
+_ACC = {"tinyunet": 4, "dabnet": 4, "lednet": 4, "leanet": 4, "fddwnet": 4, "cgnet": 4, "fpenet": 3, "adscnet": 3, "lsnet": 3, "enet": 3, "efsnet": 3}
 for _k, (_title, _mod, _paper, _mparams, _about) in _LIGHT.items():
     ARCHS[f"light_{_k}"] = {"title": _title, "lib": "light", "accuracy": _ACC[_k], "speed": _SPEED[_k], "encoders": ["builtin"], "params_m": _mparams,
                             "desc": f"{_about}. A light model ({_mparams:g} M parameters, {_paper}): trained from scratch, every band used "

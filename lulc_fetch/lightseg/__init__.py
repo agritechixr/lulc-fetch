@@ -1,4 +1,4 @@
-"""Light segmentation models: ten real-time semantic segmentation networks with 0.1–1 M parameters, for maps from images
+"""Light segmentation models: eleven real-time semantic segmentation networks with 0.1–1 M parameters, for maps from images
 or embeddings with any number of bands.
 
 Every model takes ``in_channels`` (3 for RGB, 13 for Sentinel-2, 64 for AlphaEarth, 128 for TESSERA embeddings: all bands
@@ -11,7 +11,7 @@ height, width)``. Train on 256 × 256 patches (see ``tiles.py`` to cut larger on
     logits = model(torch.randn(8, 64, 256, 256))                      # → (8, 6, 256, 256)
 
     common.py   the base class (any size), shared blocks
-    enet.py, cgnet.py, dabnet.py, lednet.py, fddwnet.py, leanet.py, lsnet.py, efsnet.py, fpenet.py, adscnet.py
+    enet.py, cgnet.py, dabnet.py, lednet.py, fddwnet.py, leanet.py, lsnet.py, efsnet.py, fpenet.py, adscnet.py, tinyunet.py
     tiles.py    cut image / label arrays into 256 × 256 patches (all bands kept)
 
 Needs PyTorch (the app's deep-learning add-on). These are re-implementations from the papers' descriptions: the
@@ -31,6 +31,8 @@ MODELS = {   # key: title, file, paper, published parameters (Cityscapes, 19 cla
     "efsnet": ("EFSNet", "efsnet", "Hu et al., 2020", 0.17, "Continuous shuffle dilated convolutions; the smallest here"),
     "fpenet": ("FPENet", "fpenet", "Liu & Yin, 2019", 0.40, "Feature pyramid encoding blocks + mutual embedding upsampling"),
     "adscnet": ("ADSCNet", "adscnet", "Wang et al., 2019", 0.51, "Asymmetric depthwise separable units + dense dilated connections"),
+    "tinyunet": ("TinyUNet", "tinyunet", "U-Net (Ronneberger et al., 2015), compact", 0.24,
+                 "A compact U-Net: encoder–decoder with skip connections at every scale, depthwise-separable convolutions"),
 }
 
 
