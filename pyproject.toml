@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lulc-fetch"
-version = "0.1.0"
+version = "0.0.2b0"
 description = "Fetch Sentinel-2 imagery, LULC reference maps and high-res imagery for an AOI"
 requires-python = ">=3.10"
 license = "Apache-2.0"
