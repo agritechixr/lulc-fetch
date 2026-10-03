@@ -1091,6 +1091,26 @@
       <div id="em-result" class="hidden"></div>
     </section>
 
+    <section id="tab-embconvert" class="tabpanel hidden">
+      <div class="card">
+        <h2><span class="step">1</span>Embedding layer <span class="req">required</span></h2>
+        <label>Layer<select id="ec-layer"></select></label>
+        <p class="hint" id="ec-info"></p>
+      </div>
+      <div class="card">
+        <h2><span class="step">2</span>Convert to <button type="button" class="tip" data-tip="The numbers keep their meaning; only how precisely, and in how many bytes, they are stored changes. Keep embeddings small as 8-bit or 16-bit, and convert to 32-bit float to train models, cluster or compute similarity. Converting 8-bit to float is exact; float to 8-bit rounds every value (the result shows by how much)." aria-label="Help">i</button></h2>
+        <div id="ec-formats" class="em-sources"></div>
+        <label class="inline" style="margin-top:10px"><input type="checkbox" id="ec-unit"> Make every vector unit length <button type="button" class="tip" data-tip="Divide each pixel's vector by its length, so all have length 1 (L2 normalisation). Then cosine similarity is a plain dot product and k-NN, SAM and similarity search treat every pixel alike. AlphaEarth vectors are unit length already; TESSERA's are not. Needed to store TESSERA with the AlphaEarth coding." aria-label="Help">i</button></label>
+      </div>
+      <div class="card">
+        <h2><span class="step">3</span>Output</h2>
+        <label>Layer name<input id="ec-name" maxlength="80"></label>
+        <button class="btn primary big-btn" id="ec-run">Convert</button>
+        <div id="ec-error" class="warn err hidden"></div>
+      </div>
+      <div id="ec-result" class="hidden"></div>
+    </section>
+
     <section id="tab-embexplore" class="tabpanel hidden">
       <div class="card">
         <h2><span class="step">1</span>Embedding layer</h2>

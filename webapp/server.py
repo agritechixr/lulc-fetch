@@ -2375,7 +2375,7 @@ EMB_CACHE = ws.APP_DIR / "embeddings_cache"   # the AlphaEarth file index (share
 @app.get("/api/emb/sources")
 def emb_sources():
     from lulc_fetch import embeddings as em
-    return {"sources": em.SOURCES, "other": em.OTHER, "years": em.YEARS}
+    return {"sources": em.SOURCES, "other": em.OTHER, "years": em.YEARS, "formats": em.FORMATS}
 
 
 class EmbArea(BaseModel):
@@ -2470,6 +2470,41 @@ def emb_similar(req: EmbLayerRequest):
         return r
 
     return jobs.submit("embsimilar", f"Similar places · {req.name}", {}, run).to_dict()
+
+
+@app.get("/api/emb/format")
+def emb_format(path: str):
+    from lulc_fetch import embeddings as em
+    return em.detect(_raster_path(path))
+
+
+class EmbConvertRequest(BaseModel):
+    path: str
+    to: str = Field(pattern="^(float32|float16|int8-aef|int8-scaled)$")
+    normalise: bool = False
+    name: str = Field("embedding", max_length=80)
+
+
+@app.post("/api/emb/convert")
+def emb_convert(req: EmbConvertRequest):
+    import re
+
+    from lulc_fetch import embeddings as em
+    src = _raster_path(req.path)
+    info = em.detect(src)
+    if info["format"] is None:
+        raise HTTPException(400, info["error"])
+    if info["format"] == req.to and not req.normalise:
+        raise HTTPException(400, f"The layer is already {em.FORMATS[req.to]['title']}")
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:60] or "embedding"
+
+    def run(job):
+        r = em.convert(str(src), str(job.dir / f"{stem}.tif"), req.to, req.normalise)
+        r["path"] = ws.rel(r["path"])
+        r["outputs"] = [r["path"]]
+        return r
+
+    return jobs.submit("embconvert", f"Convert embeddings · {em.FORMATS[req.to]['title']} · {req.name}", {"to": req.to}, run).to_dict()
 
 
 @app.post("/api/emb/colour")
