@@ -227,3 +227,11 @@ def test_hub_download(tmp_path, monkeypatch):
         assert not target.exists() and not list(root.rglob("*.part"))
     finally:
         srv.shutdown()
+
+
+def test_crop_alternatives():
+    """A detected crop that is easily mixed up offers its look-alikes (after the detector's runners-up) to diagnose again."""
+    from lulc_fetch.agri.disease import crop_alternatives
+    alts = crop_alternatives("Brinjal", [("Brinjal", 0.91), ("okra", 0.05), ("Apple", 0.02)])
+    assert alts[:2] == ["okra", "Apple"] and {"Tomato", "Potato"} <= set(alts) and "Brinjal" not in alts
+    assert crop_alternatives("Mango", [("Mango", 0.99)]) == []

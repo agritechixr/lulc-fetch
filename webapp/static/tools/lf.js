@@ -15,7 +15,7 @@
        },
      });
 
-   setup(LF) receives the app's shared helpers (filled in by app.js, "universe" section):
+   setup(LF) receives the app's shared helpers (filled in by static/app/core/universe.js):
      $ $$ esc fmt prefs                    DOM lookup, HTML escaping, numbers, per-browser settings
      api toast status                      server calls, messages
      map layers getLayer addRasterFromPath addVectorLayer saveLayers   the map and Contents

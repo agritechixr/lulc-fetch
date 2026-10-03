@@ -31,6 +31,7 @@
           <label>Year<select id="em-year"></select></label>
           <label>Resolution ${tip("10 m is the full detail. AlphaEarth also comes at 20–160 m (averaged vectors, from its overviews): much less to download, good for large areas.")}<select id="em-res"></select></label>
         </div>
+        <p class="hint" id="em-year-hint"></p>
         <p class="hint" id="em-est"></p>
       </div>
       <div class="card">
@@ -58,9 +59,10 @@
         if (pending) {   // opened from Find imagery: its area and year
           const sel = $("#em-area");
           if ([...sel.options].some((o) => o.value === pending.area)) { sel.value = pending.area; updateClipHint("em-area"); }
-          if ([...$("#em-year").options].some((o) => o.value === pending.year)) { $("#em-year").value = pending.year; prefs.set("em-year", pending.year); }
+          if ([...$("#em-year").options].some((o) => o.value === pending.year)) setYear(pending.year);
           toast(`Area and year (${pending.year}) taken from Find imagery`);
         }
+        yearHint();
         estimate();
       }
 
@@ -70,11 +72,20 @@
             <input type="radio" name="em-src" value="${k}" ${st.source === k ? "checked" : ""}>
             <span><b>${esc(s.title)}</b> <span class="em-dims">${s.dims}-D · ${s.res} m · ${s.years[0]}–${s.years[1]} · ${esc(s.licence)}</span>
             ${tipBtn(`${s.about} ${s.coverage}. By ${s.by}. Licence ${s.licence}.`)}</span></label>`).join("");
-        $$("input[name=em-src]", box).forEach((r) => r.onchange = () => { st.source = r.value; prefs.set("em-source", r.value); renderSources(); estimate(); });
+        $$("input[name=em-src]", box).forEach((r) => r.onchange = () => { st.source = r.value; prefs.set("em-source", r.value); renderSources(); estimate(); yearHint(); });
         const s = st.meta.sources[st.source], cur = +($("#em-res").value || 10);
         $("#em-res").innerHTML = s.resolutions.map((r) => `<option value="${r}">${r} m${r === 10 ? " (full detail)" : ""}</option>`).join("");
         $("#em-res").value = s.resolutions.includes(cur) ? cur : 10;
       }
+
+      // TESSERA covers all land only for 2024: say so before a download fails
+      function yearHint() {
+        const y = $("#em-year").value;
+        $("#em-year-hint").innerHTML = st.source === "tessera" && y !== "2024"
+          ? `<span style="color:var(--warn)">TESSERA covers all land only for 2024; ${esc(y)} exists in some regions.</span> <a href="#" data-em-y2024>Use 2024</a> or check <i>What's available here?</i>` : "";
+        $("[data-em-y2024]", $("#em-year-hint"))?.addEventListener("click", (e) => { e.preventDefault(); setYear("2024"); });
+      }
+      function setYear(y) { $("#em-year").value = y; prefs.set("em-year", y); yearHint(); }
 
       // the size of the download, as the area or the resolution changes
       async function estimate() {
@@ -90,7 +101,7 @@
         } catch (e) { if (seq === st.estSeq) out.innerHTML = `<span style="color:var(--err)">${esc(e.message)}</span>`; }
       }
       $("#em-res").onchange = estimate;
-      $("#em-year").onchange = () => prefs.set("em-year", $("#em-year").value);
+      $("#em-year").onchange = () => setYear($("#em-year").value);
 
       // which years each source has for the area
       $("#em-check").onclick = async () => {
@@ -105,7 +116,7 @@
             st.meta.years.slice().reverse().map((y) => `<tr data-y="${y}"><td><a href="#" data-em-year="${y}">${y}</a></td>${cell(r.aef[y] ? 1 : 0, 1)}${cell(r.tessera[y], r.tessera_tiles)}</tr>`).join("") +
             `</tbody></table><p class="hint">${r.tessera_tiles > 1 ? `TESSERA: tiles with data out of ${r.tessera_tiles} covering the area${r.tessera_sampled ? " (estimated from a sample)" : ""}. ` : ""}Click a year to use it.</p>`;
           $("#em-avail").classList.remove("hidden");
-          $$("[data-em-year]").forEach((a) => a.onclick = (e) => { e.preventDefault(); $("#em-year").value = a.dataset.emYear; prefs.set("em-year", a.dataset.emYear); });
+          $$("[data-em-year]").forEach((a) => a.onclick = (e) => { e.preventDefault(); setYear(a.dataset.emYear); });
         } catch (e) { if (notCancelled(e)) toast(e.message, true); }
         finally { btn.disabled = false; }
       };
@@ -116,8 +127,21 @@
         if (!g) return toast("Choose an area first", true);
         const year = +$("#em-year").value, S = st.meta.sources[st.source];
         const name = $("#em-name").dataset.touched ? ($("#em-name").value.trim() || "embedding") : `${S.short}_${year}`;
-        const r = await runJob("/api/emb/fetch", { clip: g, source: st.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked },
-                               { tool: "embed", title: `Downloading ${S.short} ${year}`, save: "embfetch" });
+        let r;
+        try {
+          r = await runJob("/api/emb/fetch", { clip: g, source: st.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked },
+                           { tool: "embed", title: `Downloading ${S.short} ${year}`, save: "embfetch" });
+        } catch (e) {
+          if (!/has no \d{4} data/.test(e.message)) throw e;
+          // no data that year here: offer the fixes instead of a dead end
+          const err = $("#em-error");
+          err.innerHTML = `${esc(e.message)}<div class="row tight" style="margin-top:6px;gap:6px;flex-wrap:wrap">
+              ${st.source === "tessera" && year !== 2024 ? `<button class="btn small primary" data-em-fix="2024">Use 2024</button>` : ""}
+              <button class="btn small" data-em-fix="check">Show the years available here</button></div>`;
+          err.classList.remove("hidden");
+          $$("[data-em-fix]", err).forEach((b) => b.onclick = () => { err.classList.add("hidden"); b.dataset.emFix === "check" ? $("#em-check").click() : setYear(b.dataset.emFix); });
+          return;
+        }
         const lyr = await addRasterFromPath(r.path, { name, render: { pca: true, stretch: "auto" } });   // all bands, shown in colour
         if (r.colour) await addRasterFromPath(r.colour.path, { name: `${name} colour view`, render: { rgb: [1, 2, 3], stretch: "none" } });
         const box = showResult("em", `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(S.short)} ${year} downloaded</h2>

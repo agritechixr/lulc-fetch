@@ -142,6 +142,7 @@
           ${(v.iou || []).length ? `<div class="dist" style="margin-top:8px">${v.iou.map((x, i) => `<div style="grid-template-columns:minmax(0,1.6fr) 2fr auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(cls[i]?.color || "#999")}"></i> ${esc(cls[i]?.name ?? i)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(1, 100 * x)}%;background:${esc(cls[i]?.color || "")}"></span></span><b>IoU ${fmt(100 * x, 0)}</b></div>`).join("")}</div>` : ""}
           <div class="row tight" style="margin-top:10px;flex-wrap:wrap;gap:6px">${r.report ? `<a class="btn small" href="/api/dl/report?folder=${encodeURIComponent(r.model_folder)}" target="_blank" rel="noopener">Open the report</a>` : ""}
             <button class="btn small" data-et-use>Classify another layer with it…</button></div>
+          ${LF.stillImproving(c)}
           <p class="hint">${r.map ? "The class map was added to Contents (band 2 = confidence). " : ""}The model is in <code>${esc(r.model_folder)}</code>; the patches in <code>${esc(r.dataset)}</code>.</p></div>`);
         $("[data-et-use]", box).onclick = () => openTool("embpredict", { model: r.model_folder });
       });

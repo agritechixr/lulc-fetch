@@ -45,6 +45,7 @@ ISSUE_TEXT = {
     "blurry": "photo blurry",
     "not_leaf": "not confidently a leaf of a supported crop",
     "low_confidence": "the disease model is unsure",
+    "crop_check": "check the crop: it is easily mistaken for a related one",
     "unreadable": "couldn't read the photo",
 }
 
@@ -337,6 +338,22 @@ def _crop_name(c: str) -> str:
     return knowledge.crops()[c]["name"] if c in knowledge.crops() else c.replace("_", " ")
 
 
+# crops whose leaves the crop detectors mix up (same plant family, alike leaves): a detected crop from one of these groups
+# is always flagged so the user can check it (a tomato leaf can be called potato or brinjal with high confidence)
+CONFUSABLE = [{"Tomato", "Potato", "Brinjal"}, {"Cucumber", "Cucurbit", "Bitter_gourd", "Bottle_gourd", "Ridge_gourd", "Snake_gourd", "Watermelon"},
+              {"Apple", "Pear", "Loquat", "Peach", "Apricot", "Cherry"}]
+CROP_UNSURE = 0.8      # below this crop confidence (or with a runner-up above 0.15) the crop is flagged too
+
+
+def crop_alternatives(crop: str, top: list) -> list[str]:
+    """Crops to offer when the detected crop may be wrong: the detector's runners-up, then the crop's look-alikes."""
+    out = [c for c, _ in top[1:3]]
+    for g in CONFUSABLE:
+        if crop in g:
+            out += sorted(g - {crop})
+    return [c for i, c in enumerate(out) if c != crop and c not in out[:i]]
+
+
 def diagnose_one(models: Models, path: str, crop: str, th: dict, strict: bool = True) -> dict:
     r = {"path": path, "file": Path(path).name, "status": "error", "warnings": []}
     try:
@@ -357,6 +374,10 @@ def diagnose_one(models: Models, path: str, crop: str, th: dict, strict: bool = 
         r["detector"] = idt["detector"]
         crop, crop_conf = idt["top"][0]
         r["crop_conf"] = round(crop_conf, 4)
+        second = idt["top"][1][1] if len(idt["top"]) > 1 else 0
+        if crop_conf < CROP_UNSURE or second > 0.15 or any(crop in g for g in CONFUSABLE):
+            r["warnings"].append("crop_check")
+            r["crop_alternatives"] = [{"crop": c, "name": _crop_name(c)} for c in crop_alternatives(crop, idt["top"])]
     r["crop"], r["crop_name"] = crop, _crop_name(crop)
     if crop_conf is not None:
         if strict and issue and not soft_ok(issue, th, crop_conf=crop_conf):
