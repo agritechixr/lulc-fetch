@@ -318,7 +318,7 @@ Renamed or deleted band / label columns are updated in a table's description, so
 Wherever you choose a model or method (Train a model, Clustering, Classical ML for raster, PCA, Deep learning), a dropdown lists one row per option, with a badge for the recommended (or fastest / smallest) one. Click **ⓘ** on a row to read what it does; it doesn't select the row. Every setting also has an ⓘ with its explanation.
 
 ### Finding a tool
-The **Tools** menu and the Start page list the tools in alphabetical order. *Classical ML (tabular data)* has its own tools as tabs at the top of its panel: **Overview** (your tables and models), **Train a model**, **Classify an image**, **Clustering** and **t-SNE map**; it reopens at the tab you used last. To read what a tool does, click the 👁 **eye** next to it (click again to hide it), or hover over the eye. The open tool has the same eye next to its title in the tool panel.
+The **Tools** menu and the Start page list the tools in alphabetical order. *Classical ML (tabular data)* has its own tools as tabs at the top of its panel: **Overview** (your tables and models), **Train a model**, **Classify an image**, **Clustering** and **t-SNE map**; it reopens at the tab you used last. To read what a tool does, click the **ⓘ** next to it (click again to hide it), or hover over it. The open tool has the same ⓘ next to its title in the tool panel.
 
 ### ⓘ hints
 Every option has a small **ⓘ** icon. Hover over it for half a second to see a plain-language explanation, or click it to keep the hint open.
