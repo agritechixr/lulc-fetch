@@ -12,7 +12,7 @@ import math
 
 import numpy as np
 
-from .sources import GDAL_HTTP, TESSERA_BASE, TESSERA_VERSION, session
+from .sources import GDAL_HTTP, TESSERA_BASE, TESSERA_VERSION, get_range, session
 
 
 def tiles(geom: dict) -> list[tuple[float, float]]:
@@ -46,7 +46,7 @@ def exists(lon, lat, year) -> bool:
 
 
 def _npy_header(url: str):
-    b = session().get(url, headers={"Range": "bytes=0-4095"}, timeout=30).content
+    b = get_range(url, 0, 4095, timeout=30)
     f = io.BytesIO(b)
     v = np.lib.format.read_magic(f)
     shape, fortran, dtype = (np.lib.format.read_array_header_1_0 if v == (1, 0) else np.lib.format.read_array_header_2_0)(f)
@@ -58,9 +58,8 @@ def _npy_header(url: str):
 def _npy_rows(url: str, r0: int, r1: int):
     shape, dtype, off = _npy_header(url)
     row = int(np.prod(shape[1:])) * dtype.itemsize
-    r = session().get(url, headers={"Range": f"bytes={off + r0 * row}-{off + r1 * row - 1}"}, timeout=180)
-    r.raise_for_status()
-    return np.frombuffer(r.content, dtype=dtype).reshape((r1 - r0,) + tuple(shape[1:]))
+    b = get_range(url, off + r0 * row, off + r1 * row - 1)   # retried in pieces if the connection drops
+    return np.frombuffer(b, dtype=dtype).reshape((r1 - r0,) + tuple(shape[1:]))
 
 
 def read(lon, lat, year, bounds_wgs84):
