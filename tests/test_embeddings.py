@@ -229,3 +229,36 @@ def test_train_and_classify_embedding_model(client, emb_tif, home):
     assert m["arch_key"] == "light_enet" and m["in_channels"] == 64
     p = run(client, "/api/dl/predict", {"model": m["folder"], "inputs": [{"path": emb_tif, "name": "emb"}], "name": "emb_map2"})
     assert {c["name"] for c in p["classes"]} <= {"left kind", "right kind"}
+
+
+def test_range_download_survives_dropped_connections():
+    """A TESSERA tile is read in pieces; a piece whose connection drops (or comes back short) is asked for again."""
+    import http.server
+    import threading
+
+    from lulc_fetch.embeddings.sources import get_range
+    data = bytes(range(256)) * 400   # 102,400 bytes
+    seen = {}
+
+    class Flaky(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            a, b = map(int, self.headers["Range"].split("=")[1].split("-"))
+            seen[(a, b)] = seen.get((a, b), 0) + 1
+            body = data[a:b + 1]
+            self.send_response(206)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            # the first try of every piece breaks off halfway (as a dropped connection does)
+            self.wfile.write(body[: len(body) // 2] if seen[(a, b)] == 1 else body)
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Flaky)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}/tile.npy"
+        assert get_range(url, 100, 90_000, chunk=30_000, timeout=5) == data[100:90_001]
+        assert len(seen) == 3 and all(n == 2 for n in seen.values())
+    finally:
+        srv.shutdown()

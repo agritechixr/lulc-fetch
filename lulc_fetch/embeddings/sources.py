@@ -54,6 +54,34 @@ def session():
     return _HTTP
 
 
+def get_range(url: str, start: int, end: int, timeout: float = 120, tries: int = 5, chunk: int = 16 << 20) -> bytes:
+    """Bytes start..end (inclusive) of a file over HTTP, in pieces of at most `chunk` bytes; a piece whose connection
+    drops (or comes back short, or hits a server error) is asked for again, up to `tries` times with growing waits."""
+    import time
+
+    import requests
+    out = bytearray()
+    pos = start
+    while pos <= end:
+        stop = min(end, pos + chunk - 1)
+        for attempt in range(tries):
+            try:
+                r = session().get(url, headers={"Range": f"bytes={pos}-{stop}"}, timeout=timeout)
+                if r.status_code >= 500:
+                    raise requests.HTTPError(f"server error {r.status_code}")
+                r.raise_for_status()
+                if len(r.content) != stop - pos + 1:
+                    raise requests.ConnectionError(f"short read: {len(r.content)} of {stop - pos + 1} bytes")
+                out += r.content
+                break
+            except (requests.ConnectionError, requests.Timeout, requests.HTTPError, requests.exceptions.ChunkedEncodingError) as e:
+                if attempt == tries - 1 or (isinstance(e, requests.HTTPError) and "server error" not in str(e)):
+                    raise RuntimeError(f"Download of {url.rsplit('/', 1)[-1]} failed after {attempt + 1} tries: {e}") from e
+                time.sleep(2 * (attempt + 1))
+        pos = stop + 1
+    return bytes(out)
+
+
 GDAL_HTTP = dict(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tiff,.tif", GDAL_HTTP_MULTIRANGE="YES",
                  GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES", GDAL_HTTP_VERSION="2", GDAL_HTTP_MULTIPLEX="YES", GDAL_HTTP_MAX_RETRY="4",
                  GDAL_HTTP_RETRY_DELAY="2", VSI_CACHE="TRUE")
