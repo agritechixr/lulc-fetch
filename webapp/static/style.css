@@ -1130,3 +1130,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 .menu-pop .hist-row .rb-info:hover { background: var(--accent); }
 .hist-edit { width: 100%; min-height: 180px; resize: vertical; font: 11.5px/1.45 var(--mono); margin: 4px 0 0; }
 .aoi-emb { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+/* compact hints: the rest of a long hint behind ⓘ */
+.hint .hint-tip { width: 15px; height: 15px; font-size: 10px; line-height: 13px; vertical-align: 1px; margin-left: 2px; }
+.em-src .tip { margin-left: 4px; vertical-align: 1px; }

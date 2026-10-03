@@ -4300,6 +4300,33 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(true); });
   const tipBtn = (text) => `<button type="button" class="tip" data-tip="${esc(text)}" aria-label="Help">i</button>`;
 
+  // ------------------------------------------------------------------ compact hints: a clean panel, details behind ⓘ
+  // Any hint in the tool panel longer than about a line shows only its first short sentence; the rest is behind an ⓘ (click
+  // or hover). Kept as they are: warnings / errors (coloured) and hints with links or buttons. Applies to every tool, also
+  // to hints the tools rewrite later (a MutationObserver).
+  const HINT_MAX = 95;
+  function hintLead(text) {
+    const m = text.match(/^(.{20,90}?[.:;!?])(\s|$)/);
+    if (m) return m[1].replace(/[:;]$/, "");
+    const cut = text.slice(0, 80);
+    return cut.slice(0, Math.max(cut.lastIndexOf(" "), 40)).replace(/[,;:·(–-]\s*$/, "") + "…";
+  }
+  function compactHint(el) {
+    if (el.dataset.compactHtml === el.innerHTML || el.classList.contains("keep")) return;
+    if (el.querySelector("a, button:not(.hint-tip), input, select, textarea, details, [style*='--warn'], [style*='--err'], .pill")) return;
+    if (/var\(--(warn|err)\)/.test(el.getAttribute("style") || "")) return;
+    const full = el.textContent.replace(/\s+/g, " ").trim();
+    if (full.length <= HINT_MAX) return;
+    el.innerHTML = `${esc(hintLead(full))} <button type="button" class="tip hint-tip" data-tip="${esc(full)}" aria-label="More about this" title="More">i</button>`;
+    el.dataset.compactHtml = el.innerHTML;
+  }
+  { const panel = $(".tool-body");
+    const run = () => $$(".hint", panel).forEach(compactHint);
+    let queued = false;
+    new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; run(); }); } })
+      .observe(panel, { childList: true, subtree: true, characterData: true });
+    run(); }
+
   // ------------------------------------------------------------------ model picker: a dropdown with one row per model
   // items: [{id, title, group?, badge?, meta? (html), tip?, disabled?, why?}]; each row has an ⓘ with the model's description
   function modelPicker(el, { items, value, onChange, placeholder = "Choose…" }) {
@@ -6555,9 +6582,8 @@
     const box = $("#em-sources");
     box.innerHTML = Object.entries(em.meta.sources).map(([k, s]) => `<label class="em-src ${em.source === k ? "on" : ""}">
         <input type="radio" name="em-src" value="${k}" ${em.source === k ? "checked" : ""}>
-        <span><b>${esc(s.title)}</b> <span class="em-dims">${s.dims}-D · ${s.res} m · ${s.years[0]}–${s.years[1]}</span>
-        <small>${esc(s.about)}</small>
-        <small>${esc(s.coverage)} · by ${esc(s.by)} · <b>${esc(s.licence)}</b> · <a href="${esc(s.url)}" target="_blank" rel="noopener">about</a></small></span></label>`).join("");
+        <span><b>${esc(s.title)}</b> <span class="em-dims">${s.dims}-D · ${s.res} m · ${s.years[0]}–${s.years[1]} · ${esc(s.licence)}</span>
+        ${tipBtn(`${s.about} ${s.coverage}. By ${s.by}. Licence ${s.licence}.`)}</span></label>`).join("");
     $$("input[name=em-src]", box).forEach((r) => r.onchange = () => { em.source = r.value; prefs.set("em-source", r.value); renderEmSources(); emEstimate(); });
     const s = em.meta.sources[em.source], cur = +($("#em-res").value || 10);
     $("#em-res").innerHTML = s.resolutions.map((r) => `<option value="${r}">${r} m${r === 10 ? " (full detail)" : ""}</option>`).join("");
@@ -6702,8 +6728,8 @@
     const F = em.meta.formats, info = ec.info, box = $("#ec-formats");
     if (!info?.format) { box.innerHTML = ""; return; }
     box.innerHTML = info.targets.map((k) => `<label class="em-src ${ec.to === k ? "on" : ""}"><input type="radio" name="ec-to" value="${k}" ${ec.to === k ? "checked" : ""}>
-        <span><b>${esc(F[k].title)}</b> <span class="em-dims">${F[k].bytes} byte${F[k].bytes > 1 ? "s" : ""} per value · ~${fmt(info.estimates[k], info.estimates[k] < 10 ? 1 : 0)} MB uncompressed</span>
-        <small>${esc(F[k].about)}</small></span></label>`).join("");
+        <span><b>${esc(F[k].title)}</b> <span class="em-dims">${F[k].bytes} byte${F[k].bytes > 1 ? "s" : ""} · ~${fmt(info.estimates[k], info.estimates[k] < 10 ? 1 : 0)} MB</span>
+        ${tipBtn(F[k].about)}</span></label>`).join("");
     $$("input[name=ec-to]", box).forEach((r) => r.onchange = () => {
       ec.to = r.value; prefs.set("ec-to", r.value); renderEcFormats();
       const l = getLayer($("#ec-layer").value);
@@ -6996,7 +7022,7 @@
     const box = $("#ad-models");
     if (m.source === "hub") {
       const got = m.downloaded.filter((x) => !x.startsWith("detector:")).length;
-      box.innerHTML = `<div class="ad-models-ok"><b>✓ All ${total} crops</b> · models from <a href="${esc(m.url)}" target="_blank" rel="noopener">Hugging Face</a>, each downloaded the first time it's needed (about 95 MB per crop, 190 MB for the two crop detectors)</div>
+      box.innerHTML = `<div class="ad-models-ok"><b>✓ All ${total} crops</b> · from <a href="${esc(m.url)}" target="_blank" rel="noopener">Hugging Face</a> ${tipBtn("Each model downloads the first time it's needed (about 95 MB per crop, 190 MB for the two crop detectors) and is kept for next time.")}</div>
         <p class="hint" style="margin-top:4px">${got || m.downloaded.length ? `Downloaded so far: ${got} crop model${got === 1 ? "" : "s"}${m.downloaded.some((x) => x.startsWith("detector:")) ? " and the crop detectors" : ""} (${m.downloaded_mb.toLocaleString()} MB), kept for next time.` : "Nothing downloaded yet: the first diagnosis needs the internet."}
           · <a href="#" data-ad-pick style="white-space:nowrap">use a local models folder…</a></p>`;
     } else if (!m.folder) {
@@ -7008,7 +7034,7 @@
       const missing = Object.keys(ad.schema.crops).filter((c) => !m.crops.includes(c));
       const dets = [m.detectors.includes("original") && `crop detector (${d.original.crops} crops, ${pct0(d.original.accuracy)} on test photos)`,
                     m.detectors.includes("new") && `added-crops detector (${d.new.crops} crops, ${pct0(d.new.accuracy)})`].filter(Boolean);
-      box.innerHTML = `<div class="ad-models-ok"><b>${n === total ? "✓" : "⚠"} ${n} of ${total} crop models</b> · ${dets.length ? dets.join(" + ") : `<span style="color:var(--warn)">no crop detector: choose the crop below</span>`}</div>
+      box.innerHTML = `<div class="ad-models-ok"><b>${n === total ? "✓" : "⚠"} ${n} of ${total} crop models</b> · ${dets.length ? `${dets.length} crop detector${dets.length > 1 ? "s" : ""} ${tipBtn(dets.join(" + "))}` : `<span style="color:var(--warn)">no crop detector: choose the crop below</span>`}</div>
         <p class="hint" style="margin-top:4px"><span style="overflow-wrap:anywhere">${esc(m.folder)}</span>${m.chosen ? "" : " (found automatically)"} · <a href="#" data-ad-pick style="white-space:nowrap">change…</a> · <a href="#" data-ad-hub style="white-space:nowrap">download from Hugging Face instead</a></p>
         ${missing.length && n ? `<p class="hint">No model yet for: ${missing.map((c) => esc(cropName(c))).join(", ")}.</p>` : ""}`;
     }
