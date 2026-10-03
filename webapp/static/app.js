@@ -2046,6 +2046,8 @@
     ["search", "#dl-go", "the downloaded files"], ["analyze", "#ex-go", "the exported GeoTIFF"], ["pca", "#pca-run", "the result GeoTIFF"],
     ["stack", "#st-run", "the stacked GeoTIFF"], ["raster2table", "#rt-run", "the table"], ["train", "#mt-run", "the model and its evaluation report"],
     ["predict", "#mp-run", "the map"], ["rasterml", "#rm-run", "the classified map and the model (with its evaluation report)"], ["dlpredict", "#dp-run", "the classified map"], ["detect", "#od-run", "the detected objects (GeoJSON)"], ["cluster", "#uc-run", "the table with clusters (and the model)"], ["tsne", "#ut-run", "the table with map coordinates"],
+    ["embfetch", "#em-run", "the embedding GeoTIFF (and its colour view)"], ["embconvert", "#ec-run", "the converted GeoTIFF"],
+    ["embexplore", "#em-save-anchor", "the similarity maps and colour views"],
   ];
   function saveToHtml(key, what, label = "Also save to a folder on my computer") {
     const dir = prefs.get(`save-dir:${key}`, key === "train" ? prefs.get("report-dir", "") : "") || prefs.get("save-dir:last", "");
@@ -6267,7 +6269,7 @@
     const btn = $("#em-run"); btn.disabled = true; $("#em-result").classList.add("hidden");
     try {
       const job = await api("/api/emb/fetch", { method: "POST", json: { clip: g, source: em.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked } });
-      const r = (await trackJob(job, { tool: "embed", title: `Downloading ${S.short} ${year}` })).result;
+      const r = (await trackJob(job, { tool: "embed", title: `Downloading ${S.short} ${year}`, save: "embfetch" })).result;
       const lyr = await addRasterFromPath(r.path, { name, render: { rgb: [1, 2, 3], stretch: "auto" } });
       if (r.colour) await addRasterFromPath(r.colour.path, { name: `${name} colour view`, render: { rgb: [1, 2, 3], stretch: "none" } });
       em.lastLayer = lyr.id;
@@ -6312,7 +6314,7 @@
     const src = getLayer($("#em-layer").value), btn = $("#em-similar"); btn.disabled = true;
     try {
       const job = await api("/api/emb/similar", { method: "POST", json: { path: src.path, points: em.points, name: `${src.name}_similar` } });
-      const r = (await trackJob(job, { tool: "embed", title: "Finding similar places" })).result;
+      const r = (await trackJob(job, { tool: "embexplore", title: "Finding similar places", save: "embexplore" })).result;
       await addRasterFromPath(r.path, { name: `Similar to ${em.points.length} place${em.points.length > 1 ? "s" : ""} · ${src.name}`, zoom: false,
                                         render: { band: 1, stretch: "auto", cmap: "Magma" } });
       toast(`Similarity map added: median ${fmt(r.p50, 2)}, top 5 % above ${fmt(r.p95, 2)}${r.points < em.points.length ? ` (${em.points.length - r.points} place(s) outside the layer were ignored)` : ""}`);
@@ -6324,7 +6326,7 @@
     if (!src) return;
     try {
       const job = await api("/api/emb/colour", { method: "POST", json: { path: src.path } });
-      const r = (await trackJob(job, { tool: "embed", title: "Making a colour view" })).result;
+      const r = (await trackJob(job, { tool: "embexplore", title: "Making a colour view", save: "embexplore" })).result;
       await addRasterFromPath(r.path, { name: `${src.name} colour view`, zoom: false, render: { rgb: [1, 2, 3], stretch: "none" } });
     } catch (e) { if (notCancelled(e)) toast(e.message, true); }
   };
@@ -6383,7 +6385,7 @@
     const btn = $("#ec-run"); btn.disabled = true; $("#ec-result").classList.add("hidden");
     try {
       const job = await api("/api/emb/convert", { method: "POST", json: { path: l.path, to: ec.to, normalise: $("#ec-unit").checked, name } });
-      const r = (await trackJob(job, { tool: "embconvert", title: `Converting to ${F[ec.to].title}` })).result;
+      const r = (await trackJob(job, { tool: "embconvert", title: `Converting to ${F[ec.to].title}`, save: "embconvert" })).result;
       await addRasterFromPath(r.path, { name, zoom: false, render: { rgb: [1, 2, 3], stretch: "auto" } });
       const change = r.size_in_mb ? Math.round(100 * (r.size_out_mb / r.size_in_mb - 1)) : 0;
       const exact = r.max_error === 0;

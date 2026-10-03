@@ -1087,6 +1087,11 @@ Clay); they can't be downloaded as maps here.
    - **Classify it:** opens Classical ML for raster, which recognises the layer as an embedding and suggests k-NN, SVM,
      logistic regression and Spectral Angle Mapper (cosine distance). Clustering works on it too.
 
+**Where results go.** Every result of the Embeddings tools (downloads, colour views, similarity maps, conversions) is a **new
+layer** in Contents: the layer you started from is never changed or overwritten. The files are kept in the project folder (or,
+without a project, the app's working folder, `downloads/`). Tick **Also save to a folder on my computer** in a tool to also
+save a copy in a folder you choose (it is remembered per tool); existing files there are never overwritten.
+
 ### Convert embeddings
 
 **Embeddings ▸ Convert embeddings** changes how an embedding layer's numbers are stored, without changing what they mean: keep
