@@ -2367,6 +2367,62 @@ def det_train(req: DetTrainRequest):
     return jobs.submit("dettrain", title, {"image": Path(inp["path"]).name}, run).to_dict()
 
 
+# ------------------------------------------------------------------ error log (every failed tool run)
+
+@app.get("/api/errors")
+def errors_info():
+    from .jobs import errors_log
+    f = errors_log()
+    text = f.read_text(encoding="utf-8", errors="replace") if f.is_file() else ""
+    return {"path": str(f), "exists": f.is_file(), "entries": text.count("\n==== ") + text.startswith("==== "),
+            "size_kb": round(len(text.encode()) / 1000, 1)}
+
+
+class ErrorReport(BaseModel):
+    title: str = Field("", max_length=300)
+    error: str = Field("", max_length=4000)
+    tool: str = Field("", max_length=60)
+
+
+@app.post("/api/errors/report")
+def errors_report(req: ErrorReport):
+    """A failure seen only in the browser (a request that failed outside a background job): recorded like a job's."""
+    from .jobs import Job, record_error
+    job = Job("browser", req.tool or "tool", req.title or "A request", {"tool": req.tool})
+    job.error = req.error or "Unknown error"
+    record_error(job, RuntimeError(job.error))
+    return {"ok": True}
+
+
+@app.get("/api/errors/file")
+def errors_file():
+    """The error log as plain text (opens in a browser tab)."""
+    from fastapi.responses import PlainTextResponse
+
+    from .jobs import errors_log
+    f = errors_log()
+    body = f.read_text(encoding="utf-8", errors="replace") if f.is_file() else "No errors recorded yet.\n"
+    return PlainTextResponse(f"LULC Fetch error log · {f}\n\n{body}", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/errors/reveal")
+def errors_reveal():
+    import subprocess
+    import sys
+
+    from .jobs import errors_log
+    f = errors_log()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    target = f if f.is_file() else f.parent
+    cmd = (["open", "-R", str(target)] if sys.platform == "darwin" else ["explorer", f"/select,{target}"] if sys.platform.startswith("win")
+           else ["xdg-open", str(target.parent)])
+    try:
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        raise HTTPException(500, f"Couldn't open the folder: {e}")
+    return {"ok": True, "path": str(f)}
+
+
 # ------------------------------------------------------------------ Satellite embeddings (AlphaEarth, TESSERA)
 
 EMB_CACHE = ws.APP_DIR / "embeddings_cache"   # the AlphaEarth file index (shared by all projects)

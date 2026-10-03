@@ -70,6 +70,9 @@
         <button data-cmd="guide">Quick guide</button>
         <button data-cmd="start">Getting started</button>
         <button data-cmd="shortcuts">Keyboard shortcuts</button>
+        <hr>
+        <button data-cmd="error-log">Error log (every failed run)</button>
+        <button data-cmd="error-log-reveal">Show the error log file</button>
       </div>
     </div>
   </nav>
@@ -1201,9 +1204,16 @@
     </div>
     <!-- progress + cancel for whatever the current tool is running -->
     <div class="run-bar hidden" id="run-bar" aria-live="polite">
-      <div class="rb-head"><span class="spinner"></span><b id="rb-title"></b><span class="rb-pct" id="rb-pct"></span></div>
+      <div class="rb-head"><span class="spinner" id="rb-spin"></span><b id="rb-title"></b><span class="rb-time" id="rb-time" title="Time taken so far"></span><span class="rb-pct" id="rb-pct"></span>
+        <button type="button" class="rb-info" id="rb-more" title="Show every step, the times and the full message" aria-label="Show details" aria-expanded="false">i</button></div>
       <div class="rb-track"><div class="rb-fill" id="rb-fill"></div></div>
       <div class="rb-foot"><span id="rb-msg"></span><button class="btn small danger" id="rb-cancel">Cancel</button></div>
+      <div class="rb-details hidden" id="rb-details">
+        <div class="rb-times" id="rb-times"></div>
+        <div class="rb-full" id="rb-full"></div>
+        <pre class="rb-log" id="rb-log" title="Every step of this run. Drag the bottom-right corner to make it bigger or smaller."></pre>
+        <div class="rb-actions" id="rb-actions"></div>
+      </div>
     </div>
   </aside>
 </main>
