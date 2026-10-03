@@ -262,3 +262,33 @@ def test_range_download_survives_dropped_connections():
         assert len(seen) == 3 and all(n == 2 for n in seen.values())
     finally:
         srv.shutdown()
+
+
+def test_many_band_file_is_read_in_one_pass(tmp_path, monkeypatch):
+    """A pixel-interleaved file with many bands (an embedding) is read once for all bands, averaged over k × k pixels:
+    GDAL's own decimated read unpacks every block again for each band (minutes for a 20 km embedding)."""
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from lulc_fetch import analysis
+    a = np.arange(16 * 120 * 90, dtype="float32").reshape(16, 120, 90)
+    p = tmp_path / "emb.tif"
+    with rasterio.open(p, "w", driver="GTiff", width=90, height=120, count=16, dtype="float32", crs="EPSG:32643",
+                       transform=from_origin(0, 0, 10, 10), interleave="pixel", tiled=True, blockxsize=32, blockysize=32) as d:
+        d.write(a)
+    calls = []
+    real = analysis._read_strips
+    monkeypatch.setattr(analysis, "_read_strips", lambda *x, **k: calls.append(1) or real(*x, **k))
+    analysis._STRIPS.clear()
+    with rasterio.open(p) as src:
+        got = analysis._read(src, [1, 5], max_px=40)            # k = 3 → 40 × 30
+        again = analysis._read(src, list(range(1, 17)), max_px=40)
+    assert got.shape == (2, 40, 30) and again.shape == (16, 40, 30)
+    assert len(calls) == 1, "the second read should come from the cache"
+    want = a[[0, 4]].reshape(2, 40, 3, 30, 3).mean(axis=(2, 4))
+    assert np.allclose(got, want)
+
+
+def test_missing_layer_file_says_so(client):
+    r = client.get("/api/rasters/info", params={"path": "uploads/gone_away.tif"})
+    assert r.status_code == 404 and "missing" in r.json()["detail"] and "gone_away.tif" in r.json()["detail"]

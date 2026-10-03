@@ -345,6 +345,9 @@ body.no-contents .contents, body.no-tools .toolpanel { border: 0; }
 .lyr-more { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; border-radius: 4px; }
 .lyr-more:hover { background: var(--panel-2); color: var(--text); }
 .lyr-err { color: var(--err); font-size: 11px; padding: 2px 0 0 42px; }
+.lyr-err-act { display: inline-flex; gap: 4px; margin-left: 4px; vertical-align: middle; }
+.lyr-err-act .btn { padding: 1px 7px; font-size: 11px; }
+.lyr-note { color: var(--muted); font-size: 11px; padding: 2px 0 0 42px; }
 .lyr-body { display: none; padding: 4px 6px 4px 42px; }
 .layer.open .lyr-body { display: block; }
 .lyr-legend .legend { margin-top: 2px; height: 10px; }

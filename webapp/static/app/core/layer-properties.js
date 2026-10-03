@@ -45,10 +45,19 @@
     $("#bc-stretch").value = l.render?.rgb && ["none", "p1", "minmax"].includes(l.render.stretch) ? l.render.stretch : "auto";
     const bm = l.band_map || {};
     const avail = BAND_PRESETS.filter(([, bands]) => bands.every((x) => x in bm));
-    $("#bc-presets").innerHTML = avail.length ? avail.map(([title, bands, note], k) => `<button class="bc-preset" data-k="${k}" title="${esc(bands.join(" · "))}">
+    // many bands (an embedding, hyperspectral): all of them can be shown at once, as their three main directions (PCA)
+    const pcaBtn = l.info.count >= 4 ? `<button class="bc-preset ${l.render?.pca ? "on" : ""}" data-pca title="Uses every band">
+        <b>All ${l.info.count} bands: colour view</b><small>Their three main directions of variation (PCA) as red, green, blue · alike places get alike colours</small></button>` : "";
+    $("#bc-presets").innerHTML = pcaBtn + (avail.length ? avail.map(([title, bands, note], k) => `<button class="bc-preset" data-k="${k}" title="${esc(bands.join(" · "))}">
         <b>${esc(title)}</b><small>${esc(bands.join(" · "))} · ${esc(note)}</small></button>`).join("")
-      : `<p class="hint" style="margin:0">No named bands, so no presets: choose the bands below (e.g. NIR, Red, Green).</p>`;
-    $$("#bc-presets .bc-preset").forEach((btn) => btn.onclick = () => {
+      : pcaBtn ? "" : `<p class="hint" style="margin:0">No named bands, so no presets: choose the bands below (e.g. NIR, Red, Green).</p>`) +
+      (l.info.count > 3 ? `<p class="hint" style="margin:6px 0 0">The file keeps all ${l.info.count} bands (tools use them all); this only changes what the map shows.</p>` : "");
+    $("#bc-presets [data-pca]")?.addEventListener("click", () => {
+      l.render = { pca: true, stretch: "auto" };
+      bcMarkPreset();
+      renderRaster(l).catch((e) => toast(e.message, true));
+    });
+    $$("#bc-presets .bc-preset[data-k]").forEach((btn) => btn.onclick = () => {
       const bands = avail[+btn.dataset.k][1].map((x) => bm[x]);
       $("#bc-r").value = bands[0]; $("#bc-g").value = bands[1]; $("#bc-b").value = bands[2];
       bcApply();
@@ -59,7 +68,8 @@
   function bcMarkPreset(avail) {
     const bm = bc.layer.band_map || {}, cur = [+$("#bc-r").value, +$("#bc-g").value, +$("#bc-b").value].join();
     avail = avail || BAND_PRESETS.filter(([, bands]) => bands.every((x) => x in bm));
-    $$("#bc-presets .bc-preset").forEach((btn) => btn.classList.toggle("on", avail[+btn.dataset.k][1].map((x) => bm[x]).join() === cur));
+    $$("#bc-presets .bc-preset[data-k]").forEach((btn) => btn.classList.toggle("on", !bc.layer.render?.pca && avail[+btn.dataset.k][1].map((x) => bm[x]).join() === cur));
+    $("#bc-presets [data-pca]")?.classList.toggle("on", !!bc.layer.render?.pca);
     const nm = (id) => $(id).selectedOptions[0]?.textContent.replace(/^\d+ · /, "") || "";
     $("#bc-hint").textContent = `Red ← ${nm("#bc-r")} · Green ← ${nm("#bc-g")} · Blue ← ${nm("#bc-b")}`;
   }
