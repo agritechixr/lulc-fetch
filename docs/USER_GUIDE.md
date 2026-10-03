@@ -1143,14 +1143,14 @@ save a copy in a folder you choose (it is remembered per tool); existing files t
 
 ### Train embedding model
 
-**Embeddings ▸ Train embedding model** trains one of ten **light segmentation models** on an embedding layer, in one run:
+**Embeddings ▸ Train embedding model** trains one of eleven **light segmentation models** on an embedding layer, in one run:
 it cuts the layer into patches (all bands), trains with early stopping, writes an HTML report and maps the layer.
 
 1. **Embedding layer:** every band goes into the model (64 for AlphaEarth, 128 for TESSERA, or any other image); run PCA
    first only if you want fewer. It needs a coordinate system in metres (as Download embeddings gives).
 2. **Labels:** polygons or points with a class field (Tools ▸ Training samples, a shapefile, GeoJSON…), or a class raster.
    Optionally an **Area** to train and map only part of the layer.
-3. **Model:** ENet, CGNet, DABNet (recommended), LEDNet, FDDWNet, LEANet, LSNet, EFSNet (smallest), FPENet or ADSCNet,
+3. **Model:** ENet, CGNet, DABNet (recommended), LEDNet, FDDWNet, LEANet, LSNet, EFSNet (smallest), FPENet, ADSCNet or TinyUNet (a compact U-Net),
    0.15–0.95 M parameters each, with their size and ⓘ (see `lulc_fetch/lightseg/README.md`). They train from
    scratch, which suits embeddings: no pretrained weights expect 64 or 128 bands.
 4. **Training:** patch size **256 × 256** (128 or 64 with 50 % overlap for small labelled areas: more patches), epochs,
@@ -1164,7 +1164,7 @@ it cuts the layer into patches (all bands), trains with early stopping, writes a
 
 **Embeddings ▸ Classify with embedding model** maps any embedding layer with a model from Train embedding model, e.g. the
 same area in another year, or a neighbouring area. The layer must have the model's number of bands (the panel checks).
-Optionally an area, a confidence band, the tile overlap and the device. The ten light models are also offered in **Tools ▸
+Optionally an area, a confidence band, the tile overlap and the device. The eleven light models are also offered in **Tools ▸
 Train classify model** (architecture group *Light*), for datasets made with Make training data.
 
 ### Convert embeddings
@@ -1384,6 +1384,6 @@ The web app is a FastAPI backend (`webapp/`) with a single-page frontend (`webap
 | `pca.py`, `ml.py` | PCA family; model catalogue, training, evaluation, classification |
 | `tabular.py`, `stack.py` | Raster → table; layer stacking |
 | `vector_io.py`, `progress.py`, `extras.py` | Vector writers; progress and cancellation; reference maps and other collections |
-| `lightseg/` | Ten light segmentation networks (ENet, CGNet, DABNet, LEDNet, FDDWNet, LEANet, LSNet, EFSNet, FPENet, ADSCNet; 0.15–0.95 M parameters) for any number of bands and any image size, and 256 × 256 tiling; used by Embeddings ▸ Train embedding model and Train classify model (see its README) |
+| `lightseg/` | Eleven light segmentation networks (ENet, CGNet, DABNet, LEDNet, FDDWNet, LEANet, LSNet, EFSNet, FPENet, ADSCNet, TinyUNet; 0.15–0.95 M parameters) for any number of bands and any image size, and 256 × 256 tiling; used by Embeddings ▸ Train embedding model and Train classify model (see its README) |
 | `embeddings/` | Embeddings menu: `sources.py` (the datasets), `alphaearth.py` and `tessera.py` (readers), `download.py` (grid, availability, download), `explore.py` (colour view, similar places), `formats.py` (8-bit ↔ float conversion) |
 | `agri/` | Agri menu: `disease.py` (leaf photo → crop → disease, run in the deep-learning helper process), `knowledge.py` (crop list and the guide's search), `labels.py` (crop and disease names), `data/` (each crop's labels, test results and knowledge base). `python -m lulc_fetch.agri.import_data <disease repo folder>` refreshes `data/` after the disease models are retrained, and `python -m lulc_fetch.agri.publish <disease repo folder> <out>` converts the models for Hugging Face (then upload `<out>`), and `python -m lulc_fetch.agri.publish --repos <out> <folder> --upload` updates the 44 one-model repositories and the collection |

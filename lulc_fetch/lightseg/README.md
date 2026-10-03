@@ -1,6 +1,6 @@
 # Light segmentation models
 
-Ten real-time semantic segmentation networks with 0.1–1 million parameters, written in PyTorch for LULC Fetch. In the app
+Eleven real-time semantic segmentation networks with 0.1–1 million parameters, written in PyTorch for LULC Fetch. In the app
 they are **Embeddings ▸ Train embedding model** / **Classify with embedding model**, and the *Light* architectures of
 Train classify model (`dl.ARCHS["light_<name>"]`, backbone "builtin").
 
@@ -39,6 +39,9 @@ with 64 bands on a laptop CPU (Apple M-series, 8 threads).
 | EFSNet | Hu et al., 2020 | 0.17 M | 0.148 M | 0.155 M | 0.163 M | 29 | Continuous shuffle dilated convolutions; the smallest |
 | FPENet | Liu & Yin, 2019 | 0.40 M | 0.406 M | 0.415 M | 0.424 M | 78 | Feature pyramid encoding + mutual embedding upsampling |
 | ADSCNet | Wang et al., 2019 | 0.51 M | 0.522 M | 0.540 M | 0.558 M | 53 | Asymmetric depthwise separable units + dense dilated connections |
+| TinyUNet | U-Net (Ronneberger et al., 2015), compact | — | 0.240 M | 0.249 M | 0.258 M | ≈ 25 * | A small U-Net: 4 down / 4 up stages with skip connections at every scale, depthwise-separable convolutions; sharp edges |
+
+* TinyUNet's time was measured later, scaled to the other models' timing (DABNet on the same run); TinyUNet isn't from a single paper (a compact U-Net), so there is no published count.
 
 CGNet and DABNet grow most with many bands because they feed the (downsampled) input into later stages too; the others
 only see it in their first layer. ENet and EFSNet project a many-band input to 3 channels in their pooling branch (their

@@ -1,4 +1,4 @@
-/* Embeddings ▸ Train embedding model: one of the ten light segmentation models (lulc_fetch/lightseg) on an embedding layer
+/* Embeddings ▸ Train embedding model: one of the eleven light segmentation models (lulc_fetch/lightseg) on an embedding layer
    (all bands) and labels, in one go: 256 × 256 patches, training with early stopping and a report, then the class map.
    Needs the deep-learning add-on. Server: /api/emb/train. */
 (() => {
@@ -7,7 +7,7 @@
 
   LF.tool({
     id: "embtrain", menu: "embed", title: "Train embedding model", icon: "dl",
-    subtitle: "Train one of ten light segmentation models (ENet, DABNet, LEDNet… 0.15–0.95 M parameters) on an embedding layer and your labelled polygons, points or class raster: all bands used, 256 × 256 patches, early stopping, a report, and the class map",
+    subtitle: "Train one of eleven light segmentation models (TinyUNet, ENet, DABNet, LEDNet… 0.15–0.95 M parameters) on an embedding layer and your labelled polygons, points or class raster: all bands used, 256 × 256 patches, early stopping, a report, and the class map",
     kinds: ["embtrain"],
     save: [["embtrain", "#et-run", "the class map (the model stays in the project's models folder)"]],
     clip: { "et-area": { what: "layer is used for training and mapped" } },
