@@ -35,7 +35,8 @@
         <div class="grid2">
           <label>Time step ${tip("Automatic = from the gaps between the times in the table. Values within one step are averaged (e.g. 15-minute readings → hourly).")}<select id="ft-freq"><option value="auto">Automatic</option><option value="h">Hourly</option><option value="D">Daily</option><option value="W">Weekly</option><option value="MS">Monthly</option></select></label>
           <label>How far ahead (steps) <input type="number" id="ft-h" min="1" max="5000" placeholder="auto"></label>
-          <label>Backtests ${tip("How many times the model is checked: trained on the data before a cut-off and asked to forecast the steps after it, at the end of the data. More = a fairer score and a better uncertainty band; each one is a training.")}<select id="ft-bt"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+          <label>Backtests ${tip("How many times the model is checked: trained on the data before a cut-off and asked to forecast the steps after it. The cut-offs are spread over the last year of the data, so a seasonal value (rain, monsoon AQI) is checked in different seasons. More = a fairer score and a better uncertainty band; each one is a training.")}<select id="ft-bt"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>6</option><option>8</option><option>10</option></select></label>
+          <label>How it forecasts ${tip("Step by step: predicts the next step, then uses that prediction as if it were a value for the step after (good for smooth cycles like hourly AQI). Direct: predicts each step ahead straight from what is known now, so errors don't build up (good for values that are often 0, like daily rain). Automatic: backtests the best model both ways and keeps the better.")}<select id="ft-strategy"><option value="auto" selected>Automatic</option><option value="recursive">Step by step</option><option value="direct">Direct</option></select></label>
         </div>
         <p class="hint" id="ft-h-info"></p>
       </div>
@@ -110,7 +111,7 @@
         $("#ft-h").placeholder = `auto (${F.horizon})`;
         const h = +$("#ft-h").value || F.horizon;
         const span = f === "h" && h >= 24 ? ` (${fmt(h / 24, h % 24 ? 1 : 0)} days)` : f === "D" && h >= 7 ? ` (${fmt(h / 7, h % 7 ? 1 : 0)} weeks)` : "";
-        $("#ft-h-info").textContent = `${LF.fc.unit(F.unit, h)} ahead${span}. Every model is checked by forecasting this far ahead from ${$("#ft-bt").value} cut-off${$("#ft-bt").value === "1" ? "" : "s"} at the end of the data.`;
+        $("#ft-h-info").textContent = `${LF.fc.unit(F.unit, h)} ahead${span}. Every model is checked by forecasting this far ahead from ${$("#ft-bt").value} cut-off${$("#ft-bt").value === "1" ? "" : "s"} spread over the last year of the data.`;
       }
       function renderModels() {
         const M = st.schema.models;
@@ -135,7 +136,7 @@
         const lat = $("#ft-lat").value, lon = $("#ft-lon").value;
         const body = { table: d.path, time_col: $("#ft-time").value, target: $("#ft-target").value, series_col: $("#ft-series").value || null,
           lat_col: lat && lon ? lat : null, lon_col: lat && lon ? lon : null, inputs: [...st.inputs].filter((k) => $$("#ft-inputs input").some((i) => i.value === k && i.checked)),
-          freq: $("#ft-freq").value, horizon: +$("#ft-h").value || null, model: st.model, backtests: +$("#ft-bt").value,
+          freq: $("#ft-freq").value, horizon: +$("#ft-h").value || null, model: st.model, backtests: +$("#ft-bt").value, strategy: $("#ft-strategy").value,
           name: $("#ft-name").value.trim() || "forecast" };
         const r = await runJob("/api/forecast/train", body, { tool: "fctrain", title: `Training a forecast of ${body.target}` });
         const box = LF.fc.show("ft", r, { trained: true });

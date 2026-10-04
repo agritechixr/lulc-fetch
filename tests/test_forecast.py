@@ -77,6 +77,27 @@ def test_compare_all_ranks_every_model(table, tmp_path):
     assert maes == sorted(maes)
 
 
+def test_direct_forecast_of_intermittent_rain(tmp_path):
+    """Daily rain with dry and wet seasons: direct forecasting doesn't invent rain after a dry spell (step by step can
+    feed its own small guesses back in), and the backtest windows are spread over the year."""
+    rng = np.random.default_rng(1)
+    t = pd.date_range("2018-01-01", "2023-12-31", freq="D")
+    rows = []
+    for i in range(6):
+        wet = (t.month >= 6) & (t.month <= 9)
+        rain = np.where(wet & (rng.random(len(t)) < 0.7), rng.gamma(2, 8, len(t)), 0) + np.where(~wet & (rng.random(len(t)) < 0.03), rng.gamma(1, 3, len(t)), 0)
+        rows.append(pd.DataFrame({"date": t.strftime("%Y-%m-%d"), "point": f"p{i}", "lat": 10 + 0.25 * i, "lon": 76.0, "rain": rain.round(1)}))
+    pd.concat(rows).to_csv(tmp_path / "rain.csv", index=False)
+    assert fc._origins(2000, 7, "D", 4)[0] < 2000 - 7 - 200          # spread over the last year, not only December
+    r = fc.train(tmp_path / "rain.csv", tmp_path, time_col="date", target="rain", series_col="point", horizon=7, model="lightgbm",
+                 strategy="direct", backtests=4, name="rain")
+    assert r["meta"]["strategy"] == "direct" and "direct" in r["model_title"]
+    assert max(max(s["fc"]) for s in r["series"]) < 2               # 31 December, dry season: (almost) no rain
+    assert any(n["name"] == "How far ahead" for n in r["importance"]) or r["importance"]
+    p = fc.predict(r["path"], tmp_path / "rain.csv")
+    assert np.allclose(p["series"][0]["fc"], r["series"][0]["fc"])
+
+
 def test_clear_messages(table, tmp_path):
     with pytest.raises(ValueError, match="choose a horizon of"):
         fc.train(table, tmp_path, time_col="time", target="aqi", series_col="station", horizon=500)

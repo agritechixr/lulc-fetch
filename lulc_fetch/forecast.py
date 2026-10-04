@@ -10,10 +10,12 @@ station at one time step, and its features are
 * other inputs at that time and one step before (weather…). For the future they come from the table when it has them
   (e.g. a weather forecast, rows after the last value) and otherwise repeat the last cycle.
 
-The model predicts one step ahead; longer horizons feed the predictions back in (recursive forecasting). It is checked
-the honest way, by backtesting: trained on the data before a cut-off, it forecasts the horizon after it, for a few
-cut-offs at the end of the data, and the errors are compared with simple baselines (the last value, the same time one
-cycle ago). The backtest errors also give the forecast's uncertainty band (80 % of them were within it).
+Two ways to forecast several steps: step by step (predict the next step, feed the prediction back in: good for smooth
+cycles such as hourly AQI) or direct (predict each step ahead straight from what is known at the start, with "how far
+ahead" and the same time in earlier cycles as inputs, so errors don't build up: good for values that are often 0, such
+as daily rain). Automatic tries the best model both ways. Everything is checked the honest way, by backtesting: trained
+on the data before a cut-off, the model forecasts the horizon after it, for cut-offs spread over the last year (every
+season), and the errors are compared with simple baselines (the last value, the same time one cycle ago). The backtest errors also give the forecast's uncertainty band (80 % of them were within it).
 
     from lulc_fetch import forecast
     info = forecast.describe("aqi.csv")
@@ -74,15 +76,35 @@ def schema() -> dict:
 
 # ------------------------------------------------------------------ reading a table
 
-def _read(path) -> pd.DataFrame:
+def _read(path, columns: list[str] | None = None) -> pd.DataFrame:
     path = Path(path)
+    cols = list(dict.fromkeys(c for c in columns if c)) if columns else None
     if path.suffix.lower() == ".parquet":
-        return pd.read_parquet(path)
+        try:
+            return pd.read_parquet(path, columns=cols)
+        except Exception:   # a column that isn't there: read it all, _panel says which is missing
+            return pd.read_parquet(path)
+    if cols:
+        head = pd.read_csv(path, nrows=0).columns
+        if all(c in head for c in cols):
+            return pd.read_csv(path, usecols=cols, low_memory=False)
     return pd.read_csv(path, low_memory=False)
 
 
+def _cfg_columns(cfg: dict) -> list[str]:
+    return [cfg.get("time_col"), cfg.get("target"), cfg.get("series_col"), cfg.get("lat_col"), cfg.get("lon_col"), *cfg.get("inputs", [])]
+
+
 def _times(s: pd.Series) -> pd.Series:
-    """Dates / times of a column (text, numbers like 2024 or 20240131, or dates), timezone dropped (kept as local)."""
+    """Dates / times of a column (text, numbers like 2024 or 20240131, or dates), timezone dropped (kept as local).
+    Each distinct value is read once (a big table repeats the same dates for every station)."""
+    if not pd.api.types.is_datetime64_any_dtype(s) and len(s) > 5000:
+        codes, uniq = pd.factorize(s)
+        if len(uniq) < len(s) // 2:
+            u = _times(pd.Series(uniq))
+            out = pd.Series(u.to_numpy().take(np.where(codes < 0, 0, codes)), index=s.index)
+            out[codes < 0] = pd.NaT
+            return out
     if pd.api.types.is_datetime64_any_dtype(s):
         t = s
     else:
@@ -210,44 +232,53 @@ def _panel(df: pd.DataFrame, cfg: dict, freq: str | None = None) -> dict:
     miss = [c for c in need if c not in df.columns]
     if miss:
         raise ValueError(f"The table has no column {', '.join(miss)}")
-    t = _times(df[tc])
-    d = pd.DataFrame({"t": t, "id": df[sc].astype(str).str.strip() if sc else "all",
-                      "y": pd.to_numeric(df[yc], errors="coerce")})
-    for k in cfg.get("inputs", []):
-        d[f"x:{k}"] = pd.to_numeric(df[k], errors="coerce")
-    if cfg.get("lat_col") and cfg.get("lon_col"):
-        d["lat"] = pd.to_numeric(df[cfg["lat_col"]], errors="coerce")
-        d["lon"] = pd.to_numeric(df[cfg["lon_col"]], errors="coerce")
-    d = d[d["t"].notna()]
-    if d.empty:
+    t = _times(df[tc]).to_numpy()
+    ok = ~pd.isna(t)
+    if not ok.any():
         raise ValueError(f"No dates / times could be read from {tc}")
-    freq = freq or _guess_freq(d["t"], d["id"])
+    if sc:   # series as numbers 0 … S-1 (a big table repeats each name thousands of times)
+        codes, uniq = pd.factorize(df[sc].astype(str).str.strip() if df[sc].dtype == object else df[sc], sort=True)
+        ids = [str(u) for u in uniq]
+        ok &= codes >= 0
+    else:
+        codes, ids = np.zeros(len(df), dtype=np.int64), ["all"]
+    t, codes = pd.DatetimeIndex(t[ok]), codes[ok]
+    freq = freq or _guess_freq(pd.Series(t), pd.Series(codes))
     F = FREQS[freq]
     if freq == "h":
-        d["t"] = d["t"].dt.floor("h")
+        t = t.floor("h")
     elif freq == "D":
-        d["t"] = d["t"].dt.floor("D")
+        t = t.floor("D")
     elif freq == "W":
-        d["t"] = d["t"].dt.to_period("W-SUN").dt.start_time
+        t = t.to_period("W-SUN").start_time
     else:
-        d["t"] = d["t"].dt.to_period("M").dt.start_time
-    if not d["y"].notna().any():
+        t = t.to_period("M").start_time
+    y = pd.to_numeric(df[yc], errors="coerce").to_numpy(dtype="float64")[ok]
+    if not np.isfinite(y).any():
         raise ValueError(f"{yc} has no numbers")
-    ids = sorted(d["id"].unique(), key=str)
-    coords = None
-    if "lat" in d:
-        c = d.groupby("id")[["lat", "lon"]].first().reindex(ids)
-        coords = c.to_numpy(dtype="float64")
-    xcols = [c for c in d.columns if c.startswith("x:")]
-    g = d.groupby(["id", "t"])[["y", *xcols]].mean()
-    times = pd.date_range(d["t"].min(), d["t"].max(), freq=F["range"])
+    times = pd.date_range(t.min(), t.max(), freq=F["range"])
     if len(times) > 200000:
         raise ValueError(f"{len(times):,} time steps: too many (choose a coarser time step)")
-    idx = pd.MultiIndex.from_product([ids, times], names=["id", "t"])
-    g = g.reindex(idx)
     S, T = len(ids), len(times)
-    Y = g["y"].to_numpy().reshape(S, T)
-    X = np.stack([g[c].to_numpy().reshape(S, T) for c in xcols]) if xcols else np.zeros((0, S, T))
+    if S * T > 60_000_000:
+        raise ValueError(f"{S:,} series × {T:,} time steps is too big: use fewer series or a coarser time step")
+    cell = codes * T + times.get_indexer(t)
+
+    def grid(v):   # the mean of the values in each series × time step (several readings in one step are averaged)
+        f = np.isfinite(v)
+        s = np.bincount(cell[f], weights=v[f], minlength=S * T)
+        n = np.bincount(cell[f], minlength=S * T)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(n > 0, s / np.maximum(n, 1), np.nan).reshape(S, T)
+
+    Y = grid(y)
+    X = np.stack([grid(pd.to_numeric(df[k], errors="coerce").to_numpy(dtype="float64")[ok]) for k in cfg.get("inputs", [])]) \
+        if cfg.get("inputs") else np.zeros((0, S, T))
+    coords = None
+    if cfg.get("lat_col") and cfg.get("lon_col"):
+        c = pd.DataFrame({"i": codes, "lat": pd.to_numeric(df[cfg["lat_col"]], errors="coerce").to_numpy()[ok],
+                          "lon": pd.to_numeric(df[cfg["lon_col"]], errors="coerce").to_numpy()[ok]})
+        coords = c.dropna().groupby("i")[["lat", "lon"]].first().reindex(range(S)).to_numpy(dtype="float64")
     # short gaps in the value are filled (straight line); long gaps stay empty
     lim = max(1, F["season"] // 4)
     Yf = pd.DataFrame(Y.T).interpolate(limit=lim, limit_area="inside").to_numpy().T
@@ -264,16 +295,16 @@ def _neighbours(coords, k: int = 5):
     """Inverse-distance weights of each series' k nearest other series (None without coordinates or with < 3 series)."""
     if coords is None or len(coords) < 3 or not np.isfinite(coords).all():
         return None
+    from scipy.sparse import csr_matrix
+    from scipy.spatial import cKDTree
     lat, lon = np.radians(coords[:, 0]), np.radians(coords[:, 1])
-    a = np.sin((lat[:, None] - lat[None]) / 2) ** 2 + np.cos(lat[:, None]) * np.cos(lat[None]) * np.sin((lon[:, None] - lon[None]) / 2) ** 2
-    dkm = 2 * 6371 * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
-    np.fill_diagonal(dkm, np.inf)
-    W = np.zeros_like(dkm)
+    xyz = np.column_stack([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
     k = min(k, len(coords) - 1)
-    near = np.argsort(dkm, axis=1)[:, :k]
-    rows = np.arange(len(coords))[:, None]
-    W[rows, near] = 1.0 / (dkm[rows, near] + 0.5) ** 2
-    return W
+    chord, near = cKDTree(xyz).query(xyz, k=k + 1)        # the first is the point itself
+    dkm = 2 * 6371 * np.arcsin(np.clip(chord[:, 1:] / 2, 0, 1))
+    w = 1.0 / (dkm + 0.5) ** 2
+    rows = np.repeat(np.arange(len(coords)), k)
+    return csr_matrix((w.ravel(), (rows, near[:, 1:].ravel())), shape=(len(coords), len(coords)))
 
 
 def _calendar(times: pd.DatetimeIndex, freq: str) -> tuple[np.ndarray, list[str]]:
@@ -318,16 +349,21 @@ def _names(st: dict, target: str) -> list[tuple[str, str]]:
     out += [(f"{target} variability (last {st['wins'][-1]} {u}s)", f"{target}: recent averages")]
     if st["use_nb"]:
         out += [(f"{target} at the nearest stations, {ago(1)}", "Nearby stations")]
-    for k in st["inputs"]:
-        out += [(k, k), (f"{k}, {ago(1)}", k)]
-    out += [(n.split("|")[0] + (" (cycle)" if "|" in n else ""), n.split("|")[0]) for n in _calendar(pd.date_range("2000-01-01", periods=2, freq=FREQS[st["freq"]]["range"]), st["freq"])[1]]
     if st["use_coords"]:
         out += [("Latitude", "Location"), ("Longitude", "Location")]
+    if st.get("strategy") == "direct" and st["season"]:
+        out += [(f"{target} at the same time, {n} cycle{'s' if n > 1 else ''} before the latest known", f"{target}: same time in earlier cycles") for n in (1, 2, 3)]
+    for k in st["inputs"]:
+        out += [(k, k), (f"{k}, one {u} before", k)]
+    out += [(n.split("|")[0] + (" (cycle)" if "|" in n else ""), n.split("|")[0]) for n in _calendar(pd.date_range("2000-01-01", periods=2, freq=FREQS[st["freq"]]["range"]), st["freq"])[1]]
+    if st.get("strategy") == "direct":
+        out += [(f"{u.capitalize()}s ahead", "How far ahead")]
     return out
 
 
-def _feat(st: dict, Y: np.ndarray, X: np.ndarray, cal: np.ndarray, coords, W, t: int) -> np.ndarray:
-    """The features of every series for predicting the value at time step t (from what is known before t)."""
+def _origin(st: dict, Y: np.ndarray, coords, W, t: int) -> np.ndarray:
+    """What is known at time step t about every series (from the values before t): its recent values, averages,
+    variability, its nearest stations' latest value, where it is."""
     S = Y.shape[0]
     nan = np.full(S, np.nan)
     cols = [Y[:, t - l] if t - l >= 0 else nan for l in st["lags"]]
@@ -344,29 +380,72 @@ def _feat(st: dict, Y: np.ndarray, X: np.ndarray, cal: np.ndarray, coords, W, t:
     if st["use_nb"]:
         v = Y[:, t - 1] if t >= 1 else nan
         okv = np.isfinite(v)
-        den = W @ okv
+        den = W @ okv.astype(float)
         cols.append(np.where(den > 0, (W @ np.where(okv, v, 0)) / np.where(den > 0, den, 1), np.nan))
-    for k in range(len(st["inputs"])):
-        cols.append(X[k, :, t] if t < X.shape[2] else nan)
-        cols.append(X[k, :, t - 1] if 1 <= t <= X.shape[2] else nan)
-    cols.extend(np.repeat(cal[t][None], S, 0).T)
     if st["use_coords"]:
         cols.extend([coords[:, 0], coords[:, 1]])
     return np.column_stack(cols)
 
 
-def _rows(st, Y, X, cal, coords, W, start: int = 1):
-    """Training rows: every series and time step with a value (and its previous value)."""
+def _target(st: dict, Y: np.ndarray, X: np.ndarray, cal: np.ndarray, S: int, t: int, h: int) -> np.ndarray:
+    """What is known about the time being forecast, h steps after t: the other inputs then and one step before (from
+    the table, or repeated from the last cycle), the calendar, and (direct forecasting) how far ahead it is."""
+    nan = np.full(S, np.nan)
+    u = t + h
+    cols = []
+    if st.get("strategy") == "direct" and st["season"]:
+        s = st["season"]
+        back = -(-(h + 1) // s)          # whole cycles back from the forecast time to a known value
+        for k in (0, 1, 2):
+            i = u - s * (back + k)
+            cols.append(Y[:, i] if i >= 0 else nan)
+    for k in range(len(st["inputs"])):
+        cols.append(X[k, :, u] if u < X.shape[2] else nan)
+        cols.append(X[k, :, u - 1] if 1 <= u <= X.shape[2] else nan)
+    cols.extend(np.repeat(cal[u][None], S, 0).T)
+    if st.get("strategy") == "direct":
+        cols.append(np.full(S, h + 1.0))
+    return np.column_stack(cols) if cols else np.zeros((S, 0))
+
+
+def _feat(st: dict, Y: np.ndarray, X: np.ndarray, cal: np.ndarray, coords, W, t: int, h: int = 0) -> np.ndarray:
+    """The features of every series for predicting the value h steps after time step t (from what is known before t)."""
+    return np.hstack([_origin(st, Y, coords, W, t), _target(st, Y, X, cal, Y.shape[0], t, h)])
+
+
+MAX_ROWS = 1_500_000   # training rows kept (a random sample of series at each time step beyond this)
+
+
+def _rows(st, Y, X, cal, coords, W, H: int = 1, start: int = 1):
+    """Training rows: every series, time step t and step ahead h (1 … H for direct forecasting, 1 for step by step)
+    with a value at t+h and at t-1. For very large tables (thousands of grid points × years of days, or long horizons)
+    a random share of them, so memory stays bounded. Returns features, values and the time step of each value."""
     F, y, tt = [], [], []
-    for t in range(start, Y.shape[1]):
-        ok = np.isfinite(Y[:, t]) & np.isfinite(Y[:, t - 1])
-        if ok.any():
-            F.append(_feat(st, Y, X, cal, coords, W, t)[ok])
-            y.append(Y[ok, t])
-            tt.append(np.full(int(ok.sum()), t))
+    S, T = Y.shape
+    hs = range(H) if st.get("strategy") == "direct" else range(1)
+    share = min(1.0, MAX_ROWS / max(1, S * (T - start) * len(hs)))
+    rng = np.random.default_rng(0)
+    for t in range(start, T):
+        has_prev = np.isfinite(Y[:, t - 1])
+        if not has_prev.any():
+            continue
+        f0 = None
+        for h in hs:
+            if t + h >= T:
+                break
+            ok = has_prev & np.isfinite(Y[:, t + h])
+            if share < 1:
+                ok &= rng.random(S) < share
+            if not ok.any():
+                continue
+            if f0 is None:
+                f0 = _origin(st, Y, coords, W, t)
+            F.append(np.hstack([f0[ok], _target(st, Y, X, cal, S, t, h)[ok]]))
+            y.append(Y[ok, t + h])
+            tt.append(np.full(int(ok.sum()), t + h))
     if not F:
         raise ValueError("No time steps with a value and the one before it: is the time step right?")
-    return np.vstack(F), np.concatenate(y), np.concatenate(tt)
+    return np.vstack(F).astype(np.float32), np.concatenate(y), np.concatenate(tt)
 
 
 # ------------------------------------------------------------------ models
@@ -425,6 +504,22 @@ def _future_inputs(X: np.ndarray, start: int, end: int, season: int | None, know
     return out
 
 
+def _forecast(key, model, st, Y, X, cal, coords, W, start: int, H: int, lo: float | None = None, hi: float | None = None) -> np.ndarray:
+    """Forecast time steps start … start+H-1 of every series: direct (each step from what is known at the start, so
+    errors don't feed back) or step by step (each prediction fed back in as if it were a value)."""
+    if key in BASELINES or st.get("strategy") != "direct":
+        return _recursive(key, model, st, Y, X, cal, coords, W, start, H, lo, hi)
+    Yk = Y[:, :start]                   # only what is known at the start
+    f0 = _origin(st, Yk, coords, W, start)
+    out = np.full((Y.shape[0], H), np.nan)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for h in range(H):
+            p = model.predict(np.hstack([f0, _target(st, Yk, X, cal, Y.shape[0], start, h)]))
+            out[:, h] = np.clip(p, lo, hi) if lo is not None else p
+    return out
+
+
 def _recursive(key, model, st, Y, X, cal, coords, W, start: int, H: int, lo: float | None = None, hi: float | None = None) -> np.ndarray:
     """Forecast time steps start … start+H-1 of every series, feeding each step's prediction back in."""
     S = Y.shape[0]
@@ -449,6 +544,23 @@ def _recursive(key, model, st, Y, X, cal, coords, W, start: int, H: int, lo: flo
         Yx[:, t] = p
         out[:, h] = p
     return out
+
+
+YEAR = {"h": 8760, "D": 365, "W": 52, "MS": 12}   # time steps in a year
+
+
+def _origins(T: int, H: int, freq: str, n: int) -> list[int]:
+    """Backtest cut-offs: n windows of H steps spread over the last year of the data (so a seasonal value is checked in
+    every season, not only in the last weeks), each with at least a third of the data (and 2 horizons) before it."""
+    n = max(1, n)
+    lo_ = max(2 * H, T // 3)
+    b = T - H
+    if b < lo_:
+        return [b]
+    if n == 1:
+        return [b]
+    a = max(lo_, b - YEAR[freq] * (n - 1) / n)
+    return sorted({int(round(v)) for v in np.linspace(a, b, n)})
 
 
 def _metrics(err: np.ndarray, actual: np.ndarray) -> dict:
@@ -479,20 +591,22 @@ def _bands(errs: np.ndarray) -> list:
 
 def train(table, out_dir, *, time_col: str, target: str, series_col: str | None = None, lat_col: str | None = None,
           lon_col: str | None = None, inputs: list[str] | None = None, freq: str = "auto", horizon: int | None = None,
-          model: str = "auto", backtests: int = 3, future_inputs: str = "auto", clip: str = "auto", name: str = "forecast") -> dict:
+          model: str = "auto", backtests: int = 3, future_inputs: str = "auto", clip: str = "auto", strategy: str = "auto",
+          name: str = "forecast") -> dict:
     """Train a forecasting model on a table, check it by backtesting, forecast the next `horizon` steps and save it."""
     import joblib
     t0 = time.time()
     progress.update(0.01, "Reading the table")
-    df = _read(table)
     inputs = [k for k in (inputs or []) if k not in (time_col, target, series_col, lat_col, lon_col)]
     cfg = {"time_col": time_col, "target": target, "series_col": series_col or None, "lat_col": lat_col or None,
            "lon_col": lon_col or None, "inputs": inputs}
+    df = _read(table, _cfg_columns(cfg))
     if bool(cfg["lat_col"]) != bool(cfg["lon_col"]):
         cfg["lat_col"] = cfg["lon_col"] = None
     P = _panel(df, cfg, None if freq == "auto" else freq)
     F = FREQS[P["freq"]]
     st = _setup(P, cfg)
+    st["strategy"] = "direct" if strategy == "direct" else "recursive"
     Y, X, T = P["Y"], P["X"], P["t_obs"]
     H = int(horizon or F["horizon"])
     if H < 1:
@@ -510,47 +624,63 @@ def train(table, out_dir, *, time_col: str, target: str, series_col: str | None 
     W = _neighbours(P["coords"]) if st["use_nb"] else None
     st["use_nb"] = W is not None
     cal_all = _calendar(pd.date_range(P["times"][0], periods=max(X.shape[2], T) + H, freq=F["range"]), P["freq"])[0]
-    names = _names(st, target)
-
-    progress.update(0.05, "Building the features")
-    Fx, y, tt = _rows(st, Y, X, cal_all, P["coords"], W)
-    # backtest cut-offs: the last `backtests` windows of H steps
-    origins = [T - H * k for k in range(max(1, backtests), 0, -1) if T - H * k >= max(2 * H, T // 3)]
-    if not origins:
-        origins = [T - H]
-    keys = [k for k in MODELS if k not in ("auto",) and _available(k)] if model == "auto" else list(dict.fromkeys([model, *BASELINES]))
     if model != "auto" and not _available(model):
         raise ValueError(f"{MODELS[model]['title']} isn't installed")
-    res = {k: {"err": [], "act": []} for k in keys}
-    steps = len(keys) * len(origins)
-    i = 0
-    for o in origins:
-        trn = tt < o
-        Xo = _future_inputs(X, o, o + H, st["season"], known)
-        for k in keys:
-            i += 1
-            progress.update(0.08 + 0.72 * i / steps, f"Backtest {origins.index(o) + 1} of {len(origins)}: {MODELS[k]['title']}")
-            m = _fit(k, Fx[trn], y[trn])
-            pred = _recursive(k, m, st, Y, Xo, cal_all, P["coords"], W, o, H, lo, hi)
-            act = Y[:, o:o + H]
-            res[k]["err"].append(pred - act)
-            res[k]["act"].append(act)
-    rows = []
-    for k in keys:
-        e, a = np.stack(res[k]["err"]), np.stack(res[k]["act"])
-        m = _metrics(e, a)
-        m.update(key=k, title=MODELS[k]["title"], baseline=k in BASELINES,
-                 step_mae=[float(np.nanmean(np.abs(e[:, :, h]))) if np.isfinite(e[:, :, h]).any() else None for h in range(H)])
-        rows.append(m)
-    rows.sort(key=lambda r: (r["mae"] is None, r["mae"] if r["mae"] is not None else 0))
+    origins = _origins(T, H, P["freq"], backtests)
+    keys = [k for k in MODELS if k not in ("auto",) and _available(k)] if model == "auto" else list(dict.fromkeys([model, *BASELINES]))
+    plan = ["recursive", "direct"] if strategy == "auto" else [st["strategy"]]
+    sts, data, res = {}, {}, {}
+
+    def backtest(strat, ks, p0, p1):
+        s = sts[strat] = {**st, "strategy": strat}
+        progress.update(p0, f"Building the features ({'direct' if strat == 'direct' else 'step by step'})")
+        data[strat] = Fx, y, tt = _rows(s, Y, X, cal_all, P["coords"], W, H)
+        n = len(ks) * len(origins)
+        i = 0
+        for o in origins:
+            trn = tt < o
+            Xo = _future_inputs(X, o, o + H, st["season"], known)
+            for k in ks:
+                i += 1
+                progress.update(p0 + (p1 - p0) * i / n, f"Backtest {origins.index(o) + 1} of {len(origins)}: {MODELS[k]['title']}"
+                                + (" (direct)" if strat == "direct" and k not in BASELINES else ""))
+                m = _fit(k, Fx[trn], y[trn])
+                pred = _forecast(k, m, s, Y, Xo, cal_all, P["coords"], W, o, H, lo, hi)
+                act = Y[:, o:o + H]
+                r = res.setdefault((k, strat if k not in BASELINES else "-"), {"err": [], "act": []})
+                r["err"].append(pred - act)
+                r["act"].append(act)
+
+    def table():
+        rows = []
+        for (k, strat), r in res.items():
+            e, a = np.stack(r["err"]), np.stack(r["act"])
+            m = _metrics(e, a)
+            title = MODELS[k]["title"] + (" · direct" if strat == "direct" and len(plan) > 1 else " · step by step" if strat == "recursive" and len(plan) > 1 else "")
+            m.update(key=k, strategy=strat, title=title, baseline=k in BASELINES,
+                     step_mae=[float(np.nanmean(np.abs(e[:, :, h]))) if np.isfinite(e[:, :, h]).any() else None for h in range(H)])
+            rows.append(m)
+        rows.sort(key=lambda r: (r["mae"] is None, r["mae"] if r["mae"] is not None else 0))
+        return rows
+
+    backtest(plan[0], keys, 0.05, 0.6 if len(plan) > 1 else 0.8)
+    rows = table()
+    if len(plan) > 1:   # the best model the other way too
+        top = model if model != "auto" else next((r["key"] for r in rows if not r["baseline"]), None)
+        if top:
+            backtest(plan[1], [top], 0.6, 0.8)
+            rows = table()
     base = min((r for r in rows if r["baseline"] and r["mae"] is not None), key=lambda r: r["mae"], default=None)
     for r in rows:
         r["skill"] = (1 - r["mae"] / base["mae"]) if base and base["mae"] and r["mae"] is not None else None
-    chosen = model if model != "auto" else next(r["key"] for r in rows)
-    best = next(r for r in rows if r["key"] == chosen)
+    best = rows[0] if model == "auto" else min((r for r in rows if r["key"] == model), key=lambda r: r["mae"] if r["mae"] is not None else np.inf)
+    chosen, strat = best["key"], (best["strategy"] if best["strategy"] != "-" else plan[0])
+    st = sts[strat]
+    Fx, y, tt = data[strat]
+    names = _names(st, target)
     if base and best["mae"] is not None and best["key"] != base["key"] and best["mae"] >= base["mae"]:
-        warn.append(f"{best['title']} doesn't beat the simple baseline ({base['title']}): the data may be too short or too noisy, or the inputs don't help.")
-    width = _bands(np.stack(res[chosen]["err"]))
+        warn.append(f"{MODELS[best['key']]['title']} doesn't beat the simple baseline ({base['title']}): the data may be too short or too noisy, or the inputs don't help.")
+    width = _bands(np.stack(res[(chosen, best["strategy"])]["err"]))
 
     # which features matter: permutation importance on the last backtest window (one step ahead, actual history)
     importance = []
@@ -578,14 +708,14 @@ def train(table, out_dir, *, time_col: str, target: str, series_col: str | None 
     progress.update(0.9, f"Training {MODELS[chosen]['title']} on all the data")
     final = _fit(chosen, Fx, y)
     Xf = _future_inputs(X, T, T + H, st["season"], True)
-    pred = _recursive(chosen, final, st, Y, Xf, cal_all, P["coords"], W, T, H, lo, hi)
+    pred = _forecast(chosen, final, st, Y, Xf, cal_all, P["coords"], W, T, H, lo, hi)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_") or "forecast"
     path = out_dir / f"{stem}.joblib"
-    meta = {"version": 1, "kind": "forecast", "name": stem, "model": chosen, "model_title": MODELS[chosen]["title"], "cfg": cfg,
+    meta = {"version": 1, "kind": "forecast", "name": stem, "model": chosen, "model_title": MODELS[chosen]["title"] + (" · direct" if strat == "direct" and chosen not in BASELINES else ""), "cfg": cfg,
             "setup": st, "freq": P["freq"], "horizon": H, "band": width, "clip": [lo, None],
-            "metrics": {k: v for k, v in best.items() if k != "step_mae"}, "compare": [{k: v for k, v in r.items() if k != "step_mae"} for r in rows],
+            "metrics": {k: v for k, v in best.items() if k != "step_mae"}, "compare": [{k: v for k, v in r.items() if k != "step_mae"} for r in rows], "strategy": strat,
             "baseline": {"key": base["key"], "title": base["title"], "mae": base["mae"]} if base else None,
             "importance": importance, "known_inputs": bool(known),
             "trained": {"table": str(table), "series": len(P["ids"]), "rows": int(len(y)), "start": str(P["times"][0]),
@@ -677,7 +807,7 @@ def predict(model_path, table, *, horizon: int | None = None) -> dict:
     obj = load(model_path)
     meta, model = obj["meta"], obj["model"]
     progress.update(0.05, "Reading the table")
-    df = _read(table)
+    df = _read(table, _cfg_columns(meta["cfg"]))
     P = _panel(df, meta["cfg"], meta["freq"])
     st = dict(meta["setup"])
     F = FREQS[P["freq"]]
@@ -696,7 +826,7 @@ def predict(model_path, table, *, horizon: int | None = None) -> dict:
     Xf = _future_inputs(P["X"], T, T + H, st["season"], True)
     lo = meta.get("clip", [None])[0]
     progress.update(0.3, f"Forecasting {H} {F['unit']}s")
-    pred = _recursive(meta["model"], model, st, P["Y"], Xf, cal, P["coords"], W, T, H, lo, np.inf if lo is not None else None)
+    pred = _forecast(meta["model"], model, st, P["Y"], Xf, cal, P["coords"], W, T, H, lo, np.inf if lo is not None else None)
     rep = _result(P, pred, meta, T, H)
     warn = []
     if H > meta["horizon"]:
