@@ -523,6 +523,10 @@ def _clean(o):
 
 
 # ------------------------------------------------------------------ training
+MIN_STEPS = 25    # training steps per epoch at least (small training sets are repeated)
+MIN_EPOCHS = 10   # early stopping never ends training before this
+
+
 def train(dataset: str | Path, out_dir: str | Path, *, arch: str = "unet", encoder: str = "tu-mobilenetv3_large_100",
           pretrained: bool = True, params: dict | None = None, name: str = "dl_model", resume: str | Path | None = None) -> dict:
     import torch
@@ -604,7 +608,12 @@ def train(dataset: str | Path, out_dir: str | Path, *, arch: str = "unet", encod
         opt = torch.optim.AdamW(params_, lr=lr, weight_decay=wd)
     epochs = int(P["epochs"])
     bs = int(P["batch_size"])
-    steps = max(1, math.ceil(len(tr) / bs))
+    # a small training set (a small labelled area) gives only a few steps per epoch: then each epoch goes through the
+    # patches several times (augmented differently each time), so it trains enough before early stopping can judge it
+    reps = min(20, max(1, math.ceil(MIN_STEPS * bs / max(len(tr), 1))))
+    if reps > 1:
+        log.info("Only %d training patches: each epoch goes through them %d times (%d steps)", len(tr), reps, math.ceil(reps * len(tr) / bs))
+    steps = max(1, math.ceil(reps * len(tr) / bs))
     sched_kind = P["scheduler"]
     if sched_kind == "cosine":
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=lr * 0.01)
@@ -648,7 +657,7 @@ def train(dataset: str | Path, out_dir: str | Path, *, arch: str = "unet", encod
 
     def run_epoch(ds, train_mode, bs_now):
         model.train(train_mode)
-        order = np.random.permutation(len(ds)) if train_mode else np.arange(len(ds))
+        order = np.concatenate([np.random.permutation(len(ds)) for _ in range(reps)]) if train_mode else np.arange(len(ds))
         tot, nbat = 0.0, 0
         cm = torch.zeros(K, K, dtype=torch.int64, device=dev)
         for s in range(0, len(order), bs_now):
@@ -751,7 +760,7 @@ def train(dataset: str | Path, out_dir: str | Path, *, arch: str = "unet", encod
             progress.live(_clean({"history": history, "best_epoch": best["epoch"], "monitor": P["monitor"], "epochs": epochs,
                                   "eta_s": round(eta), "batch_size": bs, "device": str(dev)}))
             progress.update((ep + 1) / epochs * 0.96, f"Epoch {ep + 1}/{epochs} · val mIoU {mva['miou']:.3f}")
-            if P["early_stop"] and since_best >= int(P["patience"]):
+            if P["early_stop"] and since_best >= int(P["patience"]) and ep + 1 >= min(MIN_EPOCHS, epochs):
                 stopped, stop_reason = True, f"early stopping: no improvement in {P['patience']} epochs"
                 log.info("Early stopping at epoch %d (best epoch %s)", ep + 1, best["epoch"])
                 break

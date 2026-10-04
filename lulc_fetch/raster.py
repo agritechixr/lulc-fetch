@@ -17,7 +17,7 @@ from .aoi import Grid
 
 def read_to_grid(href: str, grid: Grid, env: dict, *, indexes: int | list[int] = 1,
                  resampling: Resampling = Resampling.bilinear,
-                 src_nodata: float | None = None, retries: int = 3) -> np.ndarray:
+                 src_nodata: float | None = None, retries: int = 5) -> np.ndarray:
     """Warp a (remote) raster onto `grid`. Returns float32 with NaN where there is no data.
 
     Only the blocks overlapping the grid are fetched, so a small AOI out of a 110 km tile
@@ -32,10 +32,10 @@ def read_to_grid(href: str, grid: Grid, env: dict, *, indexes: int | list[int] =
                                src_nodata=nodata, nodata=nodata) as vrt:
                     data = vrt.read(indexes, masked=True)
             return data.astype("float32").filled(np.nan)
-        except RasterioIOError:
+        except RasterioIOError as e:   # a slow or busy server: wait longer each time (3, 6, 12, 24 s)
             if attempt == retries - 1:
-                raise
-            time.sleep(2 * (attempt + 1))
+                raise RasterioIOError(f"Couldn't read {str(href).split('?')[0].split('/')[-1]} from the imagery server after {retries} tries ({e})") from e
+            time.sleep(3 * 2 ** attempt)
 
 
 def write_geotiff(path: str | Path, data: np.ndarray, grid: Grid, *, descriptions=None,

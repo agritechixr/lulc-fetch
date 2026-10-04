@@ -56,7 +56,7 @@
   function colDefaults(c) {
     const meta = mlx.desc.meta || {}, target = $("#mt-target").value;
     const labelCols = new Set([...(meta.label_columns || []), target]);
-    const skip = COORDS.includes(c.name) || labelCols.has(c.name) || ID_COLS.includes(c.name.toLowerCase()) || c.type === "text";
+    const skip = COORDS.includes(c.name) || labelCols.has(c.name) || ID_COLS.includes(c.name.toLowerCase()) || /(^|_)id$/i.test(c.name) || c.type === "text";
     return { role: skip ? "ignore" : "feature", type: c.suggest || (c.type === "text" ? "categorical" : "numeric") };
   }
   function renderColumns(useDefaults) {

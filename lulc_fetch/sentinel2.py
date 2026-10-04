@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 
 import numpy as np
+from rasterio.errors import RasterioIOError
 from pystac import Item
 from rasterio.enums import Resampling
 
@@ -159,6 +160,16 @@ def _run_all(tasks, label: str) -> list:
     return out
 
 
+def _or_empty(fut, grid: Grid, scene, band: str, failed: set) -> np.ndarray:
+    """A band of one scene, or empty (left out of the composite) when the server keeps failing for it."""
+    try:
+        return fut.result()
+    except RasterioIOError as e:
+        failed.add(getattr(scene, "id", str(scene)))
+        log.warning("Left out of the composite: %s %s (%s)", getattr(scene, "id", scene), band, e)
+        return np.full((grid.height, grid.width), np.nan, dtype="float32")
+
+
 def composite(source: Source, scenes: list[Scene], grid: Grid, bands: list[str],
               stat: str = "median", mem_budget: float = 1.5e9) -> tuple[dict[str, np.ndarray], np.ndarray]:
     """Cloud-masked per-pixel median (or mean) over all scenes.
@@ -175,14 +186,17 @@ def composite(source: Source, scenes: list[Scene], grid: Grid, bands: list[str],
     with progress.span(0, 0.2):
         masks = np.stack(_run_all([lambda s=s: clear_mask(source, s, grid, env) for s in scenes], "Reading cloud masks"))
     count = masks.sum(axis=0).astype("uint16")
-    out = {}
+    out, failed = {}, set()
     with ThreadPoolExecutor(MAX_WORKERS) as ex:
         for i in range(0, len(bands), group):
             batch = bands[i:i + group]
             log.info("Compositing %s...", ", ".join(batch))
             futures = {b: [ex.submit(read_band, source, s, b, grid, env) for s in scenes] for b in batch}
             for band, futs in futures.items():
-                cube = np.stack([f.result() for f in futs])
+                cube = np.stack([_or_empty(f, grid, scenes[k], band, failed) for k, f in enumerate(futs)])
+                if len(failed) > len(scenes) // 2:
+                    raise RuntimeError(f"The imagery server didn't answer for {len(failed)} of {len(scenes)} scenes: try again later "
+                                       "(or a shorter date range / fewer scenes)")
                 progress.update(0.2 + 0.8 * (bands.index(band) + 1) / len(bands), f"Compositing {band}")
                 cube[~masks] = np.nan
                 with warnings.catch_warnings():

@@ -35,6 +35,11 @@ from . import progress
 from .analysis import _palette, clip_region
 from .tabular import _GroundTruth, _column_names
 
+WORLDCOVER = {10: ("Tree cover", "#006400"), 20: ("Shrubland", "#ffbb22"), 30: ("Grassland", "#ffff4c"), 40: ("Cropland", "#f096ff"),
+              50: ("Built-up", "#fa0000"), 60: ("Bare / sparse vegetation", "#b4b4b4"), 70: ("Snow and ice", "#f0f0f0"),
+              80: ("Permanent water bodies", "#0064c8"), 90: ("Herbaceous wetland", "#0096a0"), 95: ("Mangroves", "#00cf75"),
+              100: ("Moss and lichen", "#fae6a0")}   # ESA WorldCover classes and colours
+
 log = logging.getLogger(__name__)
 MAX_PATCHES = 200_000
 PREVIEW_CELLS = 2500
@@ -203,6 +208,11 @@ def make(inputs: list[dict], out_parent: str | Path, *, name: str = "training_pa
                     lab = gt.strip(ref.window_transform(win), (int(win.height), int(win.width)), ref.crs)
                     found |= {float(v) for v in np.unique(lab[np.isfinite(lab)])}
                 values = sorted(found)
+                # ESA WorldCover without its legend (e.g. a cut-out): its official class names and colours
+                ints = {int(v) for v in values if float(v).is_integer()}
+                if not names and ints and ints <= set(WORLDCOVER) and re.search(r"world_?cover", str(ground_truth.get("path", "")), re.I):
+                    names = {v: WORLDCOVER[v][0] for v in ints}
+                    colors = {v: WORLDCOVER[v][1] for v in ints}
             else:
                 if gt.names:
                     values = sorted(gt.names)
