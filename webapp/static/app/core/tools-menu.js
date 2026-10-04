@@ -58,6 +58,7 @@
              subtitles: { rasterml: "Map crops or land cover from an embedding layer and a few labelled points (k-NN, SVM, SAM…)",
                           ml: "Cluster an embedding (Raster → table first) without labels, or train on tables",
                           pca: "Reduce the 64 / 128 dimensions to a few components" } },
+    library: { el: "#library-menu", label: "", shortcuts: [] },
   };
   let currentTool = "home";
 

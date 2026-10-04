@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Library menu:** ready-made GIS data from Hugging Face. The first dataset, *Indian shapefiles*, has 307 layers of India
+  (states, districts, sub-districts, villages, constituencies, city wards, PIN-code areas, highways, railways…); every
+  dataset uploaded to the library account appears too. Search, then add to the map; each file is downloaded once.
+- **+ Add data:** a CSV / Excel / Parquet table with latitude / longitude columns also goes on the map as points; the
+  columns are found by name and value, or chosen in a dialog.
+- **Data viewer:** right-click a column (sort, statistics, rename, calculate, convert, delete) or a cell (copy, filter by
+  this value, show on the map, edit, delete the row).
+- Right-click the map: copy coordinates (lat / lon / UTM), what's here, add a point, start tools there.
+
 ## 0.0.2 beta (2026-10-04)
 
 **New menus and tools**

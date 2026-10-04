@@ -27,6 +27,7 @@ A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your 
 | **Classical ML: unsupervised** | **Clustering** with K-means, hierarchical (dendrogram), DBSCAN, HDBSCAN, spectral clustering and Gaussian mixture: automatic choice of k, quality scores, cluster profiles, comparison with known labels, and **unsupervised classification of images**. **t-SNE maps** to see how classes or clusters separate. |
 | **Export data** | Save any layer as GeoTIFF, PNG, Shapefile, GeoJSON or KML, for the whole layer or just an area |
 | **Embeddings menu**: Download, Train, Classify, Convert and Explore embeddings | Free AI embeddings for any area, no account: **Google AlphaEarth** (64-D) and **TESSERA** (128-D), 10 m, 2017–2025. See which years exist for your area, download them as a GeoTIFF (only the needed parts are read), get a colour view (PCA), **find places similar** to the ones you click, then classify or cluster them. **Train embedding model** trains one of eleven light segmentation models (TinyUNet, ENet, DABNet, LEDNet…, 0.15–0.95 M parameters, all bands, 256 × 256 patches) on your labels and maps the layer; **Classify with embedding model** maps other areas or years. **Convert embeddings** turns 8-bit (AlphaEarth coding or scaled per band) into 16 / 32-bit float and back, showing how much the values change |
+| **Library menu**: ready-made GIS data | India's states, districts, sub-districts, villages, constituencies, city wards, highways, railways… (307 layers) and anything else uploaded to the library on Hugging Face: search and add to the map, downloaded once |
 
 **Agri menu** (from the Multi-Crop Disease Decision Support System):
 
@@ -110,7 +111,7 @@ Deep-learning tools: `.venv/bin/pip install -e ".[web,dl]"` (or click *Install t
 
 No account is needed to search and download imagery. Accounts are only needed for original Copernicus or USGS product downloads.
 
-Code layout: one file per tool on each level, `lulc_fetch/` (science), `webapp/routes/<tool>.py` (server) and `webapp/static/app/tools/` or `webapp/static/tools/<menu>/` (browser); what every tool shares is in `webapp/core.py` and `webapp/static/app/core/` / `webapp/static/tools/lf.js`. See the [User Guide, section 33](docs/USER_GUIDE.md#33-for-developers-adding-a-tool) to add a tool.
+Code layout: one file per tool on each level, `lulc_fetch/` (science), `webapp/routes/<tool>.py` (server) and `webapp/static/app/tools/` or `webapp/static/tools/<menu>/` (browser); what every tool shares is in `webapp/core.py` and `webapp/static/app/core/` / `webapp/static/tools/lf.js`. See the [User Guide, section 34](docs/USER_GUIDE.md#34-for-developers-adding-a-tool) to add a tool.
 
 ## Tests
 

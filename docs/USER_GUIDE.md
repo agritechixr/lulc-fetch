@@ -28,15 +28,16 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 22. [Agri: Diagnose crop disease](#22-agri-diagnose-crop-disease)
 23. [Agri: Crop disease guide](#23-agri-crop-disease-guide)
 24. [Embeddings: Download, Convert and Explore](#24-embeddings-download-convert-and-explore)
-25. [Export data](#25-export-data)
-26. [Downloads & jobs](#26-downloads--jobs)
-27. [Credentials](#27-credentials)
-28. [Command-line tool](#28-command-line-tool)
-29. [Data sources and band conventions](#29-data-sources-and-band-conventions)
-30. [Files and folders](#30-files-and-folders)
-31. [Limits and known issues](#31-limits-and-known-issues)
-32. [Troubleshooting](#32-troubleshooting)
-33. [For developers: adding a tool](#33-for-developers-adding-a-tool)
+25. [Library: ready-made GIS data](#25-library-ready-made-gis-data)
+26. [Export data](#26-export-data)
+27. [Downloads & jobs](#27-downloads--jobs)
+28. [Credentials](#28-credentials)
+29. [Command-line tool](#29-command-line-tool)
+30. [Data sources and band conventions](#30-data-sources-and-band-conventions)
+31. [Files and folders](#31-files-and-folders)
+32. [Limits and known issues](#32-limits-and-known-issues)
+33. [Troubleshooting](#33-troubleshooting)
+34. [For developers: adding a tool](#34-for-developers-adding-a-tool)
 
 ---
 
@@ -54,7 +55,7 @@ python3 -m venv .venv
 - `lulc-fetch-web --port 8080` runs on another port. `--no-browser` stops it from opening a browser tab.
 - Stop the server with **Ctrl+C** in the terminal.
 
-The app runs entirely on your computer. Searching and downloading uses free public catalogues with no login. Accounts are only needed for Copernicus and USGS original-product downloads (see [Credentials](#27-credentials)).
+The app runs entirely on your computer. Searching and downloading uses free public catalogues with no login. Accounts are only needed for Copernicus and USGS original-product downloads (see [Credentials](#28-credentials)).
 
 ---
 
@@ -1203,7 +1204,36 @@ stored upside down and as 8-bit codes; the tool flips and decodes them (value = 
 AlphaEarth's file index once (70 MB), kept in `embeddings_cache/`. TESSERA comes from Source Cooperative: only the rows of
 each 0.1° tile that cross the area are downloaded, then decoded with the tile's scales and placed with its landmask.
 
-## 25. Export data
+## 25. Library: ready-made GIS data
+
+**Library ▸ Data library** adds ready-made GIS data to the map: boundaries of India's states, districts, sub-districts,
+villages, assembly and parliamentary constituencies, city wards, PIN-code areas, national highways, railways and more.
+The data is kept on Hugging Face (free, no account needed), and each file is downloaded once, into the project's
+`downloads/library/`.
+
+1. **Dataset:** every public dataset of the library's Hugging Face account (`ixrbhii`) is listed, so anything uploaded
+   there later appears here too. *Other accounts…* adds more Hugging Face accounts or organisations. The first dataset is
+   **Indian shapefiles** ([ixrbhii/indian-shapefiles](https://huggingface.co/datasets/ixrbhii/indian-shapefiles)): 307
+   GeoJSON layers from [datta07/INDIAN-SHAPEFILES](https://github.com/datta07/INDIAN-SHAPEFILES), MIT licence.
+2. **Find:** type words (e.g. `karnataka districts`, `bengaluru`, `villages`, `railways`); every word must appear in the
+   file's name, title or kind. Narrow down by kind (*Maps*, *Rasters*, *Tables*), group (*India*, *States*, *Metropolitan
+   cities*) and place (a state). Each file shows its kind, number of features, size and fields.
+3. **Add:** downloads the file (checked against Hugging Face's checksum) and adds it: GeoJSON, shapefiles, KML and
+   zipped shapefiles as a vector layer, GeoTIFFs as a raster layer, CSV / Excel / Parquet as a table (with its points on
+   the map when it has latitude / longitude). Files already downloaded show **✓ Add** and open without the internet.
+   Large files (e.g. all of India's highways, 100 MB) ask first: the map can be slow with that many shapes.
+
+**Adding your own data to the library:** put the files in a folder, then
+
+```bash
+python -m lulc_fetch.library catalog <folder> "Title" "source / licence"     # optional: titles, kinds, feature counts, extents
+python -m lulc_fetch.library upload  <folder> ixrbhii/<dataset-name>          # needs `hf auth login` once; resumes if interrupted
+```
+
+The dataset then appears in the Library (Refresh). Only upload data whose licence allows it, and keep its licence file
+and credit in the folder.
+
+## 26. Export data
 
 **Tools ▸ Export data**, or right-click a layer ▸ **Export / save to computer**.
 
@@ -1223,7 +1253,7 @@ Files are saved to your browser's Downloads folder.
 
 ---
 
-## 26. Downloads & jobs
+## 27. Downloads & jobs
 
 **Tools ▸ Downloads & jobs** lists background jobs (downloads, composites, product downloads, Sentinel-1 processing, …). Each job shows:
 - its progress, current step and **Cancel**
@@ -1236,7 +1266,7 @@ Downloads that finish while the app is open are added to Contents automatically.
 
 ---
 
-## 27. Credentials
+## 28. Credentials
 
 Click **Credentials** (top right). Secrets are stored in your **operating-system keychain** (macOS Keychain, Windows Credential Locker, Linux Secret Service). They're never shown again or sent back to the browser, and are only used with the service they belong to. Each entry has a **Test** button.
 
@@ -1251,7 +1281,7 @@ Click **Credentials** (top right). Secrets are stored in your **operating-system
 
 ---
 
-## 28. Command-line tool
+## 29. Command-line tool
 
 `lulc-fetch` does the downloading parts without the web app. An area can be given as `--bbox minlon,minlat,maxlon,maxlat`, `--geojson file.geojson`, `--point lon,lat --buffer-km 5`, or `--match existing.tif` (reuse a raster's exact grid).
 
@@ -1281,7 +1311,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 29. Data sources and band conventions
+## 30. Data sources and band conventions
 
 | Source | Login | Notes |
 |---|---|---|
@@ -1299,7 +1329,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 30. Files and folders
+## 31. Files and folders
 
 With a project open, these folders are inside the project folder (next to `lulc_project.json`). Without a project they are in the app's folder (the temporary workspace). `data/` is always also read from the app's folder. The list of recent projects is stored in `~/.lulc-fetch/recent.json`.
 
@@ -1322,7 +1352,7 @@ All of these are excluded from git.
 
 ---
 
-## 31. Limits and known issues
+## 32. Limits and known issues
 
 - **Download size:** one download is capped at 60 M pixels (≈77 × 77 km at 10 m). Use a coarser pixel size or split the area.
 - **Map previews** of large rasters are drawn at reduced resolution (≈1400 px), and their statistics come from that preview unless you pick an area. **GeoTIFF exports are always full resolution.**
@@ -1341,7 +1371,7 @@ All of these are excluded from git.
 
 ---
 
-## 32. Troubleshooting
+## 33. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -1360,7 +1390,7 @@ All of these are excluded from git.
 
 ---
 
-## 33. For developers: adding a tool
+## 34. For developers: adding a tool
 
 The web app is a FastAPI backend (`webapp/`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package. Every tool keeps its own code in its own files, on all three levels, so changing one tool never touches another; what all tools share is in one place per level (the "universe"):
 

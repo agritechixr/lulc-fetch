@@ -54,7 +54,7 @@
 
   Object.assign(LF, {
     $, $$, esc, fmt, prefs, api, toast, status, map, layers, getLayer, addRasterFromPath, addVectorLayer, saveLayers,
-    dataItems, addItem, openItem, trackJob, notCancelled, runJob, runButton, showResult: showRunResult, switchTool, openTool,
+    dataItems, addItem, openItem, tablePoints, trackJob, notCancelled, runJob, runButton, showResult: showRunResult, switchTool, openTool,
     getClip, refreshClipPicker, updateClipHint, startDraw, fillLayers, touched, autoName, limitDevices, stillImproving,
     renderAddon, tipBtn, modelPicker, searchPicker, pickFolder, floatWin,
   });
