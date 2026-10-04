@@ -10,7 +10,7 @@
     subtitle: "Make a continuous surface (GeoTIFF) from values measured at points, e.g. air quality at monitoring stations, rainfall at gauges, soil samples: IDW, kriging, spline, natural neighbour, nearest neighbour, trend surface or TIN, cut to an area, with a check of how well each method predicts",
     kinds: ["interp", "interpcompare"],
     save: [["interp", "#ip-run", "the interpolated GeoTIFF"]],
-    clip: { "ip-area": { what: "surface covers" } },
+    clip: { "ip-area": { what: "area around the points is mapped" } },
     panel: `
       <div class="card">
         <h2>Points <span class="req">required</span> ${tip("A layer of points with a number to interpolate: add a CSV with latitude / longitude columns (+ Add data puts its rows on the map), a shapefile / GeoJSON of points, or the Library's data.")}</h2>
@@ -21,9 +21,8 @@
       <div class="card">
         <h2>Method</h2>
         <div id="ip-methods"></div>
-        <p class="hint" id="ip-method-info"></p>
         <div class="grid2" id="ip-params"></div>
-        <button class="btn small" id="ip-compare" style="margin-top:8px">Compare all methods</button>
+        <div class="row tight" style="margin-top:8px;gap:4px;align-items:center"><button class="btn small" id="ip-compare">Compare all methods</button>${tip("Each point is predicted from the others (leave-one-out) with every method: lower RMSE / MAE is better, bias near 0 is better. Methods that work only inside the points' hull can check fewer points, so they're listed after the rest. Click a row to use that method.")}</div>
         <div id="ip-compare-box"></div>
       </div>
       <div class="card">
@@ -65,13 +64,15 @@
         const skip = /^(lat|lon|lng|long|latitude|longitude|x|y|no|id|fid|objectid)$/i;
         f.innerHTML = keys.length ? keys.map((k) => `<option>${esc(k)}</option>`).join("") : `<option value="">No number fields</option>`;
         f.value = keys.includes(cur) ? cur : keys.find((k) => /aqi|value|rain|temp|pm|elev|height|depth|conc/i.test(k)) || keys.find((k) => !skip.test(k)) || keys[0] || "";
+        st.onlyIds = keys.length > 0 && keys.every((k) => skip.test(k));
         fieldInfo();
       }
       function fieldInfo() {
         const l = getLayer($("#ip-layer").value), k = $("#ip-field").value;
         const v = (l?.geojson.features || []).map((x) => x.properties?.[k]).filter(isNum).map(Number);
-        $("#ip-info").textContent = v.length ? `${v.length} points with a value · ${fmt(Math.min(...v), 1)} to ${fmt(Math.max(...v), 1)} · mean ${fmt(v.reduce((a, b) => a + b, 0) / v.length, 1)}` +
-          (v.length < 10 ? ". Few points: every method is only a rough guess between them; Kriging needs 10+ to fit its model well." : "") : "";
+        $("#ip-info").innerHTML = st.onlyIds ? `<span style="color:var(--warn)">This layer has no measured values, only IDs / coordinates (${esc(k)}): choose a layer with values, e.g. AQI readings</span>`
+          : v.length ? `${v.length} points · ${fmt(Math.min(...v), 1)} to ${fmt(Math.max(...v), 1)} · mean ${fmt(v.reduce((a, b) => a + b, 0) / v.length, 1)}` +
+            (v.length < 10 ? ` ${tipBtn("Few points: every method is only a rough guess between them; Kriging needs 10+ to fit its model well.")}` : "") : "";
         if (/aqi/i.test(k) && $("#ip-cmap").value === "auto") $("#ip-cmap").value = "AQI";
         autoName($("#ip-name"), `${k || "value"}_${st.method}`);
         $("#ip-compare-box").innerHTML = "";
@@ -80,10 +81,9 @@
         const M = st.schema.methods;
         if (!M[st.method]) st.method = "idw";
         modelPicker($("#ip-methods"), { value: st.method, onChange: (k) => { st.method = k; prefs.set("ip-method", k); renderMethods(); fieldInfo(); },
-          items: Object.entries(M).map(([k, m]) => ({ id: k, title: m.title, badge: k === "idw" ? "simple" : k === "kriging" ? "statistical" : "",
-            meta: `<span>${esc(m.good)}</span>`, tip: m.desc })) });
+          items: Object.entries(M).map(([k, m]) => ({ id: k, title: m.title.replace(/ \(.*\)$/, ""), badge: k === "idw" ? "simple" : k === "kriging" ? "statistical" : "",
+            tip: `${m.desc} Good for: ${m.good}.` })) });
         const m = M[st.method];
-        $("#ip-method-info").textContent = m.desc;
         $("#ip-params").innerHTML = m.params.map((p) => {
           const v = st.params[`${st.method}.${p.name}`] ?? p.default;
           const input = p.kind === "select" ? `<select data-ipp="${p.name}">${p.options.map(([o, t]) => `<option value="${esc(o)}" ${String(o) === String(v) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`
@@ -116,7 +116,7 @@
           $("#ip-compare-box").innerHTML = `<table class="ip-cmp"><thead><tr><th>Method</th><th>RMSE</th><th>MAE</th><th>Bias</th><th>Checked</th></tr></thead><tbody>${r.rows.map((x) =>
             `<tr class="${x === best ? "best" : ""} ${x.checked_all === false ? "partial" : ""}" data-ipm="${esc(x.method)}"><td>${esc(x.title.replace(/ \(.*\)/, ""))}</td>${x.rmse == null ? `<td colspan="4" class="hint">${esc(x.skipped || "")}</td>`
               : `<td>${fmt(x.rmse, 2)}</td><td>${fmt(x.mae, 2)}</td><td>${fmt(x.bias, 2)}</td><td>${x.n}</td>`}</tr>`).join("")}</tbody></table>
-            <p class="hint">Each point is predicted from the others (leave-one-out): lower RMSE / MAE is better; bias near 0 is better. Methods that work only inside the points' hull can check fewer points, so they're listed after the rest. Click a row to use that method.</p>`;
+`;
           $$("#ip-compare-box [data-ipm]").forEach((tr) => tr.onclick = () => { st.method = tr.dataset.ipm; prefs.set("ip-method", st.method); renderMethods(); fieldInfo(); });
         } catch (e) { $("#ip-compare-box").innerHTML = ""; if (notCancelled(e)) toast(e.message, true); }
         finally { btn.disabled = false; }
@@ -135,12 +135,12 @@
         const cv = r.cv || {}, vg = r.variogram;
         showResult("ip", `<div class="card rm-head-card"><h2 style="margin:0">✓ ${esc(r.method_title)}</h2>
           <div class="pca-sum">${r.points} points → ${r.width.toLocaleString()} × ${r.height.toLocaleString()} cells of ${fmt(r.res_m, 0)} m (${esc(r.crs)}) · surface ${fmt(r.min, 1)} to ${fmt(r.max, 1)} (points ${fmt(r.data_min, 1)} to ${fmt(r.data_max, 1)})${r.duplicates_merged ? " · points at the same place averaged" : ""}</div>
-          ${cv.rmse != null ? `<div class="metric-tiles" style="margin-top:8px;grid-template-columns:repeat(3,1fr)"><div class="metric"><b>${fmt(cv.rmse, 2)}</b><span>RMSE ${tipBtn("Leave-one-out: each point predicted from the others. The typical error of a prediction, in the value's units.")}</span></div>
+          ${cv.rmse != null ? `<div class="metric-tiles" style="margin-top:8px;grid-template-columns:repeat(3,1fr)"><div class="metric"><b>${fmt(cv.rmse, 2)}</b><span>RMSE ${tipBtn(`Leave-one-out: each point predicted from the others (checked at ${cv.n} of ${r.points} points). The typical error of a prediction, in the value's units.`)}</span></div>
             <div class="metric"><b>${fmt(cv.mae, 2)}</b><span>MAE</span></div><div class="metric"><b>${fmt(cv.bias, 2)}</b><span>Bias</span></div></div>
-            <p class="hint">Checked at ${cv.n} of ${r.points} points (each predicted from the others).</p>` : `<p class="hint">${esc(cv.skipped || "")}</p>`}
-          ${vg ? `<p class="hint">Semivariogram: ${esc(vg.model)}, nugget ${fmt(vg.nugget, 2)}, sill ${fmt(vg.sill, 2)}, range ${fmt(vg.range / 1000, 1)} km${vg.fitted ? "" : " (not fitted: too few points; defaults used)"}. Band 2 of the layer is the kriging standard error.</p>` : ""}
+` : `<p class="hint">${esc(cv.skipped || "")}</p>`}
+          ${vg ? `<p class="hint">Semivariogram ${tipBtn(`${vg.model}, nugget ${fmt(vg.nugget, 2)}, sill ${fmt(vg.sill, 2)}, range ${fmt(vg.range / 1000, 1)} km${vg.fitted ? "" : " (not fitted: too few points, so defaults were used)"}. Band 2 of the layer is the kriging standard error.`)}</p>` : ""}
           ${cmap === "AQI" ? `<div class="ip-aqi">${[["Good", "0–50", "#009966"], ["Satisfactory", "51–100", "#9ccc3c"], ["Moderate", "101–200", "#ffde33"], ["Poor", "201–300", "#ff9933"], ["Very poor", "301–400", "#e53935"], ["Severe", "401–500", "#7e0023"]].map(([t, rng, c]) => `<span><i style="background:${c}"></i>${t} <small>${rng}</small></span>`).join("")}</div>` : ""}
-          <p class="hint">Added to Contents above the points. Click the map to read a cell's value; export it like any layer.</p></div>`);
+          </div>`);
       });
 
       return { open, layersChanged: renderLayers };
