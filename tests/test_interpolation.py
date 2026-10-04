@@ -58,3 +58,66 @@ def test_api_run_and_compare(client, pts):
     assert (ws.root() / r["path"]).is_file() and r["variogram"]["model"] == "exponential"
     c = run(client, "/api/interp/compare", {"points": pts, "field": "v"})
     assert len(c["rows"]) == 7 and c["rows"][0]["rmse"] is not None
+
+
+# ---- checks of each method's mathematics (the same results were compared once with PyKrige for kriging)
+@pytest.fixture(scope="module")
+def xyz():
+    rng = np.random.default_rng(7)
+    x, y = rng.random(30) * 20000, rng.random(30) * 20000
+    return x, y, 50 + 30 * np.sin(x / 4000) + 20 * np.cos(y / 5000) + rng.normal(0, 1, 30), rng
+
+
+@pytest.mark.parametrize("method,params", [("idw", {}), ("kriging", {"nugget": "zero"}), ("spline", {"smoothing": 0}), ("nearest", {}), ("tin", {})])
+def test_exact_at_the_points(xyz, method, params):
+    x, y, z, _ = xyz
+    assert np.allclose(it.predict(method, x, y, z, x, y, params), z, atol=1e-6)
+
+
+def test_a_plane_is_reproduced(xyz):
+    x, y, _, rng = xyz
+    zl = 10 + 0.002 * x - 0.0015 * y
+    xq, yq = rng.random(500) * 20000, rng.random(500) * 20000
+    truth = 10 + 0.002 * xq - 0.0015 * yq
+    for m, p in (("tin", {}), ("trend", {"order": "1"}), ("spline", {"smoothing": 0})):
+        v = it.predict(m, x, y, zl, xq, yq, p)
+        k = np.isfinite(v)
+        assert np.allclose(v[k], truth[k], atol=1e-6), m
+    # natural neighbour (discrete Sibson): exact up to the cell size inside, a little less near the hull edge
+    c = 50.0
+    gx, gy = np.meshgrid(np.arange(0, 20000 + c, c), np.arange(0, 20000 + c, c))
+    g = it._natural_grid(x, y, zl, gx, gy, c, {"outside": "empty"})
+    e = np.abs(g - (10 + 0.002 * gx - 0.0015 * gy))
+    assert np.nanmean(e) < 0.005 * np.ptp(zl) and np.nanmax(e) < 0.08 * np.ptp(zl)
+
+
+def test_idw_and_nearest_formulas(xyz):
+    x, y, z, rng = xyz
+    xq, yq = rng.random(50) * 20000, rng.random(50) * 20000
+    d = np.hypot(xq[:, None] - x, yq[:, None] - y)
+    w = 1 / d ** 2
+    assert np.allclose(it.predict("idw", x, y, z, xq, yq, {"power": 2}), (w * z).sum(1) / w.sum(1))
+    assert np.array_equal(it.predict("nearest", x, y, z, xq, yq), z[np.argmin(d, 1)])
+
+
+def test_gaussian_kriging_stays_stable(xyz):
+    x, y, z, rng = xyz
+    vg = it.fit_variogram(x, y, z, "gaussian", "auto")
+    assert vg["nugget"] >= 0.01 * vg["sill"] - 1e-9
+    v = it._kriging(x, y, z, rng.random(2000) * 20000, rng.random(2000) * 20000, {"model": "gaussian", "nugget": "auto"}, vg)
+    assert v.min() > z.min() - 0.5 * np.ptp(z) and v.max() < z.max() + 0.5 * np.ptp(z)
+
+
+def test_many_points_use_a_search_neighbourhood(xyz):
+    from scipy.spatial.distance import cdist
+    _, _, _, rng = xyz
+    n = 700
+    x, y = rng.random(n) * 20000, rng.random(n) * 20000
+    z = 50 + 30 * np.sin(x / 4000) + 20 * np.cos(y / 5000)
+    xq, yq = rng.random(300) * 20000, rng.random(300) * 20000
+    vg = it.fit_variogram(x, y, z, "spherical", "auto")
+    local = it._kriging(x, y, z, xq, yq, {"model": "spherical", "nugget": "auto"}, vg)
+    gm = lambda h: it._vmodel("spherical", h, vg["nugget"], vg["sill"], vg["range"])   # noqa: E731
+    A = np.ones((n + 1, n + 1)); A[:n, :n] = gm(cdist(np.c_[x, y], np.c_[x, y])); A[n, n] = 0
+    full = np.linalg.solve(A, np.vstack([gm(cdist(np.c_[x, y], np.c_[xq, yq])), np.ones((1, len(xq)))]))[:n].T @ z
+    assert np.mean(np.abs(local - full)) < 0.01 * np.ptp(z)

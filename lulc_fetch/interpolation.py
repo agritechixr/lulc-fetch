@@ -35,7 +35,9 @@ METHODS = {
     "kriging": {"title": "Kriging (ordinary)", "min_points": 5,
                 "desc": "Uses the spatial autocorrelation of the values: a semivariogram fitted to how differences grow "
                         "with distance sets the weights. The best linear unbiased estimate, with its standard error as band 2. "
-                        "Needs enough points (10+) to fit the semivariogram well.",
+                        "Needs enough points (10+) to fit the semivariogram well. With more than 500 points each cell uses its "
+                        "48 nearest (a search neighbourhood); a Gaussian model always gets a small nugget (1 % of the sill) to "
+                        "stay stable.",
                 "good": "groundwater, soil properties, pollution",
                 "params": [P("model", "Semivariogram model", "select", "spherical", "The shape of the fitted semivariogram.",
                              options=[["spherical", "Spherical (usual)"], ["exponential", "Exponential"], ["gaussian", "Gaussian (very smooth)"], ["linear", "Linear (no sill)"]]),
@@ -49,7 +51,8 @@ METHODS = {
     "natural": {"title": "Natural neighbour", "min_points": 3,
                 "desc": "Sibson's method: each cell takes the values of its Voronoi neighbours, weighted by how much of their "
                         "area a new point there would take. Local, smooth and never beyond the data range; defined inside "
-                        "the points' convex hull.",
+                        "the points' convex hull. Computed on the output grid (discrete Sibson): very close to exact inside, "
+                        "a little less so within about a kilometre of the outermost points.",
                 "good": "elevation, rainfall",
                 "params": [P("outside", "Outside the points' hull", "select", "empty", "Natural neighbour is defined inside the hull of the points.",
                              options=[["empty", "Leave empty"], ["nearest", "Fill with the nearest value"]])]},
@@ -110,7 +113,8 @@ def _nearest(x, y, z, xq, yq, p=None):
 def _spline(x, y, z, xq, yq, p):
     from scipy.interpolate import RBFInterpolator
     s = (x.mean(), y.mean(), max(np.ptp(x), np.ptp(y), 1.0))   # scaled coordinates keep the system well conditioned
-    f = RBFInterpolator(np.c_[(x - s[0]) / s[2], (y - s[1]) / s[2]], z, kernel="thin_plate_spline", smoothing=float(p["smoothing"]))
+    f = RBFInterpolator(np.c_[(x - s[0]) / s[2], (y - s[1]) / s[2]], z, kernel="thin_plate_spline", smoothing=float(p["smoothing"]),
+                        neighbors=64 if len(x) > 1000 else None)   # many points: each cell from its 64 nearest (fast, local)
     out = np.empty(len(xq))
     for a in range(0, len(xq), 100_000):
         out[a:a + 100_000] = f(np.c_[(xq[a:a + 100_000] - s[0]) / s[2], (yq[a:a + 100_000] - s[1]) / s[2]])
@@ -179,8 +183,32 @@ def fit_variogram(x, y, z, model="spherical", nugget="auto") -> dict:
         fitted = True
     except (RuntimeError, ValueError):
         n0, s, r, fitted = p0[0], var, maxd / 2, False
-    return {"model": model, "nugget": float(n0), "sill": float(s), "range": float(r), "fitted": fitted,
+    floor = None
+    if model == "gaussian" and n0 < 0.01 * s:   # a Gaussian semivariogram without a nugget is numerically unstable (wild
+        floor, n0 = n0, 0.01 * s                # overshoots): 1 % of the sill, as GIS packages add
+    return {"model": model, "nugget_raised": floor is not None, "nugget": float(n0), "sill": float(s), "range": float(r), "fitted": fitted,
             "lags": lag.round(1).tolist(), "gamma": gam.round(4).tolist(), "pairs": cnt}
+
+
+def _kriging_local(x, y, z, xq, yq, gm, k=48, variance=False):
+    """Ordinary kriging from each query point's k nearest points (a search neighbourhood), many small systems at once."""
+    from scipy.spatial import cKDTree
+    tree = cKDTree(np.c_[x, y])
+    est, sd = np.empty(len(xq)), np.empty(len(xq)) if variance else None
+    for a in range(0, len(xq), 4000):
+        qx, qy = xq[a:a + 4000], yq[a:a + 4000]
+        _, idx = tree.query(np.c_[qx, qy], k=k)
+        px, py = x[idx], y[idx]                                   # (m, k)
+        A = np.ones((len(qx), k + 1, k + 1))
+        A[:, :k, :k] = gm(np.hypot(px[:, :, None] - px[:, None, :], py[:, :, None] - py[:, None, :]))
+        A[:, k, k] = 0.0
+        b = np.ones((len(qx), k + 1))
+        b[:, :k] = gm(np.hypot(px - qx[:, None], py - qy[:, None]))
+        w = np.linalg.solve(A, b[..., None])[..., 0]
+        est[a:a + 4000] = (w[:, :k] * z[idx]).sum(1)
+        if variance:
+            sd[a:a + 4000] = np.sqrt(np.maximum((w * b).sum(1), 0))
+    return (est, sd) if variance else est
 
 
 def _kriging(x, y, z, xq, yq, p, vg=None, variance=False):
@@ -188,10 +216,12 @@ def _kriging(x, y, z, xq, yq, p, vg=None, variance=False):
     vg = vg or fit_variogram(x, y, z, p["model"], p["nugget"])
     gm = lambda h: _vmodel(vg["model"], h, vg["nugget"], vg["sill"], vg["range"])  # noqa: E731
     n = len(x)
+    if n > 500:   # many points: a search neighbourhood (48 nearest), as GIS packages do
+        return _kriging_local(x, y, z, xq, yq, gm, variance=variance)
     A = np.ones((n + 1, n + 1))
     A[:n, :n] = gm(cdist(np.c_[x, y], np.c_[x, y]))
     A[n, n] = 0.0
-    lu = np.linalg.pinv(A) if n > 1500 else None
+    lu = None
     est, sd = np.empty(len(xq)), np.empty(len(xq)) if variance else None
     for a in range(0, len(xq), 20_000):
         g0 = gm(cdist(np.c_[x, y], np.c_[xq[a:a + 20_000], yq[a:a + 20_000]]))
@@ -205,37 +235,48 @@ def _kriging(x, y, z, xq, yq, p, vg=None, variance=False):
 
 # ---- natural neighbour: discrete Sibson on the output grid (Park et al., 2006)
 def _natural_grid(x, y, z, gx, gy, cell, p):
-    """Each cell takes the mean of the nearest-point values of all cells within its distance to the nearest point."""
+    """Discrete Sibson interpolation (Park et al., 2006): every cell q spreads the value of its nearest point over a disk
+    whose radius is q's distance to that point; a cell's value is the mean of what reaches it. Converges to Sibson's
+    natural-neighbour interpolation as the cells get smaller (exact for a plane up to the cell size)."""
     from scipy.signal import fftconvolve
     from scipy.spatial import Delaunay, cKDTree
+    H0, W0 = gx.shape
+    # the disks reaching a cell come from all around it: computed on a grid padded by 30 % on each side, then cut back
+    # (without it, cells near the grid's edge miss contributions and drift off, e.g. on a plane)
+    P = int(min(0.3 * max(H0, W0), 1500))
+    cx = np.r_[gx[0, 0] - cell * np.arange(P, 0, -1), gx[0], gx[0, -1] + cell * np.arange(1, P + 1)]
+    cy = np.r_[gy[0, 0] - cell * np.arange(P, 0, -1) * np.sign(gy[1, 0] - gy[0, 0] if H0 > 1 else -1), gy[:, 0],
+               gy[-1, 0] + cell * np.arange(1, P + 1) * np.sign(gy[1, 0] - gy[0, 0] if H0 > 1 else -1)]
+    gx, gy = np.meshgrid(cx, cy)
     H, W = gx.shape
     d, i = cKDTree(np.c_[x, y]).query(np.c_[gx.ravel(), gy.ravel()])
     near = z[i].reshape(H, W)
     rad = d.reshape(H, W) / cell
-    out = np.full((H, W), np.nan)
-    # radii grouped on a geometric scale (≤ 64 disks): one FFT convolution per group
-    rmax = max(1.0, float(rad.max()))
-    levels = np.unique(np.round(np.geomspace(1, rmax + 1, 64) - 1, 2))
-    grp = np.clip(np.searchsorted(levels, rad), 0, len(levels) - 1)
-    ones = np.ones((H, W))
-    for k, r in enumerate(levels):
+    num, den = np.zeros((H, W)), np.zeros((H, W))
+    # cells grouped by radius: every half cell up to 8 cells, then 3 % steps (one FFT pair per group)
+    rmax = float(rad.max())
+    nb = int(np.ceil(np.log(max(rmax, 8) + 1) / np.log(1.03) - np.log(8) / np.log(1.03))) + 1
+    levels = np.unique(np.r_[np.arange(0, min(rmax, 8) + 0.5, 0.5), np.geomspace(8, max(rmax, 8) + 1, max(nb, 2))])
+    grp = np.clip(np.searchsorted(levels, rad, side="left"), 0, len(levels) - 1)
+    for n_, k in enumerate(np.unique(grp)):
         m = grp == k
-        if not m.any():
-            continue
+        r = float(levels[k])
         R = int(math.ceil(r))
         yy, xx = np.mgrid[-R:R + 1, -R:R + 1]
         disk = ((xx ** 2 + yy ** 2) <= r * r + 1e-9).astype(float)
-        num = fftconvolve(near, disk, mode="same")
-        den = fftconvolve(ones, disk, mode="same")
-        out[m] = (num / np.maximum(den, 1e-9))[m]
-        progress.update(0.2 + 0.6 * (k + 1) / len(levels), "Natural neighbour weights")
+        num += fftconvolve(np.where(m, near, 0.0), disk, mode="same")
+        den += fftconvolve(m.astype(float), disk, mode="same")
+        progress.update(0.2 + 0.6 * (n_ + 1) / len(np.unique(grp)), "Natural neighbour weights")
+    out = np.where(den > 0.5, num / np.maximum(den, 1e-9), np.nan)
     if p.get("outside") != "nearest" and len(x) >= 3:   # Sibson interpolation is defined inside the convex hull
         try:
             hull = Delaunay(np.c_[x, y])
             out[hull.find_simplex(np.c_[gx.ravel(), gy.ravel()]).reshape(H, W) < 0] = np.nan
         except Exception:   # collinear points: no hull
             pass
-    return out
+    else:
+        out = np.where(np.isfinite(out), out, near)
+    return out[P:P + H0, P:P + W0]
 
 
 # ------------------------------------------------------------------ running a method on a grid / at points
@@ -252,13 +293,15 @@ def leave_one_out(method, x, y, z, params=None, cell=None, max_folds=60) -> dict
     n = len(x)
     if n < METHODS[method]["min_points"] + 1:
         return {"skipped": f"needs at least {METHODS[method]['min_points'] + 1} points"}
+    if method == "natural":   # each fold is a grid computation: fewer folds
+        max_folds = min(max_folds, 25)
     idx = np.arange(n) if n <= max_folds else np.random.default_rng(0).choice(n, max_folds, replace=False)
     pred = np.full(n, np.nan)
     for i in idx:
         keep = np.arange(n) != i
         try:
             if method == "natural":   # grid-based: a small grid around the points
-                c = cell or max(np.ptp(x), np.ptp(y)) / 150
+                c = max(cell or 0, max(np.ptp(x), np.ptp(y)) / 100)
                 gx, gy = np.meshgrid(np.arange(x.min() - c, x.max() + 2 * c, c), np.arange(y.min() - c, y.max() + 2 * c, c))
                 g = _natural_grid(x[keep], y[keep], z[keep], gx, gy, c, _params(method, params))
                 pred[i] = g[int(round((y[i] - gy[0, 0]) / c)), int(round((x[i] - gx[0, 0]) / c))]
