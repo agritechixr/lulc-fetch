@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>All tools · LULC Fetch</title>
+<meta name="description" content="Every tool in LULC Fetch with its models: imagery, indices, PCA, classical ML for rasters and tables, deep-learning segmentation and object detection, embeddings with light models, crop disease, interpolation and forecasting.">
+<meta property="og:title" content="All tools · LULC Fetch">
+<meta property="og:description" content="Everything LULC Fetch does: imagery search, indices, PCA, classical and deep-learning models, object detection, embeddings, crop disease diagnosis, interpolation, forecasting, tables and export.">
+<meta property="og:image" content="assets/hero.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav id="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links" id="nav-links">
+      <a href="tools.html" class="on" aria-current="page">All tools</a><a href="mapping.html">Land cover &amp; AI</a><a href="agriculture.html">Agriculture</a><a href="air.html">Air &amp; rain</a><a href="data.html">Open data</a><a href="demos.html">Demos</a><a href="faq.html">FAQ</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+    </div>
+    <a class="btn small primary" href="index.html#download">Download</a>
+    <button class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</nav>
+
+<section id="tools">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">All tools</span>
+      <h1 class="ptitle">Every tool in LULC Fetch</h1>
+      <p class="lead">32 tools in the app's menus, with the models each one offers. Each has a hint (ⓘ) on every option inside the app.</p>
+      <div class="jump"><a href="#prep">Get &amp; prepare data</a><a href="#classical">Classical machine learning</a><a href="#segmentation">Deep learning: segmentation</a><a href="#detection">Deep learning: object detection</a><a href="#embeddings">Embeddings menu</a><a href="#agri">Agri menu</a><a href="#air">Air &amp; rain</a><a href="#workspace">Data, maps &amp; workspace</a></div>
+    </div>
+    <div class="tgroup" id="prep">
+      <div class="thead"><h2>Get &amp; prepare data</h2><span class="where">Tools menu</span><p>Find imagery, compute indices, stack and reduce bands, draw labels and turn images into tables.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Find imagery</h3><p>Search Sentinel-2 (10 m) and Landsat 8–9 (30 m) for any area and dates from open catalogues (Earth Search, Planetary Computer), preview scenes, and download single dates, cloud-free median composites, or land-cover labels (ESA WorldCover, Esri). Original Copernicus .SAFE and USGS products with a free account.</p><div class="mchips"><span>Sentinel-2 L2A</span><span>Landsat 8–9</span><span>Sentinel-1 SAR</span><span>Cloud-free composites</span><span>ESA WorldCover</span><span>Esri land cover</span><span>.SAFE products</span></div></div>
+      <div class="tcard"><h3>Index analysis</h3><p>30 indices in one click, or your own formula. Band names are read from the file, missing bands are reported, and raw values are converted to reflectance.</p><dl><dt>Vegetation</dt><dd>NDVI, SAVI, MSAVI, OSAVI, EVI, EVI2, GNDVI, NDRE, CIre, ARVI</dd><dt>Water</dt><dd>NDCI, NDWI, MNDWI, AWEI, NDMI</dd><dt>RGB only</dt><dd>VARI, GLI, ExG</dd><dt>Built-up &amp; soil</dt><dd>NDBI, UI, BSI, NDTI</dd><dt>Fire</dt><dd>NBR, NBR2</dd><dt>Snow</dt><dd>NDSI</dd><dt>Radar (SAR)</dt><dd>RVI, CPR, NDPI, VV dB, VH dB</dd></dl></div>
+      <div class="tcard"><h3>PCA &amp; dimensionality reduction</h3><p>Reduce many bands (hyperspectral, embeddings) to a few components, with the explained variance and a colour view.</p><div class="mchips"><span>PCA</span><span>Incremental PCA</span><span>Kernel PCA</span><span>NMF</span><span>FastICA</span><span>Truncated SVD</span><span>Factor Analysis</span></div></div>
+      <div class="tcard"><h3>Stack layers</h3><p>Put bands from several layers (Sentinel-2, Sentinel-1, a DEM, indices, embeddings) onto one grid as one multiband image, resampled and cut to your area.</p></div>
+      <div class="tcard"><h3>Training samples</h3><p>Draw labelled polygons and points for each class on the map, with ready-made land-cover class palettes, or import a shapefile, GeoJSON or KML.</p></div>
+      <div class="tcard"><h3>Raster → table</h3><p>Turn any image (multispectral, hyperspectral, SAR, embeddings) into a table: one row per pixel, a column per band, with optional coordinates and the ground-truth class, ready for Classical ML (tabular data).</p></div>
+      <div class="tcard"><h3>Make training data</h3><p>Cut large images and their ground truth (class raster or shapefile) into matching image / label patches for deep learning: patch size and overlap in metres, an area of interest, classes.txt and dataset.json.</p></div>
+      </div>
+    </div>
+    <div class="tgroup" id="classical">
+      <div class="thead"><h2>Classical machine learning</h2><span class="where">Tools menu</span><p>Models that learn from labelled pixels or table rows: fast, explainable, and they work on a laptop without a GPU.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Classical ML for raster</h3><p>From an image and ground truth (polygons, points or a land-cover raster) to a classified map with a confidence layer and an accuracy report, in one run. Detects RGB, multispectral, hyperspectral, SAR and embeddings and suggests suitable models; PCA for 100+ bands.</p><div class="mchips"><span>Random Forest</span><span>SVM (RBF / linear)</span><span>Maximum Likelihood</span><span>Spectral Angle Mapper</span><span>Minimum Distance</span><span>k-Nearest Neighbours</span><span>LightGBM</span><span>XGBoost</span><span>Extra Trees</span><span>Logistic Regression</span><span>Linear Discriminant</span><span>Naive Bayes</span><span>Neural network (MLP)</span><span>Hist. Gradient Boosting</span></div></div>
+      <div class="tcard"><h3>Classical ML (tabular data): Train a model</h3><p>Any table (a CSV, Excel sheet, or Raster → table output): choose the label and the feature columns, the preprocessing (scaling, encoding, imbalance), and train. Hyperparameter tuning (random or grid search), a model leaderboard, spatially independent validation (by polygon or block), and a full HTML evaluation report: accuracy, kappa, confusion matrix, ROC, precision–recall, calibration, feature importance. Works for classification and regression.</p><div class="mchips"><span>Random Forest</span><span>Extra Trees</span><span>XGBoost</span><span>LightGBM</span><span>Hist. Gradient Boosting</span><span>Decision Tree</span><span>SVM</span><span>SGD (linear)</span><span>Logistic Regression</span><span>Naive Bayes</span><span>Maximum Likelihood</span><span>Minimum Distance</span><span>Spectral Angle Mapper</span><span>Linear Discriminant</span><span>k-Nearest Neighbours</span><span>Neural network (MLP)</span></div></div>
+      <div class="tcard"><h3>Classical ML (tabular data): Classify an image</h3><p>Apply a trained tabular model, or a saved clustering, to a raster to make a land-cover (or value) map.</p></div>
+      <div class="tcard"><h3>Classical ML (tabular data): Clustering &amp; t-SNE</h3><p>Find natural groups without labels, with automatic choice of the number of clusters, quality scores and cluster profiles; t-SNE shows the rows as a 2D map coloured by label or cluster.</p><div class="mchips"><span>K-means</span><span>Hierarchical</span><span>DBSCAN</span><span>HDBSCAN</span><span>Spectral clustering</span><span>Gaussian mixture</span><span>t-SNE</span></div></div>
+      </div>
+    </div>
+    <div class="tgroup" id="segmentation">
+      <div class="thead"><h2>Deep learning: segmentation</h2><span class="where">Tools menu · needs the free PyTorch add-on</span><p>Neural networks that label every pixel. Trained on patches from Make training data, on your Mac's GPU, an NVIDIA GPU or the CPU.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Train classify model</h3><p>Semantic segmentation with ImageNet-pretrained backbones adapted to any number of bands: live loss and mIoU curves, early stopping that keeps the best model, Dice / focal losses, class weights for rare classes, spatial-block validation, and a one-file HTML report with example patches (image, ground truth, prediction).</p><div class="mchips"><span>U-Net</span><span>U-Net++</span><span>DeepLabV3+</span><span>DeepLabV3</span><span>PSPNet</span><span>FPN</span><span>LinkNet</span><span>SegFormer</span><span>FCN</span><span>LR-ASPP</span><span>YOLO26 semantic</span></div><p class="small">Backbones: MobileNetV2 / V3, ResNet-18 / 34 / 50 / 101, EfficientNet-B0 / B2 / B4, YOLO n–x.</p></div>
+      <div class="tcard"><h3>Classify image</h3><p>Map a whole scene with a trained model, tile by tile with overlap so there are no seams, plus a confidence layer.</p></div>
+      </div>
+    </div>
+    <div class="tgroup" id="detection">
+      <div class="thead"><h2>Deep learning: object detection</h2><span class="where">Tools menu · needs the PyTorch add-on (YOLO and SAM: a second, smaller add-on)</span><p>Find and count objects in aerial, drone and very-high-resolution satellite images.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Detect object</h3><p>Search a whole image tile by tile and join objects cut by tile edges: vehicles, ships, planes, storage tanks, people and more. Results are a vector layer with class, score and size. Pretrained, open-source models, including YOLO26 trained on DOTA aerial images (rotated boxes), and SAM 2.1 to outline anything.</p><div class="mchips"><span>Faster R-CNN v2</span><span>Faster R-CNN</span><span>Faster R-CNN Mobile</span><span>RetinaNet v2</span><span>FCOS</span><span>SSD300</span><span>SSDlite</span><span>Mask R-CNN v2</span><span>YOLO26</span><span>YOLO26 outlines</span><span>YOLO26 aerial (DOTA)</span><span>SAM 2.1: segment everything</span></div></div>
+      <div class="tcard"><h3>Train detection model</h3><p>Teach YOLO your own objects from polygons or points you draw on an image: tiles and zoom handled for you, live mAP curves, early stopping and an HTML report; the model is ready to use in Detect object.</p><div class="mchips"><span>YOLO26</span><span>YOLO11</span><span>Boxes</span><span>Outlines (instance segmentation)</span><span>Rotated boxes (DOTA-pretrained)</span><span>Sizes nano → extra large</span></div></div>
+      </div>
+    </div>
+    <div class="tgroup" id="embeddings">
+      <div class="thead"><h2>Embeddings menu</h2><span class="where">Satellite embeddings and small models</span><p>AI embeddings sum up a whole year of satellite data in every 10 m pixel. Download them free, explore them, and train very small models on them.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Download embeddings</h3><p>Google AlphaEarth Foundations (64 dimensions, CC BY 4.0) and TESSERA from the University of Cambridge (128 dimensions, CC0), 10 m, 2017–2025, for any area, without an account. See which years exist before downloading; get only your area, as one GeoTIFF with every band, plus a colour view.</p></div>
+      <div class="tcard"><h3>Explore embeddings</h3><p>Click a place and every pixel is scored by how alike it is (cosine similarity): find all fields, lakes or buildings like the one you clicked. Make a colour view, or classify the layer quickly.</p></div>
+      <div class="tcard"><h3>Convert embeddings</h3><p>Change how an embedding is stored: 8-bit (AlphaEarth coding, or scaled per band) ↔ 16 / 32-bit float. Small files to keep, floats to train on, with how much the values change.</p></div>
+      <div class="tcard"><h3>Train embedding model</h3><p>Train a light segmentation model on an embedding layer (all 64 / 128 bands) and your labelled polygons, points or a class raster such as ESA WorldCover: 256 × 256 patches, flips and rotations, class weights, early stopping and a report, then the class map. These models have 0.17–0.94 million parameters, so they train in minutes, even on a laptop.</p><div class="mchips"><span>EFSNet <small>0.17 M</small></span><span>TinyUNet <small>0.24 M</small></span><span>ENet <small>0.36 M</small></span><span>FPENet <small>0.4 M</small></span><span>CGNet <small>0.5 M</small></span><span>ADSCNet <small>0.51 M</small></span><span>LSNet <small>0.62 M</small></span><span>LEANet <small>0.74 M</small></span><span>DABNet <small>0.76 M</small></span><span>FDDWNet <small>0.77 M</small></span><span>LEDNet <small>0.94 M</small></span></div></div>
+      <div class="tcard"><h3>Classify with embedding model</h3><p>Map another area or another year with a trained embedding model (same kind and number of bands), with a confidence band.</p></div>
+      </div>
+    </div>
+    <div class="tgroup" id="agri">
+      <div class="thead"><h2>Agri menu</h2><span class="where">Crop disease</span><p>Leaf photos to diagnoses, offline after the first download of each crop's model.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Diagnose crop disease</h3><p>42 crops: two crop detectors recognise the crop, then that crop's ConvNeXt model gives the top 3 diseases with confidence. Too dark, blurry or non-leaf photos are refused with a tip; photos with GPS become a disease map. Up to 5,000 photos at once.</p><div class="mchips"><span>ConvNeXt-Small per crop</span><span>2 crop detectors</span><span>91–100 % test accuracy</span><span>Disease map from GPS</span></div></div>
+      <div class="tcard"><h3>Crop disease guide</h3><p>About 9,000 expert questions and answers: symptoms, management, pests and growing practices, by crop, disease and growth stage; search in your own words.</p></div>
+      </div>
+    </div>
+    <div class="tgroup" id="air">
+      <div class="thead"><h2>Air &amp; rain</h2><span class="where">Tools ▸ Interpolation and the Forecast menu</span><p>From readings at points to maps, and from the past to the next hours, days or months.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Interpolation</h3><p>A continuous surface (GeoTIFF) from values at points (air-quality stations, rain gauges, soil samples, wells), on the local UTM grid, cut to any boundary, with a leave-one-out comparison of the methods (RMSE, MAE, bias). Kriging also gives its standard error.</p><div class="mchips"><span>IDW (inverse distance weighting)</span><span>Kriging (ordinary)</span><span>Spline (thin-plate)</span><span>Natural neighbour</span><span>Nearest neighbour</span><span>Trend surface</span><span>TIN (triangulated irregular network)</span></div></div>
+      <div class="tcard"><h3>Get AQI &amp; weather data</h3><p>Hourly PM2.5, PM10, NO₂, SO₂, CO, O₃, dust and the Indian AQI (computed the CPCB way), and temperature, humidity, dew point, rain, cloud, pressure, wind and sunshine, for up to 500 points: up to 92 past days plus the next 1–16 days of weather forecast. Free, from Open-Meteo (CAMS and ECMWF).</p></div>
+      <div class="tcard"><h3>Train forecasting model</h3><p>Any table with a date column, one series or thousands (stations, grid points), hourly to monthly. One model learns from all series: past values and averages, the same time in earlier cycles, hour / weekday / season, nearby stations, latitude / longitude, and other inputs such as weather (future values taken from a forecast when the table has them). Step-by-step or direct forecasting (automatic picks the better), backtests spread over the last year against two baselines, an 80 % uncertainty band, what the model relies on, a forecast table and points on the map.</p><div class="mchips"><span>LightGBM</span><span>XGBoost</span><span>Gradient boosting (scikit-learn)</span><span>Random Forest</span><span>Linear (ridge) regression</span><span>Same time last cycle (baseline)</span><span>Last value (baseline)</span></div></div>
+      <div class="tcard"><h3>Forecast with a model</h3><p>Run a saved forecasting model on newer data (e.g. today's readings and the weather forecast): the next steps for every series, with the band, as a table, a chart and a map.</p></div>
+      </div>
+    </div>
+    <div class="tgroup" id="workspace">
+      <div class="thead"><h2>Data, maps &amp; workspace</h2><span class="where">File, Library, History and View menus</span><p>The GIS around the tools.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Add data</h3><p>GeoTIFF, JPG / PNG with world files, Sentinel .SAFE folders or zips, Shapefile, GeoJSON, KML / KMZ, CSV, Excel and Parquet. Tables with latitude / longitude columns become points on the map.</p></div>
+      <div class="tcard"><h3>Data library</h3><p>Ready-made GIS data from Hugging Face, free: 307 layers of India (states, districts, sub-districts, villages, constituencies, city wards, highways, railways); search and add, each file downloads once.</p></div>
+      <div class="tcard"><h3>Tables &amp; editing</h3><p>Tables and attribute tables under the map: sort, filter, a field calculator (area, perimeter), right-click menus on columns and cells (delete, rename, statistics), pandas scripts, and save-or-discard editing.</p></div>
+      <div class="tcard"><h3>Map tools</h3><p>Click any pixel to see all its bands; right-click the map to copy coordinates (also UTM) and see what's there; band combinations (colour infrared, SWIR, agriculture, urban…), layer metadata and per-band statistics; streets, satellite and topographic basemaps; light and dark themes.</p></div>
+      <div class="tcard"><h3>History</h3><p>Every tool run with its settings, outputs and time: open the results again, Run again, or Change settings &amp; run.</p></div>
+      <div class="tcard"><h3>Projects, export &amp; jobs</h3><p>Keep layers, tables, models and results in one project folder that autosaves; export any layer as GeoTIFF, PNG, Shapefile, GeoJSON, KML, CSV or Parquet; every long run is a background job you can follow, read the log of, or cancel.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="data" class="alt">
+  <div class="wrap center">
+    <span class="eyebrow">Any number of bands</span>
+    <h2>Works with the data you have</h2>
+    <p class="lead">Every model accepts any number of channels, from 3-band photos to hyperspectral cubes and learned embeddings.</p>
+    <div class="types" style="text-align:left">
+      <div class="type"><i style="background:linear-gradient(90deg,#ef4444,#22c55e,#3b82f6)"></i><b>RGB</b><span>Drone and aerial photos, georeferenced JPG / PNG</span></div>
+      <div class="type"><i style="background:#16a34a"></i><b>Multispectral</b><span>Sentinel-2, Landsat 8–9 and other 4–30 band sensors</span></div>
+      <div class="type"><i style="background:linear-gradient(90deg,#7c3aed,#06b6d4,#84cc16,#f59e0b,#ef4444)"></i><b>Hyperspectral</b><span>100+ narrow bands, with PCA band reduction</span></div>
+      <div class="type"><i style="background:#475569"></i><b>SAR</b><span>Sentinel-1 VV / VH calibrated backscatter</span></div>
+      <div class="type"><i style="background:#0284c7"></i><b>Embeddings</b><span>Google AlphaEarth (64-D), TESSERA (128-D)</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="next">
+  <div class="wrap center">
+    <h2>Try it on your own data</h2>
+    <p class="lead">Free for Mac and Windows. No account, no cloud: everything runs on your computer.</p>
+    <div class="cta"><a class="btn primary" href="index.html#download">Download free</a><a class="btn" href="demos.html">▶ Watch the demos</a><a class="btn" href="faq.html">Questions?</a></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links2">
+      <a href="https://github.com/agritechixr/lulc-fetch">GitHub</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/releases">Releases</a>
+      <a href="https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993">Crop disease models</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/issues">Report a problem</a>
+    </div>
+    <span>Apache 2.0 licence</span>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

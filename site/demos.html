@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demos · LULC Fetch</title>
+<meta name="description" content="Demo videos of LULC Fetch on real data: land cover from Sentinel-2, satellite embeddings with TinyUNet, vehicle detection, classical ML on tables, AQI forecasting and crop disease diagnosis.">
+<meta property="og:title" content="Demos · LULC Fetch">
+<meta property="og:description" content="Everything LULC Fetch does: imagery search, indices, PCA, classical and deep-learning models, object detection, embeddings, crop disease diagnosis, interpolation, forecasting, tables and export.">
+<meta property="og:image" content="assets/hero.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav id="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links" id="nav-links">
+      <a href="tools.html">All tools</a><a href="mapping.html">Land cover &amp; AI</a><a href="agriculture.html">Agriculture</a><a href="air.html">Air &amp; rain</a><a href="data.html">Open data</a><a href="demos.html" class="on" aria-current="page">Demos</a><a href="faq.html">FAQ</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+    </div>
+    <a class="btn small primary" href="index.html#download">Download</a>
+    <button class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</nav>
+
+<section id="demos">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Demos</span>
+      <h1 class="ptitle">Watch it work</h1>
+      <p class="lead">Each video is a real session of LULC Fetch on a MacBook, with real data. Long waits (downloads, training) are sped up and marked; nothing else is edited.</p>
+      <div class="jump"><a href="#landcover">From a satellite image to a land-cover map</a><a href="#embeddings">Satellite embeddings and a tiny model</a><a href="#detect">Count vehicles in an aerial image</a><a href="#tabular">Classical ML on a table</a><a href="#air">Forecast tomorrow's air quality, and map it</a><a href="#agri">Diagnose crop diseases from a field walk</a></div>
+    </div>
+    <div class="demos">
+      <article class="demo" id="landcover">
+        <video controls preload="none" playsinline poster="assets/demos/landcover.jpg" width="1440" height="900"><source src="assets/demos/landcover.mp4" type="video/mp4">Your browser can't play this video: <a href="assets/demos/landcover.mp4">download it</a>.</video>
+        <div>
+          <h3>From a satellite image to a land-cover map</h3>
+          <p>Find a place, download a cloud-free Sentinel-2 composite and ESA WorldCover labels for it, and classify the image with Random Forest. The honest score on held-out pixels is 56.6 % (kappa 0.49): WorldCover is itself a 10 m model map, so the labels are imperfect, and the report says which classes get confused.</p>
+          <ol><li>Tools ▸ Find imagery: search “Hebbal Lake, Bengaluru”, a 5 × 5 km area</li><li>Download ▸ cloud-free composite (median of the 6 clearest dates, January–March 2026, 10 m)</li><li>Download ▸ land-cover labels (ESA WorldCover 2021)</li><li>Tools ▸ Classical ML for raster: image + labels, Random Forest</li><li>The map, a confidence layer, the confusion matrix and feature importance</li></ol>
+          <p class="meta">1:19 · 7.2 MB · <a href="mapping.html">More about Land cover &amp; AI →</a></p>
+        </div>
+      </article>
+      <article class="demo" id="embeddings">
+        <video controls preload="none" playsinline poster="assets/demos/embeddings.jpg" width="1440" height="900"><source src="assets/demos/embeddings.mp4" type="video/mp4">Your browser can't play this video: <a href="assets/demos/embeddings.mp4">download it</a>.</video>
+        <div>
+          <h3>Satellite embeddings and a tiny model</h3>
+          <p>Google AlphaEarth embeddings (64 numbers per 10 m pixel) for 6 × 6 km of north Bengaluru: click a lake to find every place like it, then train TinyUNet, a 0.24-million-parameter segmentation model, on ESA WorldCover labels.</p>
+          <ol><li>+ Add data: the AlphaEarth 2021 GeoTIFF (64 bands)</li><li>Embeddings ▸ Explore: click a lake ▸ Find similar places</li><li>Embeddings ▸ Train embedding model: TinyUNet, 128 × 128 patches</li><li>70.9 % accuracy, mIoU 43.8 %, kappa 0.62 in about a minute on a MacBook</li></ol>
+          <p class="meta">1:11 · 5.2 MB · <a href="mapping.html#embeddings">More about Embeddings →</a></p>
+        </div>
+      </article>
+      <article class="demo" id="detect">
+        <video controls preload="none" playsinline poster="assets/demos/detect.jpg" width="1440" height="900"><source src="assets/demos/detect.mp4" type="video/mp4">Your browser can't play this video: <a href="assets/demos/detect.mp4">download it</a>.</video>
+        <div>
+          <h3>Count vehicles in an aerial image</h3>
+          <p>YOLO26 trained on the DOTA aerial dataset finds 678 objects (570 small vehicles, 95 large ones, 12 ships) in a 0.6 m NAIP image of downtown Seattle, in 3.4 seconds, with rotated boxes.</p>
+          <ol><li>+ Add data: NAIP aerial image (October 2023)</li><li>Tools ▸ Detect object ▸ YOLO26 aerial (DOTA)</li><li>Zoom 2× for small cars</li><li>A vector layer of outlines with class, score and size</li></ol>
+          <p class="meta">0:46 · 3.2 MB · <a href="mapping.html#detection">More about Object detection →</a></p>
+        </div>
+      </article>
+      <article class="demo" id="tabular">
+        <video controls preload="none" playsinline poster="assets/demos/tabular.jpg" width="1440" height="900"><source src="assets/demos/tabular.mp4" type="video/mp4">Your browser can't play this video: <a href="assets/demos/tabular.mp4">download it</a>.</video>
+        <div>
+          <h3>Classical ML on a table</h3>
+          <p>15,000 patients, 17 columns: compare 16 models on the same split, then train Random Forest and read its accuracy, confusion matrix and feature importance.</p>
+          <ol><li>+ Add data: a CSV opens in the data viewer</li><li>Tools ▸ Classical ML (tabular data) ▸ Train a model</li><li>Compare models: a leaderboard of all 16</li><li>Train: accuracy, kappa, confusion matrix, feature importance, HTML report</li></ol>
+          <p class="meta">0:59 · 3.1 MB · <a href="tools.html#classical">More about Classical ML (tabular data) →</a></p>
+        </div>
+      </article>
+      <article class="demo" id="air">
+        <video controls preload="none" playsinline poster="assets/demos/air.jpg" width="1440" height="900"><source src="assets/demos/air.mp4" type="video/mp4">Your browser can't play this video: <a href="assets/demos/air.mp4">download it</a>.</video>
+        <div>
+          <h3>Forecast tomorrow's air quality, and map it</h3>
+          <p>Delhi's 44 monitoring stations: 30 days of hourly AQI and weather, a forecasting model compared against simple guesses (here the simple guess wins, and the app says so), and tomorrow's AQI kriged over the city's 273 wards.</p>
+          <ol><li>+ Add data: a CSV of the stations becomes points</li><li>Library ▸ Delhi city wards</li><li>Forecast ▸ Get AQI &amp; weather data (30 days + 7-day weather forecast)</li><li>Forecast ▸ Train forecasting model, 24 hours ahead</li><li>Put on the map ▸ Make a map: kriging in CPCB AQI colours</li></ol>
+          <p class="meta">1:38 · 7.6 MB · <a href="air.html">More about Air &amp; rain →</a></p>
+        </div>
+      </article>
+      <article class="demo" id="agri">
+        <video controls preload="none" playsinline poster="assets/demos/agri.jpg" width="1440" height="900"><source src="assets/demos/agri.mp4" type="video/mp4">Your browser can't play this video: <a href="assets/demos/agri.mp4">download it</a>.</video>
+        <div>
+          <h3>Diagnose crop diseases from a field walk</h3>
+          <p>15 leaf photos with GPS: each crop is recognised, then diagnosed by that crop's model; the photos become a disease map, and each diagnosis links to the expert guide.</p>
+          <ol><li>View ▸ Satellite basemap</li><li>Agri ▸ Diagnose crop disease ▸ Add photos</li><li>Results: a disease map, a summary and a card per photo</li><li>Agri ▸ Crop disease guide: symptoms and management</li></ol>
+          <p class="meta">0:45 · 3.4 MB · <a href="agriculture.html">More about Agriculture →</a></p>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="next">
+  <div class="wrap center">
+    <h2>Try it on your own data</h2>
+    <p class="lead">Free for Mac and Windows. No account, no cloud: everything runs on your computer.</p>
+    <div class="cta"><a class="btn primary" href="index.html#download">Download free</a><a class="btn" href="demos.html">▶ Watch the demos</a><a class="btn" href="faq.html">Questions?</a></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links2">
+      <a href="https://github.com/agritechixr/lulc-fetch">GitHub</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/releases">Releases</a>
+      <a href="https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993">Crop disease models</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/issues">Report a problem</a>
+    </div>
+    <span>Apache 2.0 licence</span>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

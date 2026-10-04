@@ -220,3 +220,33 @@ section.next { padding: 64px 0; background: var(--bg-2); border-top: 1px solid v
   nav.open .links a:last-child { border-bottom: 0; }
 }
 @media (max-width: 620px) { .tiles { grid-template-columns: 1fr; } }
+
+/* all tools page */
+.tgroup { margin-top: 64px; }
+.thead { border-left: 4px solid var(--accent); padding-left: 16px; margin-bottom: 20px; }
+.thead h2 { font-size: clamp(22px, 2.6vw, 30px); }
+.thead .where { display: inline-block; margin-top: 6px; font-size: 13px; font-weight: 650; color: var(--accent); }
+.thead p { margin: 6px 0 0; color: var(--muted); max-width: 820px; }
+.tgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.tcard { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; }
+.tcard h3 { font-size: 17px; margin-bottom: 6px; }
+.tcard p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.tcard p.where { font-size: 12.5px; color: var(--accent); margin-bottom: 4px; }
+.tcard p.small { font-size: 13px; margin-top: 8px; }
+.tcard dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0 0; font-size: 13.5px; }
+.tcard dt { color: var(--text); font-weight: 600; }
+.tcard dd { margin: 0; color: var(--muted); }
+.mchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.mchips span { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--accent-2); color: var(--accent); font-weight: 600; }
+.mchips span small { font-weight: 500; opacity: .8; }
+@media (max-width: 900px) { .tgrid { grid-template-columns: 1fr; } }
+
+/* demos page */
+.demos { display: grid; grid-template-columns: 1fr; gap: 56px; margin-top: 44px; }
+.demo { display: grid; grid-template-columns: 1.6fr 1fr; gap: 32px; align-items: start; }
+.demo video { width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); background: #000; aspect-ratio: 16 / 10; }
+.demo h3 { font-size: 22px; margin-bottom: 8px; }
+.demo p { color: var(--muted); margin: 0 0 10px; }
+.demo ol { color: var(--muted); padding-left: 20px; margin: 0; font-size: 14.5px; }
+.demo .meta { font-size: 13px; color: var(--muted); margin-top: 10px; }
+@media (max-width: 900px) { .demo { grid-template-columns: 1fr; gap: 14px; } }
