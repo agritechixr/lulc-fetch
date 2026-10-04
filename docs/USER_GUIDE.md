@@ -29,15 +29,16 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 23. [Agri: Crop disease guide](#23-agri-crop-disease-guide)
 24. [Embeddings: Download, Convert and Explore](#24-embeddings-download-convert-and-explore)
 25. [Library: ready-made GIS data](#25-library-ready-made-gis-data)
-26. [Export data](#26-export-data)
-27. [Downloads & jobs](#27-downloads--jobs)
-28. [Credentials](#28-credentials)
-29. [Command-line tool](#29-command-line-tool)
-30. [Data sources and band conventions](#30-data-sources-and-band-conventions)
-31. [Files and folders](#31-files-and-folders)
-32. [Limits and known issues](#32-limits-and-known-issues)
-33. [Troubleshooting](#33-troubleshooting)
-34. [For developers: adding a tool](#34-for-developers-adding-a-tool)
+26. [Interpolation](#26-interpolation)
+27. [Export data](#27-export-data)
+28. [Downloads & jobs](#28-downloads--jobs)
+29. [Credentials](#29-credentials)
+30. [Command-line tool](#30-command-line-tool)
+31. [Data sources and band conventions](#31-data-sources-and-band-conventions)
+32. [Files and folders](#32-files-and-folders)
+33. [Limits and known issues](#33-limits-and-known-issues)
+34. [Troubleshooting](#34-troubleshooting)
+35. [For developers: adding a tool](#35-for-developers-adding-a-tool)
 
 ---
 
@@ -55,7 +56,7 @@ python3 -m venv .venv
 - `lulc-fetch-web --port 8080` runs on another port. `--no-browser` stops it from opening a browser tab.
 - Stop the server with **Ctrl+C** in the terminal.
 
-The app runs entirely on your computer. Searching and downloading uses free public catalogues with no login. Accounts are only needed for Copernicus and USGS original-product downloads (see [Credentials](#28-credentials)).
+The app runs entirely on your computer. Searching and downloading uses free public catalogues with no login. Accounts are only needed for Copernicus and USGS original-product downloads (see [Credentials](#29-credentials)).
 
 ---
 
@@ -1233,7 +1234,38 @@ python -m lulc_fetch.library upload  <folder> ixrbhii/<dataset-name>          # 
 The dataset then appears in the Library (Refresh). Only upload data whose licence allows it, and keep its licence file
 and credit in the folder.
 
-## 26. Export data
+## 26. Interpolation
+
+**Tools ▸ Interpolation** makes a continuous surface (a GeoTIFF) from values measured at points: air quality at monitoring
+stations, rainfall at gauges, soil samples, wells, spot heights.
+
+1. **Points:** a layer of points with a number field. A CSV with latitude / longitude columns becomes points when you add it
+   (+ Add data); shapefiles, GeoJSON and the Library's point layers work too. The tool shows how many points have a value
+   and their range; points at the same place are averaged.
+2. **Method:**
+
+   | Method | Idea | Good for | Notes |
+   |---|---|---|---|
+   | **IDW** | Nearby points count more (1 / distance^power) | Rainfall, temperature, soil | Power (2 usual), optionally only the nearest *n* points |
+   | **Kriging** (ordinary) | Weights from a semivariogram fitted to the data's spatial autocorrelation | Groundwater, soil, pollution | Spherical / exponential / Gaussian / linear model, fitted nugget; band 2 = standard error. Needs 10+ points to fit well |
+   | **Spline** (thin-plate) | A smooth minimum-curvature surface | Elevation, smooth fields | Smoothing 0 = through the points; can overshoot |
+   | **Natural neighbour** | Sibson weights from the Voronoi cells | Elevation, rainfall | Inside the points' hull (or fill with the nearest value) |
+   | **Nearest neighbour** | The closest point's value (Thiessen polygons) | Classes, quick looks | |
+   | **Trend surface** | A polynomial of order 1–3 by least squares | Large-scale trends | Doesn't pass through the points |
+   | **TIN** | Linear on Delaunay triangles | DEM, terrain | Inside the points' hull |
+
+   **Compare all methods** predicts each point from the others (leave-one-out) with every method and lists RMSE, MAE and
+   bias, best first; click a row to use that method. With few points every method is a rough guess between them: the check
+   shows how far to trust it.
+3. **Area & grid:** the surface covers and is cut to an area (e.g. a city or district boundary from the Library), or the
+   points' extent. Cells are in metres on the points' UTM zone (automatic: about 500 cells across). **Colours:** *AQI (CPCB
+   categories)* draws India's AQI colours over 0–500 (chosen automatically for a field called AQI).
+
+The result is a layer in Contents (the points stay on top), with the method's leave-one-out RMSE / MAE / bias, and for
+kriging the fitted semivariogram. Example: the live AQI of Bengaluru's CPCB stations (`lulc_fetch.aqi.cpcb_live`, CPCB's
+public feed, no key) over the city's 197 wards from the Library.
+
+## 27. Export data
 
 **Tools ▸ Export data**, or right-click a layer ▸ **Export / save to computer**.
 
@@ -1253,7 +1285,7 @@ Files are saved to your browser's Downloads folder.
 
 ---
 
-## 27. Downloads & jobs
+## 28. Downloads & jobs
 
 **Tools ▸ Downloads & jobs** lists background jobs (downloads, composites, product downloads, Sentinel-1 processing, …). Each job shows:
 - its progress, current step and **Cancel**
@@ -1266,7 +1298,7 @@ Downloads that finish while the app is open are added to Contents automatically.
 
 ---
 
-## 28. Credentials
+## 29. Credentials
 
 Click **Credentials** (top right). Secrets are stored in your **operating-system keychain** (macOS Keychain, Windows Credential Locker, Linux Secret Service). They're never shown again or sent back to the browser, and are only used with the service they belong to. Each entry has a **Test** button.
 
@@ -1281,7 +1313,7 @@ Click **Credentials** (top right). Secrets are stored in your **operating-system
 
 ---
 
-## 29. Command-line tool
+## 30. Command-line tool
 
 `lulc-fetch` does the downloading parts without the web app. An area can be given as `--bbox minlon,minlat,maxlon,maxlat`, `--geojson file.geojson`, `--point lon,lat --buffer-km 5`, or `--match existing.tif` (reuse a raster's exact grid).
 
@@ -1311,7 +1343,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 30. Data sources and band conventions
+## 31. Data sources and band conventions
 
 | Source | Login | Notes |
 |---|---|---|
@@ -1329,7 +1361,7 @@ Outputs are float32 GeoTIFFs with named bands (NaN = no data or cloud), plus a t
 
 ---
 
-## 31. Files and folders
+## 32. Files and folders
 
 With a project open, these folders are inside the project folder (next to `lulc_project.json`). Without a project they are in the app's folder (the temporary workspace). `data/` is always also read from the app's folder. The list of recent projects is stored in `~/.lulc-fetch/recent.json`.
 
@@ -1352,7 +1384,7 @@ All of these are excluded from git.
 
 ---
 
-## 32. Limits and known issues
+## 33. Limits and known issues
 
 - **Download size:** one download is capped at 60 M pixels (≈77 × 77 km at 10 m). Use a coarser pixel size or split the area.
 - **Map previews** of large rasters are drawn at reduced resolution (≈1400 px), and their statistics come from that preview unless you pick an area. **GeoTIFF exports are always full resolution.**
@@ -1371,7 +1403,7 @@ All of these are excluded from git.
 
 ---
 
-## 33. Troubleshooting
+## 34. Troubleshooting
 
 | Problem | Fix |
 |---|---|
@@ -1390,7 +1422,7 @@ All of these are excluded from git.
 
 ---
 
-## 34. For developers: adding a tool
+## 35. For developers: adding a tool
 
 The web app is a FastAPI backend (`webapp/`) with a single-page frontend (`webapp/static/`). Processing code lives in the `lulc_fetch/` package. Every tool keeps its own code in its own files, on all three levels, so changing one tool never touches another; what all tools share is in one place per level (the "universe"):
 

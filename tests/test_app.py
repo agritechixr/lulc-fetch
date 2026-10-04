@@ -113,7 +113,7 @@ def test_tool_files_register_themselves(client):
         ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
         if "LF.tool(" in js.text:
             assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
-    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library"])
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp"])
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200

@@ -4,6 +4,7 @@
   // ------------------------------------------------------------------ tools (Tools menu + tool panel)
   // To add a tool: add <section id="tab-<id>" class="tabpanel hidden"> to index.html and an entry here.
   const ICONS = {
+    interp: '<circle cx="5" cy="17" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="7" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="14" r="1.6" fill="currentColor" stroke="none"/><path d="M3 12c3-5 6-7 9-6s4 5 9 3" opacity=".75"/><path d="M3 20c4-3 8-4 11-3s5 1 7-1" opacity=".45"/>',
     search: '<path d="M4 7l4-4 4 4-4 4z"/><path d="M12 15l4-4 4 4-4 4z"/><path d="M9.5 9.5l5 5"/><path d="M3 21c1.5-3 4-4.5 7-4.5"/>',
     analyze: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5" opacity=".5"/>',
     jobs: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/>',

@@ -1,0 +1,13 @@
+/* Interpolation tool (the rest comes from style.css) */
+
+.ip-cmp { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+.ip-cmp th, .ip-cmp td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.ip-cmp th:first-child, .ip-cmp td:first-child { text-align: left; }
+.ip-cmp th { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+.ip-cmp tbody tr { cursor: pointer; }
+.ip-cmp tbody tr:hover { background: var(--accent-2); }
+.ip-cmp tr.best td { font-weight: 700; color: var(--accent); }
+.ip-cmp tr.partial td { color: var(--muted); }
+.ip-aqi { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 12px; }
+.ip-aqi i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -2px; }
+.ip-aqi small { color: var(--muted); }

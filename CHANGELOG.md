@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Tools ▸ Interpolation:** IDW, kriging (with standard error), thin-plate spline, natural neighbour, nearest neighbour, trend
+  surface and TIN; cut to any boundary; leave-one-out comparison of the methods; India's AQI colour scale.
+- **Live AQI** from CPCB's public feed (`lulc_fetch.aqi`), e.g. Bengaluru's stations.
+- Downloads & jobs no longer adds a second copy of tools' results to Contents (only Find imagery downloads are added there).
 - **Library menu:** ready-made GIS data from Hugging Face. The first dataset, *Indian shapefiles*, has 307 layers of India
   (states, districts, sub-districts, villages, constituencies, city wards, PIN-code areas, highways, railways…); every
   dataset uploaded to the library account appears too. Search, then add to the map; each file is downloaded once.

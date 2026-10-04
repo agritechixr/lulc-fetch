@@ -20,8 +20,9 @@
       jobsSeen = true;
     }
     for (const j of list) {
-      // tools that add their own results (PCA, exports, tables, training, classification) are skipped here
-      if (j.status !== "done" || addedJobs.has(j.id) || ["pca", "export", "table", "train", "predict", "stack", "compare", "cluster", "tsne", "rasterml", "python", "patches", "dltrain", "dlpredict", "detect", "dettrain", "dlinstall", "diagnose", "embcheck", "embfetch", "embsimilar", "embcolour", "embconvert"].includes(j.kind)) continue;
+      // only Find imagery downloads (scenes, composites, land-cover labels, original products) are added here: every other
+      // tool adds its own results, with their own colours and names (an allow list, so a new tool never gets a duplicate)
+      if (j.status !== "done" || addedJobs.has(j.id) || !["scene", "composite", "labels", "product"].includes(j.kind)) continue;
       addedJobs.add(j.id);
       prefs.set("addedJobs", [...addedJobs].slice(-200));
       j.files.filter((f) => /\.tiff?$/i.test(f)).forEach((f) =>

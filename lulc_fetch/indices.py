@@ -55,6 +55,8 @@ COLORMAPS = {
     "Spectral": ["#9e0142", "#d53e4f", "#f46d43", "#fdae61", "#fee08b", "#ffffbf",
                  "#e6f598", "#abdda4", "#66c2a5", "#3288bd", "#5e4fa2"],
     "Greys": ["#000000", "#ffffff"],
+    # India's AQI categories (CPCB) over 0–500 in steps of 50: Good · Satisfactory · Moderate · Poor · Very poor · Severe
+    "AQI": ["#009966", "#009966", "#9ccc3c", "#ffde33", "#ffde33", "#ff9933", "#ff9933", "#e53935", "#e53935", "#7e0023", "#7e0023"],
 }
 
 
