@@ -47,18 +47,19 @@
       const pointLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => f.geometry?.type === "Point"));
       const isNum = (v) => v !== null && v !== "" && v !== undefined && Number.isFinite(+v);
 
-      async function open() {
+      // arg (optional): { layer, field } to start from, e.g. a forecast put on the map
+      async function open(arg) {
         if (!st.schema) {
           try { st.schema = await api("/api/interp/schema"); } catch (e) { toast(e.message, true); return; }
           renderMethods();
         }
-        renderLayers();
+        renderLayers(arg);
         refreshClipPicker("ip-area");
       }
-      function renderLayers() {
-        const l = fillLayers($("#ip-layer"), pointLayers(), { label: (x) => `${x.name} · ${x.geojson.features.length} points`,
+      function renderLayers(arg) {
+        const l = fillLayers($("#ip-layer"), pointLayers(), { pick: arg?.layer, label: (x) => `${x.name} · ${x.geojson.features.length} points`,
           empty: "No point layer yet: + Add data (a CSV with lat / lon, or points), or the Library" });
-        const f = $("#ip-field"), cur = f.value;
+        const f = $("#ip-field"), cur = arg?.field || f.value;
         const feats = l?.geojson.features.filter((x) => x.geometry?.type === "Point") || [];
         const keys = [...new Set(feats.flatMap((x) => Object.keys(x.properties || {})))].filter((k) => !k.startsWith("_") && feats.some((x) => isNum(x.properties?.[k])));
         const skip = /^(lat|lon|lng|long|latitude|longitude|x|y|no|id|fid|objectid)$/i;
@@ -101,7 +102,7 @@
         if (!l || !k) throw new Error("Choose a point layer and a number field");
         return { points: { type: "FeatureCollection", features: l.geojson.features.filter((f) => f.geometry?.type === "Point" && isNum(f.properties?.[k])) }, field: k, layer: l };
       };
-      $("#ip-layer").onchange = renderLayers;
+      $("#ip-layer").onchange = () => renderLayers();
       $("#ip-field").onchange = fieldInfo;
       touched($("#ip-name"));
 
@@ -143,7 +144,7 @@
           </div>`);
       });
 
-      return { open, layersChanged: renderLayers };
+      return { open, layersChanged: () => renderLayers() };
     },
   });
 })();

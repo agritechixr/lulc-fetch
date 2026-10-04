@@ -64,6 +64,26 @@ def record_error(job: "Job", exc: BaseException):
 _current = threading.local()
 
 
+def _jsonable(o):
+    """numpy numbers / booleans / arrays, paths and NaN → plain JSON values."""
+    import math
+
+    import numpy as np
+    if isinstance(o, dict):
+        return {str(k): _jsonable(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple, set)):
+        return [_jsonable(v) for v in o]
+    if isinstance(o, np.ndarray):
+        return _jsonable(o.tolist())
+    if isinstance(o, np.generic):
+        o = o.item()
+    if isinstance(o, float) and not math.isfinite(o):
+        return None
+    if isinstance(o, Path):
+        return str(o)
+    return o
+
+
 @dataclass
 class Job:
     id: str
@@ -160,7 +180,7 @@ class JobManager:
         progress.set_handler(on_progress)
         progress.set_live_handler(lambda data: setattr(job, "live", data))
         try:
-            job.result = fn(job)
+            job.result = _jsonable(fn(job))   # a result the browser can't read would break every job's status
             job.status, job.progress = "done", 1.0
             job.logs.append(f"Finished in {time.time() - job.started:.0f} s")
         except progress.Cancelled:

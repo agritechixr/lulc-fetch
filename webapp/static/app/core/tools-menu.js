@@ -4,6 +4,9 @@
   // ------------------------------------------------------------------ tools (Tools menu + tool panel)
   // To add a tool: add <section id="tab-<id>" class="tabpanel hidden"> to index.html and an entry here.
   const ICONS = {
+    forecast: '<path d="M3 20h18" opacity=".5"/><path d="M4 16l4-5 4 3 3-4"/><path d="M15 10l3-2 3-3" stroke-dasharray="2 2"/><circle cx="15" cy="10" r="1.3" fill="currentColor" stroke="none"/>',
+    fcrun: '<path d="M3 20h18" opacity=".5"/><path d="M4 15l4-4 3 2" /><path d="M11 13l3-3 3 1 4-4" stroke-dasharray="2 2"/><path d="M5 4l4 2.5L5 9z" fill="currentColor" stroke="none"/>',
+    cloud: '<path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.5 1.5A3.3 3.3 0 0 0 7 18z"/><path d="M8 21v-1M12 21v-1M16 21v-1" opacity=".7"/>',
     interp: '<circle cx="5" cy="17" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="7" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="14" r="1.6" fill="currentColor" stroke="none"/><path d="M3 12c3-5 6-7 9-6s4 5 9 3" opacity=".75"/><path d="M3 20c4-3 8-4 11-3s5 1 7-1" opacity=".45"/>',
     search: '<path d="M4 7l4-4 4 4-4 4z"/><path d="M12 15l4-4 4 4-4 4z"/><path d="M9.5 9.5l5 5"/><path d="M3 21c1.5-3 4-4.5 7-4.5"/>',
     analyze: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5" opacity=".5"/>',
@@ -59,6 +62,9 @@
              subtitles: { rasterml: "Map crops or land cover from an embedding layer and a few labelled points (k-NN, SVM, SAM…)",
                           ml: "Cluster an embedding (Raster → table first) without labels, or train on tables",
                           pca: "Reduce the 64 / 128 dimensions to a few components" } },
+    forecast: { el: "#forecast-menu", label: "Also useful for forecasts", shortcuts: ["interp", "ml"],
+                subtitles: { interp: "Make a map from a forecast at stations (Put on the map, then a surface: kriging, IDW…)",
+                             ml: "Predict a value from other columns without time (regression / classification on tables)" } },
     library: { el: "#library-menu", label: "", shortcuts: [] },
   };
   let currentTool = "home";
