@@ -43,6 +43,14 @@
       <div class="card">
         <h2>Model</h2>
         <div id="ft-models"></div>
+        <div class="fc-set-head"><b>Model settings</b> ${tip("The settings of the chosen model, like a model's hyperparameters. The defaults work well for most data; change one at a time and compare the backtest error. With “Compare all”, choose which model's settings to edit: each model uses its own.")}
+          <select id="ft-set-model" class="hidden"></select><button type="button" class="link-btn" id="ft-set-reset">defaults</button></div>
+        <div class="grid2" id="ft-settings"></div>
+        <p class="hint" id="ft-set-note"></p>
+      </div>
+      <div class="card">
+        <h2>Training ${tip("Options for every model: early stopping (for the boosted trees, like stopping training epochs when the validation error stops improving), how many rows each fit uses, the uncertainty band, the random seed, and automatic tuning.")}</h2>
+        <div class="grid2" id="ft-options"></div>
       </div>
       <div class="card">
         <h2>Output</h2>
@@ -53,13 +61,14 @@
 
     setup(LF) {
       const { $, $$, esc, fmt, prefs, api, toast, modelPicker, runJob, runButton, openTool, touched, autoName } = LF;
-      const st = { schema: null, desc: null, model: prefs.get("ft-model", "auto"), want: null };
+      const st = { schema: null, desc: null, model: prefs.get("ft-model", "auto"), want: null, params: prefs.get("ft-params", {}) || {}, opts: prefs.get("ft-opts", {}) || {}, setModel: null };
       const opt = (v, t, cur) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(t)}</option>`;
 
       async function open(arg) {
         if (!st.schema) {
           try { st.schema = await LF.fc.schema(); } catch (e) { toast(e.message, true); return; }
           renderModels();
+          renderOptions();
         }
         const path = await LF.fc.fillTables($("#ft-table"), arg?.table);
         if (path && (path !== st.desc?.path)) await describe(path);
@@ -113,7 +122,47 @@
         const span = f === "h" && h >= 24 ? ` (${fmt(h / 24, h % 24 ? 1 : 0)} days)` : f === "D" && h >= 7 ? ` (${fmt(h / 7, h % 7 ? 1 : 0)} weeks)` : "";
         $("#ft-h-info").textContent = `${LF.fc.unit(F.unit, h)} ahead${span}. Every model is checked by forecasting this far ahead from ${$("#ft-bt").value} cut-off${$("#ft-bt").value === "1" ? "" : "s"} spread over the last year of the data.`;
       }
+      // one setting as an input (number or checkbox), with its help
+      const field = (p, value, attr) => p.kind === "bool"
+        ? `<label class="inline" style="margin-top:6px"><input type="checkbox" ${attr}="${p.name}" ${value ? "checked" : ""}> ${esc(p.title)} ${tip(p.tip)}</label>`
+        : `<label>${esc(p.title)} ${tip(p.tip + (p.min != null ? ` (${p.min}–${p.max})` : ""))}<input type="number" ${attr}="${p.name}" value="${value}" min="${p.min}" max="${p.max}" step="${p.kind === "int" ? 1 : "any"}"></label>`;
+      function renderSettings() {
+        const M = st.schema.models, ml = Object.keys(M).filter((k) => (M[k].params || []).length && M[k].available);
+        const sel = $("#ft-set-model");
+        sel.classList.toggle("hidden", st.model !== "auto");
+        if (st.model === "auto") {
+          if (!ml.includes(st.setModel)) st.setModel = ml[0];
+          sel.innerHTML = ml.map((k) => `<option value="${k}" ${k === st.setModel ? "selected" : ""}>${esc(M[k].title)}</option>`).join("");
+        } else st.setModel = st.model;
+        const ps = M[st.setModel]?.params || [];
+        $("#ft-settings").innerHTML = ps.map((p) => field(p, st.params[st.setModel]?.[p.name] ?? p.default, "data-fp")).join("");
+        $("#ft-set-reset").classList.toggle("hidden", !ps.length);
+        const changed = Object.keys(st.params).filter((k) => Object.keys(st.params[k] || {}).length);
+        $("#ft-set-note").textContent = !ps.length ? "The baselines have no settings." :
+          changed.length ? `Changed: ${changed.map((k) => `${M[k].title} (${Object.entries(st.params[k]).map(([n, v]) => `${(M[k].params.find((x) => x.name === n) || {}).title || n} ${v}`).join(", ")})`).join("; ")}.` : "All settings at their defaults.";
+        $$("#ft-settings [data-fp]").forEach((i) => i.onchange = () => {
+          const p = ps.find((x) => x.name === i.dataset.fp), v = +i.value;
+          const m = (st.params[st.setModel] ||= {});
+          if (!Number.isFinite(v) || v === p.default) delete m[p.name]; else m[p.name] = Math.min(p.max, Math.max(p.min, v));
+          prefs.set("ft-params", st.params); renderSettings();
+        });
+      }
+      function renderOptions() {
+        $("#ft-options").innerHTML = st.schema.options.map((p) => field(p, st.opts[p.name] ?? p.default, "data-fo")).join("");
+        $$("#ft-options [data-fo]").forEach((i) => i.onchange = () => {
+          st.opts[i.dataset.fo] = i.type === "checkbox" ? i.checked : +i.value;
+          prefs.set("ft-opts", st.opts);
+          optionsInfo();
+        });
+        optionsInfo();
+      }
+      function optionsInfo() {
+        const es = !!(st.opts.early_stop ?? false);
+        const pat = $("#ft-options [data-fo='patience']")?.closest("label");
+        if (pat) pat.classList.toggle("hidden", !es);
+      }
       function renderModels() {
+        renderSettings();
         const M = st.schema.models;
         if (!M[st.model]?.available) st.model = "auto";
         modelPicker($("#ft-models"), { value: st.model, onChange: (k) => { st.model = k; prefs.set("ft-model", k); renderModels(); },
@@ -127,6 +176,8 @@
       $("#ft-h").oninput = horizonInfo;
       $("#ft-bt").onchange = horizonInfo;
       $("#ft-in-none").onclick = () => { st.inputs.clear(); renderInputs(); };
+      $("#ft-set-model").onchange = () => { st.setModel = $("#ft-set-model").value; renderSettings(); };
+      $("#ft-set-reset").onclick = () => { delete st.params[st.setModel]; prefs.set("ft-params", st.params); renderSettings(); };
       touched($("#ft-name"));
 
       runButton("ft", async () => {
@@ -137,7 +188,7 @@
         const body = { table: d.path, time_col: $("#ft-time").value, target: $("#ft-target").value, series_col: $("#ft-series").value || null,
           lat_col: lat && lon ? lat : null, lon_col: lat && lon ? lon : null, inputs: [...st.inputs].filter((k) => $$("#ft-inputs input").some((i) => i.value === k && i.checked)),
           freq: $("#ft-freq").value, horizon: +$("#ft-h").value || null, model: st.model, backtests: +$("#ft-bt").value, strategy: $("#ft-strategy").value,
-          name: $("#ft-name").value.trim() || "forecast" };
+          params: st.params, options: st.opts, name: $("#ft-name").value.trim() || "forecast" };
         const r = await runJob("/api/forecast/train", body, { tool: "fctrain", title: `Training a forecast of ${body.target}` });
         const box = LF.fc.show("ft", r, { trained: true });
         $("[data-fc-use]", box).onclick = () => openTool("fcrun", { model: r.path, table: d.path });

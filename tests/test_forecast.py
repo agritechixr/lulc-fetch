@@ -98,6 +98,22 @@ def test_direct_forecast_of_intermittent_rain(tmp_path):
     assert np.allclose(p["series"][0]["fc"], r["series"][0]["fc"])
 
 
+def test_settings_early_stopping_and_tuning(table, tmp_path):
+    """Model settings are used and kept within range; early stopping keeps fewer trees; tuning tries settings with the
+    same backtests and keeps the best (never worse than the user's)."""
+    assert fc.settings("lightgbm", {"n_estimators": 99999, "learning_rate": "x"}) == {**fc.settings("lightgbm"), "n_estimators": 5000}
+    assert fc.options({"band": 5, "early_stop": 1})["band"] == 50 and fc.options({"early_stop": 1})["early_stop"] is True
+    r = fc.train(table, tmp_path, time_col="time", target="aqi", series_col="station", horizon=12, model="lightgbm", backtests=1,
+                 strategy="recursive", params={"lightgbm": {"n_estimators": 2000, "learning_rate": 0.2}},
+                 opts={"early_stop": True, "patience": 20, "band": 90, "tune": 2}, name="tuned")
+    m = r["meta"]
+    assert m["band_level"] == 90 and m["options"]["early_stop"] and m["rounds"] is not None and m["rounds"] < 2000
+    assert len(m["tuning"]) == 3 and m["tuning"][0]["mae"] <= next(x["mae"] for x in m["tuning"] if x["trial"] == 0)
+    assert abs(m["metrics"]["mae"] - m["tuning"][0]["mae"]) < 1e-9
+    s = fc.schema()
+    assert {p["name"] for p in s["models"]["xgboost"]["params"]} >= {"n_estimators", "learning_rate", "max_depth"} and s["options"]
+
+
 def test_clear_messages(table, tmp_path):
     with pytest.raises(ValueError, match="choose a horizon of"):
         fc.train(table, tmp_path, time_col="time", target="aqi", series_col="station", horizon=500)

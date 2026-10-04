@@ -7,6 +7,8 @@
 
   LF.fc = {
     async schema() { return schema ||= await LF.api("/api/forecast/schema"); },
+    /** a model setting's title ("n_estimators" → "Trees (boosting rounds)") */
+    paramTitle: (model, name) => schema?.models?.[model]?.params?.find((p) => p.name === name)?.title,
     unit: UNIT_PLURAL,
     /** fill a <select> with the tables in tables/ (newest first); keeps the choice, or picks `want` */
     async fillTables(sel, want) {
@@ -68,14 +70,24 @@
       const imp = (r.importance || m.importance || []).filter((x) => x.pct >= 0.5).slice(0, 8);
       const impHtml = imp.length ? `<details class="fc-more"><summary>What the model relies on ${tipBtn("Permutation importance on the last backtest window: how much worse the one-step forecast gets when a group of inputs is shuffled. Shares of the total.")}</summary>
           <div class="dist" style="margin-top:6px">${imp.map((x) => `<div style="grid-template-columns:minmax(0,1.8fr) 2fr auto"><span title="${esc(x.name)}">${esc(x.name)}</span><span class="rb-track" style="margin:0"><span class="rb-fill" style="display:block;width:${Math.max(1, x.pct)}%"></span></span><b>${fmt(x.pct, 0)}%</b></div>`).join("")}</div></details>` : "";
+      // the settings the model was trained with, the trees early stopping kept, and the tuning trials
+      const S = m.params || {}, O = m.options || {}, title = (k) => (LF.fc.paramTitle?.(m.model, k)) || k;
+      const settingsHtml = trained && Object.keys(S).length ? `<details class="fc-more"><summary>Settings used ${tipBtn("The model's settings (hyperparameters) and training options for this run. Change them in the Model and Training cards and train again to compare.")}</summary>
+          <table class="ip-cmp"><tbody>${Object.entries(S).map(([k, v]) => `<tr><td>${esc(title(k))}</td><td>${esc(v)}</td></tr>`).join("")}
+            ${m.rounds ? `<tr><td>Trees kept by early stopping</td><td><b>${m.rounds}</b></td></tr>` : ""}
+            <tr><td>Rows used per fit</td><td>${(O.fit_rows || 150000).toLocaleString()}</td></tr><tr><td>Early stopping</td><td>${O.early_stop ? `on (patience ${O.patience})` : "off"}</td></tr>
+            <tr><td>Random seed</td><td>${O.seed ?? 0}</td></tr></tbody></table>
+          ${(m.tuning || []).length ? `<p class="hint" style="margin:8px 0 4px">Tuning: ${m.tuning.length - 1 >= 0 ? (O.tune || m.tuning.length - 1) : 0} random settings tried, the best kept (backtest MAE, lower is better):</p>
+            <table class="ip-cmp"><thead><tr><th>Trial</th><th>MAE</th><th>Settings</th></tr></thead><tbody>${m.tuning.slice(0, 8).map((x, i) =>
+              `<tr class="${i === 0 ? "best" : ""}"><td>${x.trial === 0 ? "yours" : x.trial}</td><td>${fmt(x.mae, 2)}</td><td style="text-align:left;white-space:normal;font-size:11.5px">${esc(Object.entries(x.settings).map(([k, v]) => `${k} ${v}`).join(", "))}</td></tr>`).join("")}</tbody></table>` : ""}</details>` : "";
       const stepInfo = trained && r.step_mae?.length > 1 ? `<p class="hint">The error grows from ${fmt(r.step_mae[0], 1)} one ${r.unit} ahead to ${fmt(r.step_mae[r.step_mae.length - 1], 1)} ${u(r.horizon)} ahead.</p>` : "";
       const box = showResult(p, `<div class="card rm-head-card"><h2 style="margin:0">✓ ${trained ? `${esc(r.model_title)} trained` : "Forecast ready"}</h2>
         <div class="pca-sum">${r.series.length} series · ${u(r.horizon)} ahead from ${esc(r.last_time)} · ${esc(r.model_title)}${r.seconds ? ` · ${r.seconds} s` : ""}</div>
         ${tiles}${stepInfo}
         <div class="row tight" style="margin-top:8px;gap:6px;align-items:center">${many ? `<select class="fc-series" style="flex:1;min-width:0">${r.series.map((s, i) => `<option value="${i}">${esc(s.id)}${s.stale ? " (no recent values)" : ""}</option>`).join("")}</select>` : ""}</div>
         <div class="fc-chart-box"></div>
-        <p class="hint fc-legend"><span class="fc-key hist"></span> ${esc(r.target)} · <span class="fc-key fc"></span> forecast · <span class="fc-key band"></span> 80 % of the backtest errors were within this band</p>
-        ${cmp}${impHtml}
+        <p class="hint fc-legend"><span class="fc-key hist"></span> ${esc(r.target)} · <span class="fc-key fc"></span> forecast · <span class="fc-key band"></span> ${m.band_level || 80} % of the backtest errors were within this band</p>
+        ${cmp}${impHtml}${settingsHtml}
         ${(r.warnings || []).map((w) => `<p class="hint fc-warn">${esc(w)}</p>`).join("")}
         <div class="row tight" style="margin-top:10px;flex-wrap:wrap;gap:6px"><button class="btn small" data-fc-table>Open the forecast table</button>
           ${hasXY ? `<span class="fc-step"><select data-fc-step>${r.times.map((t, k) => `<option value="${k + 1}">${esc(t)} (+${k + 1})</option>`).join("")}</select><button class="btn small" data-fc-points>Put on the map</button></span>` : ""}

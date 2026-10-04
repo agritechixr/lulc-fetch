@@ -62,6 +62,81 @@ MODELS = {
     "naive": {"title": "Last value (baseline)", "desc": "The last known value, held: the simplest baseline."},
 }
 BASELINES = ("naive", "seasonal")
+BOOSTING = ("lightgbm", "xgboost", "hgb")
+
+# each model's settings: name, title, type, default, min, max, tuning range (low, high, log scale), help
+_P = lambda name, title, kind, default, lo, hi, tune=None, tip="": {"name": name, "title": title, "kind": kind, "default": default, "min": lo, "max": hi, "tune": tune, "tip": tip}
+_TREES = "How many trees are added one after another (boosting rounds, like epochs). More = can learn more detail, slower; with early stopping this is the most it may use."
+_LR = "How much each new tree corrects the previous ones. Smaller = more careful, needs more trees."
+_SUB = "Share of the rows each tree sees (random): below 1 adds variety and reduces over-fitting."
+_COL = "Share of the inputs each tree may use: below 1 adds variety."
+PARAMS = {
+    "lightgbm": [_P("n_estimators", "Trees (boosting rounds)", "int", 500, 10, 5000, (100, 1500, True), _TREES),
+                 _P("learning_rate", "Learning rate", "float", 0.03, 0.001, 1.0, (0.01, 0.2, True), _LR),
+                 _P("num_leaves", "Leaves per tree", "int", 31, 2, 1024, (8, 128, True), "How complex each tree can be. More = more detail, more risk of learning noise."),
+                 _P("max_depth", "Max depth (-1 = no limit)", "int", -1, -1, 64, None, "Limits how deep each tree grows."),
+                 _P("min_child_samples", "Min rows per leaf", "int", 20, 1, 5000, (5, 100, True), "A leaf needs at least this many rows: larger = smoother, less over-fitting."),
+                 _P("subsample", "Row sample per tree", "float", 0.8, 0.1, 1.0, (0.5, 1.0, False), _SUB),
+                 _P("colsample_bytree", "Input sample per tree", "float", 0.8, 0.1, 1.0, (0.5, 1.0, False), _COL),
+                 _P("reg_lambda", "L2 regularisation", "float", 0.0, 0.0, 100.0, (0.0, 10.0, False), "Penalty on large leaf values: higher = more cautious.")],
+    "xgboost": [_P("n_estimators", "Trees (boosting rounds)", "int", 500, 10, 5000, (100, 1500, True), _TREES),
+                _P("learning_rate", "Learning rate", "float", 0.03, 0.001, 1.0, (0.01, 0.2, True), _LR),
+                _P("max_depth", "Max depth", "int", 6, 1, 20, (3, 10, False), "How deep each tree grows: deeper = more detail, more risk of learning noise."),
+                _P("min_child_weight", "Min weight per leaf", "float", 1.0, 0.0, 100.0, (1.0, 20.0, True), "Larger = smoother trees."),
+                _P("subsample", "Row sample per tree", "float", 0.8, 0.1, 1.0, (0.5, 1.0, False), _SUB),
+                _P("colsample_bytree", "Input sample per tree", "float", 0.8, 0.1, 1.0, (0.5, 1.0, False), _COL),
+                _P("reg_lambda", "L2 regularisation", "float", 1.0, 0.0, 100.0, (0.0, 10.0, False), "Penalty on large leaf values.")],
+    "hgb": [_P("max_iter", "Trees (boosting rounds)", "int", 400, 10, 5000, (100, 1200, True), _TREES),
+            _P("learning_rate", "Learning rate", "float", 0.05, 0.001, 1.0, (0.01, 0.2, True), _LR),
+            _P("max_leaf_nodes", "Leaves per tree", "int", 31, 2, 1024, (8, 128, True), "How complex each tree can be."),
+            _P("max_depth", "Max depth (0 = no limit)", "int", 0, 0, 64, None, "Limits how deep each tree grows."),
+            _P("min_samples_leaf", "Min rows per leaf", "int", 20, 1, 5000, (5, 100, True), "Larger = smoother, less over-fitting."),
+            _P("l2_regularization", "L2 regularisation", "float", 0.0, 0.0, 100.0, (0.0, 10.0, False), "Penalty on large leaf values.")],
+    "rf": [_P("n_estimators", "Trees", "int", 200, 10, 2000, (100, 500, True), "How many trees are averaged: more = steadier, slower (no over-fitting from more trees)."),
+           _P("max_depth", "Max depth (0 = no limit)", "int", 0, 0, 100, None, "Limits how deep each tree grows."),
+           _P("min_samples_leaf", "Min rows per leaf", "int", 3, 1, 1000, (1, 20, True), "Larger = smoother forecasts."),
+           _P("max_features", "Inputs per split (share)", "float", 0.5, 0.05, 1.0, (0.2, 1.0, False), "Share of the inputs each split may choose from.")],
+    "linear": [_P("alpha", "Regularisation (alpha)", "float", 1.0, 0.0, 10000.0, (0.01, 100.0, True), "Shrinks the weights: higher = simpler, steadier model.")],
+}
+OPTIONS = [  # training options for every model
+    _P("fit_rows", "Rows used to fit each model", "int", 150000, 1000, 2000000, None,
+       "Training rows used by each fit (the most recent features of a random sample of series and times). More = slower, sometimes better."),
+    _P("early_stop", "Early stopping (boosted trees)", "bool", False, None, None, None,
+       "LightGBM, XGBoost and gradient boosting stop adding trees when the error on the latest 15 % of the training period stops improving; the forecast then uses the best number of trees."),
+    _P("patience", "Stop after no gain for (rounds)", "int", 50, 5, 1000, None, "Early stopping waits this many trees without improvement."),
+    _P("band", "Uncertainty band (%)", "int", 80, 50, 99, None, "Share of the backtest errors the band around the forecast should contain."),
+    _P("seed", "Random seed", "int", 0, 0, 999999, None, "Same seed + same data = the same model."),
+    _P("tune", "Tune the best model (trials)", "int", 0, 0, 60, None,
+       "Tries this many random settings for the best model, each checked with the same backtests, and keeps the best (0 = off). Each trial costs one training per backtest."),
+]
+
+
+def settings(key: str, given: dict | None = None) -> dict:
+    """A model's settings: the defaults, overridden by `given` (checked and kept within range)."""
+    out = {}
+    for p in PARAMS.get(key, []):
+        v = (given or {}).get(p["name"], p["default"])
+        try:
+            v = int(round(float(v))) if p["kind"] == "int" else float(v)
+        except (TypeError, ValueError):
+            v = p["default"]
+        out[p["name"]] = min(max(v, p["min"]), p["max"])
+    return out
+
+
+def options(given: dict | None = None) -> dict:
+    out = {}
+    for p in OPTIONS:
+        v = (given or {}).get(p["name"], p["default"])
+        if p["kind"] == "bool":
+            out[p["name"]] = bool(v)
+            continue
+        try:
+            v = int(round(float(v)))
+        except (TypeError, ValueError):
+            v = p["default"]
+        out[p["name"]] = min(max(v, p["min"]), p["max"])
+    return out
 
 
 def _available(key: str) -> bool:
@@ -70,7 +145,7 @@ def _available(key: str) -> bool:
 
 
 def schema() -> dict:
-    return {"models": {k: {**m, "available": _available(k)} for k, m in MODELS.items()},
+    return {"models": {k: {**m, "available": _available(k), "params": PARAMS.get(k, [])} for k, m in MODELS.items()}, "options": OPTIONS,
             "freqs": {k: {"title": f["title"], "unit": f["unit"], "season": f["season"], "horizon": f["horizon"]} for k, f in FREQS.items()}}
 
 
@@ -450,41 +525,102 @@ def _rows(st, Y, X, cal, coords, W, H: int = 1, start: int = 1):
 
 # ------------------------------------------------------------------ models
 
-def _make(key: str, n: int):
+def _make(key: str, p: dict, seed: int = 0):
     from sklearn.impute import SimpleImputer
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
     if key == "linear":
         from sklearn.linear_model import Ridge
-        return make_pipeline(SimpleImputer(strategy="median", keep_empty_features=True), StandardScaler(), Ridge(alpha=1.0))
+        return make_pipeline(SimpleImputer(strategy="median", keep_empty_features=True), StandardScaler(), Ridge(alpha=p["alpha"]))
     if key == "rf":
         from sklearn.ensemble import RandomForestRegressor
         return make_pipeline(SimpleImputer(strategy="median", keep_empty_features=True),
-                             RandomForestRegressor(n_estimators=200, min_samples_leaf=3, max_features=0.5, n_jobs=-1, random_state=0))
+                             RandomForestRegressor(n_estimators=p["n_estimators"], max_depth=p["max_depth"] or None, min_samples_leaf=p["min_samples_leaf"],
+                                                   max_features=p["max_features"], n_jobs=-1, random_state=seed))
     if key == "hgb":
         from sklearn.ensemble import HistGradientBoostingRegressor
-        return HistGradientBoostingRegressor(max_iter=400, learning_rate=0.05, min_samples_leaf=max(5, min(20, n // 200)), random_state=0)
+        return HistGradientBoostingRegressor(max_iter=p["max_iter"], learning_rate=p["learning_rate"], max_leaf_nodes=p["max_leaf_nodes"],
+                                             max_depth=p["max_depth"] or None, min_samples_leaf=p["min_samples_leaf"],
+                                             l2_regularization=p["l2_regularization"], early_stopping=False, random_state=seed)
     if key == "lightgbm":
         from lightgbm import LGBMRegressor
-        return LGBMRegressor(n_estimators=500, learning_rate=0.03, num_leaves=31, min_child_samples=max(5, min(20, n // 200)),
-                             subsample=0.8, subsample_freq=1, colsample_bytree=0.8, random_state=0, verbose=-1, n_jobs=-1)
+        return LGBMRegressor(n_estimators=p["n_estimators"], learning_rate=p["learning_rate"], num_leaves=p["num_leaves"], max_depth=p["max_depth"],
+                             min_child_samples=p["min_child_samples"], subsample=p["subsample"], subsample_freq=1, colsample_bytree=p["colsample_bytree"],
+                             reg_lambda=p["reg_lambda"], random_state=seed, verbose=-1, n_jobs=-1)
     if key == "xgboost":
         from xgboost import XGBRegressor
-        return XGBRegressor(n_estimators=500, learning_rate=0.03, max_depth=6, subsample=0.8, colsample_bytree=0.8, random_state=0, n_jobs=-1)
+        return XGBRegressor(n_estimators=p["n_estimators"], learning_rate=p["learning_rate"], max_depth=p["max_depth"], min_child_weight=p["min_child_weight"],
+                            subsample=p["subsample"], colsample_bytree=p["colsample_bytree"], reg_lambda=p["reg_lambda"], random_state=seed, n_jobs=-1)
     raise ValueError(f"Unknown model {key}")
 
 
-def _fit(key, Fx, y):
+_ROUNDS = {"lightgbm": "n_estimators", "xgboost": "n_estimators", "hgb": "max_iter"}
+
+
+def _fit(key, Fx, y, tt=None, p: dict | None = None, opt: dict | None = None):
+    """Fit one model with its settings. Returns (model, trees used): with early stopping, boosted trees are checked on
+    the latest 15 % of the training period and keep the best number of trees."""
     if key in BASELINES:
-        return None
-    m = _make(key, len(y))
-    if len(y) > 150000:   # plenty: a random subset keeps training fast
-        i = np.random.default_rng(0).choice(len(y), 150000, replace=False)
-        Fx, y = Fx[i], y[i]
+        return None, None
+    p, opt = settings(key, p), opt or options()
+    n = opt["fit_rows"]
+    if len(y) > n:   # plenty: a random subset keeps training fast
+        i = np.sort(np.random.default_rng(opt["seed"]).choice(len(y), n, replace=False))
+        Fx, y, tt = Fx[i], y[i], (tt[i] if tt is not None else None)
+    rounds = None
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        if opt["early_stop"] and key in BOOSTING and tt is not None and len(np.unique(tt)) >= 10:
+            cut = np.quantile(tt, 0.85)
+            tr, va = tt <= cut, tt > cut
+            if tr.sum() >= 50 and va.sum() >= 20:
+                rounds = _early_stop_rounds(key, p, opt, Fx[tr], y[tr], Fx[va], y[va])
+                p = {**p, _ROUNDS[key]: max(1, rounds)}
+        m = _make(key, p, opt["seed"])
         m.fit(Fx, y)
-    return m
+    return m, rounds
+
+
+def _early_stop_rounds(key, p, opt, Xt, yt, Xv, yv) -> int:
+    """The number of trees with the lowest error on the later validation rows (stopping after `patience` without gain)."""
+    pat = opt["patience"]
+    if key == "lightgbm":
+        import lightgbm
+        m = _make(key, p, opt["seed"])
+        m.fit(Xt, yt, eval_set=[(Xv, yv)], eval_metric="l1", callbacks=[lightgbm.early_stopping(pat, verbose=False)])
+        return int(m.best_iteration_ or p["n_estimators"])
+    if key == "xgboost":
+        m = _make(key, p, opt["seed"])
+        m.set_params(early_stopping_rounds=pat, eval_metric="mae")
+        m.fit(Xt, yt, eval_set=[(Xv, yv)], verbose=False)
+        return int((m.best_iteration or p["n_estimators"] - 1) + 1)
+    # scikit-learn gradient boosting: grow tree by tree and keep the best on the validation rows
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    m = HistGradientBoostingRegressor(**{**_make(key, p, opt["seed"]).get_params(), "warm_start": True, "max_iter": 0})
+    best, best_n, since, n = np.inf, 1, 0, 0
+    step = max(5, pat // 5)
+    while n < p["max_iter"] and since < pat:
+        n = min(p["max_iter"], n + step)
+        m.set_params(max_iter=n)
+        m.fit(Xt, yt)
+        e = float(np.mean(np.abs(m.predict(Xv) - yv)))
+        if e < best - 1e-9:
+            best, best_n, since = e, n, 0
+        else:
+            since += step
+    return best_n
+
+
+def _trial(key, rng) -> dict:
+    """Random settings for one tuning trial (within each setting's tuning range)."""
+    out = {}
+    for p in PARAMS.get(key, []):
+        if not p["tune"]:
+            continue
+        lo, hi, log = p["tune"]
+        v = float(np.exp(rng.uniform(np.log(max(lo, 1e-6)), np.log(hi)))) if log and lo > 0 else float(rng.uniform(lo, hi))
+        out[p["name"]] = int(round(v)) if p["kind"] == "int" else round(v, 4)
+    return out
 
 
 def _future_inputs(X: np.ndarray, start: int, end: int, season: int | None, known: bool) -> np.ndarray:
@@ -573,7 +709,7 @@ def _metrics(err: np.ndarray, actual: np.ndarray) -> dict:
             "mape": float(np.mean(np.abs(e[nz] / a[nz])) * 100) if nz.sum() > 0.5 * e.size else None, "n": int(e.size)}
 
 
-def _bands(errs: np.ndarray) -> list:
+def _bands(errs: np.ndarray, level: float = 0.8) -> list:
     """How far off the backtests were at each step ahead: 80 % of their errors were within this (pooled with the
     neighbouring steps). The forecast ± this is the uncertainty band (about 80 %)."""
     H = errs.shape[-1]
@@ -583,7 +719,7 @@ def _bands(errs: np.ndarray) -> list:
         w = max(1, H // 10)
         v = e[:, max(0, h - w):h + w + 1]
         v = v[np.isfinite(v)]
-        out.append(float(np.quantile(v, 0.8)) if v.size >= 5 else None)
+        out.append(float(np.quantile(v, level)) if v.size >= 5 else None)
     return out
 
 
@@ -592,10 +728,13 @@ def _bands(errs: np.ndarray) -> list:
 def train(table, out_dir, *, time_col: str, target: str, series_col: str | None = None, lat_col: str | None = None,
           lon_col: str | None = None, inputs: list[str] | None = None, freq: str = "auto", horizon: int | None = None,
           model: str = "auto", backtests: int = 3, future_inputs: str = "auto", clip: str = "auto", strategy: str = "auto",
-          name: str = "forecast") -> dict:
-    """Train a forecasting model on a table, check it by backtesting, forecast the next `horizon` steps and save it."""
+          params: dict | None = None, opts: dict | None = None, name: str = "forecast") -> dict:
+    """Train a forecasting model on a table, check it by backtesting, forecast the next `horizon` steps and save it.
+    params: each model's settings ({"lightgbm": {"n_estimators": 800, …}}, see PARAMS); opts: training options (OPTIONS)."""
     import joblib
     t0 = time.time()
+    opt = options(opts)
+    params = {k: settings(k, (params or {}).get(k)) for k in PARAMS}
     progress.update(0.01, "Reading the table")
     inputs = [k for k in (inputs or []) if k not in (time_col, target, series_col, lat_col, lon_col)]
     cfg = {"time_col": time_col, "target": target, "series_col": series_col or None, "lat_col": lat_col or None,
@@ -644,7 +783,7 @@ def train(table, out_dir, *, time_col: str, target: str, series_col: str | None 
                 i += 1
                 progress.update(p0 + (p1 - p0) * i / n, f"Backtest {origins.index(o) + 1} of {len(origins)}: {MODELS[k]['title']}"
                                 + (" (direct)" if strat == "direct" and k not in BASELINES else ""))
-                m = _fit(k, Fx[trn], y[trn])
+                m, _ = _fit(k, Fx[trn], y[trn], tt[trn], params.get(k), opt)
                 pred = _forecast(k, m, s, Y, Xo, cal_all, P["coords"], W, o, H, lo, hi)
                 act = Y[:, o:o + H]
                 r = res.setdefault((k, strat if k not in BASELINES else "-"), {"err": [], "act": []})
@@ -677,10 +816,36 @@ def train(table, out_dir, *, time_col: str, target: str, series_col: str | None 
     chosen, strat = best["key"], (best["strategy"] if best["strategy"] != "-" else plan[0])
     st = sts[strat]
     Fx, y, tt = data[strat]
+
+    # tuning: random settings for the chosen model, each checked with the same backtests; the best one is kept
+    trials = []
+    if opt["tune"] and chosen not in BASELINES and chosen in PARAMS:
+        rng = np.random.default_rng(opt["seed"])
+        trials.append({"trial": 0, "settings": dict(params[chosen]), "mae": best["mae"], "note": "the settings above"})
+        for i in range(opt["tune"]):
+            progress.update(0.6 + 0.2 * i / opt["tune"], f"Tuning {MODELS[chosen]['title']}: trial {i + 1} of {opt['tune']}")
+            cand = settings(chosen, {**params[chosen], **_trial(chosen, rng)})
+            errs, acts = [], []
+            for o in origins:
+                trn = tt < o
+                m, _ = _fit(chosen, Fx[trn], y[trn], tt[trn], cand, opt)
+                errs.append(_forecast(chosen, m, st, Y, _future_inputs(X, o, o + H, st["season"], known), cal_all, P["coords"], W, o, H, lo, hi) - Y[:, o:o + H])
+                acts.append(Y[:, o:o + H])
+            mae = _metrics(np.stack(errs), np.stack(acts))["mae"]
+            trials.append({"trial": i + 1, "settings": cand, "mae": mae})
+            if mae is not None and (best["mae"] is None or mae < min(x["mae"] for x in trials[:-1] if x["mae"] is not None)):
+                params[chosen] = cand
+                res[(chosen, best["strategy"])] = {"err": errs, "act": acts}
+        rows = table()
+        for r in rows:
+            r["skill"] = (1 - r["mae"] / base["mae"]) if base and base["mae"] and r["mae"] is not None else None
+        best = next(r for r in rows if r["key"] == chosen and r["strategy"] == best["strategy"])
+        trials.sort(key=lambda x: (x["mae"] is None, x["mae"] or 0))
+        log.info("Tuning %s: best MAE %.3f (%d trials)", chosen, best["mae"], len(trials) - 1)
     names = _names(st, target)
     if base and best["mae"] is not None and best["key"] != base["key"] and best["mae"] >= base["mae"]:
         warn.append(f"{MODELS[best['key']]['title']} doesn't beat the simple baseline ({base['title']}): the data may be too short or too noisy, or the inputs don't help.")
-    width = _bands(np.stack(res[(chosen, best["strategy"])]["err"]))
+    width = _bands(np.stack(res[(chosen, best["strategy"])]["err"]), opt["band"] / 100)
 
     # which features matter: permutation importance on the last backtest window (one step ahead, actual history)
     importance = []
@@ -689,7 +854,7 @@ def train(table, out_dir, *, time_col: str, target: str, series_col: str | None 
         try:
             from sklearn.inspection import permutation_importance
             o = origins[-1]
-            m = _fit(chosen, Fx[tt < o], y[tt < o])
+            m, _ = _fit(chosen, Fx[tt < o], y[tt < o], tt[tt < o], params.get(chosen), opt)
             te = (tt >= o) & (tt < o + H)
             if te.sum() >= 10:
                 with warnings.catch_warnings():
@@ -706,7 +871,7 @@ def train(table, out_dir, *, time_col: str, target: str, series_col: str | None 
             log.info("Feature importance skipped: %s", e)
 
     progress.update(0.9, f"Training {MODELS[chosen]['title']} on all the data")
-    final = _fit(chosen, Fx, y)
+    final, rounds = _fit(chosen, Fx, y, tt, params.get(chosen), opt)
     Xf = _future_inputs(X, T, T + H, st["season"], True)
     pred = _forecast(chosen, final, st, Y, Xf, cal_all, P["coords"], W, T, H, lo, hi)
     out_dir = Path(out_dir)
@@ -717,7 +882,9 @@ def train(table, out_dir, *, time_col: str, target: str, series_col: str | None 
             "setup": st, "freq": P["freq"], "horizon": H, "band": width, "clip": [lo, None],
             "metrics": {k: v for k, v in best.items() if k != "step_mae"}, "compare": [{k: v for k, v in r.items() if k != "step_mae"} for r in rows], "strategy": strat,
             "baseline": {"key": base["key"], "title": base["title"], "mae": base["mae"]} if base else None,
-            "importance": importance, "known_inputs": bool(known),
+            "importance": importance, "known_inputs": bool(known), "band_level": opt["band"],
+            "params": params.get(chosen) if chosen not in BASELINES else None, "options": opt, "rounds": rounds,
+            "tuning": trials[:12],
             "trained": {"table": str(table), "series": len(P["ids"]), "rows": int(len(y)), "start": str(P["times"][0]),
                         "end": str(P["times"][T - 1]), "backtests": len(origins)},
             "created": time.strftime("%Y-%m-%d %H:%M")}

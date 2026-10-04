@@ -19,3 +19,7 @@
 .fc-step { display: inline-flex; gap: 4px; align-items: center; }
 .fc-step select { max-width: 170px; }
 .fc-more td:not(:first-child) { white-space: nowrap; }
+.fc-set-head { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12.5px; }
+.fc-set-head select { margin-left: auto; max-width: 190px; padding: 3px 6px; font-size: 12.5px; }
+.fc-set-head .link-btn { margin-left: 6px; }
+.fc-set-head select.hidden + .link-btn { margin-left: auto; }

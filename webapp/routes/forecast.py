@@ -69,6 +69,8 @@ class FcTrain(BaseModel):
     backtests: int = Field(3, ge=1, le=10)
     future_inputs: str = Field("auto", pattern="^(auto|known|repeat)$")
     strategy: str = Field("auto", pattern="^(auto|recursive|direct)$")
+    params: dict = Field(default_factory=dict)    # each model's settings: {"lightgbm": {"n_estimators": 800, …}} (checked in forecast.settings)
+    options: dict = Field(default_factory=dict)   # training options: fit_rows, early_stop, patience, band, seed, tune
     name: str = Field("forecast", max_length=80)
 
 
@@ -82,7 +84,8 @@ def fc_train(req: FcTrain):
         stem = core.unique(FC_DIR.path, f"{core.safe_stem(req.name, 'forecast')}.joblib").stem
         rep = forecast.train(table, FC_DIR.path, time_col=req.time_col, target=req.target, series_col=req.series_col,
                              lat_col=req.lat_col, lon_col=req.lon_col, inputs=req.inputs, freq=req.freq, horizon=req.horizon,
-                             model=req.model, backtests=req.backtests, future_inputs=req.future_inputs, strategy=req.strategy, name=stem)
+                             model=req.model, backtests=req.backtests, future_inputs=req.future_inputs, strategy=req.strategy,
+                             params=req.params, opts=req.options, name=stem)
         rep["path"] = ws.rel(rep["path"])
         return _save_table(rep, f"{stem}_forecast")
 
