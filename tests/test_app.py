@@ -188,3 +188,23 @@ def test_csv_with_coordinates_becomes_points(client, tmp_path):
     fc = ok(client.get("/api/tables/points", params={"path": r["path"]}))
     assert len(fc["features"]) == 2 and fc["features"][0]["geometry"]["coordinates"] == [77.59, 12.97]
     assert fc["features"][0]["properties"]["address"] == "Bengaluru"
+
+
+def test_data_viewer_right_click_menus(client):
+    """Right-click in the data viewer: a column menu and a cell menu (filter by value, delete the row …)."""
+    js = client.get("/static/app.js").text
+    assert "function wireTableMenus" in js and "wireTableMenus(t, d, content)" in js
+    for label in ("Show only rows where", "Delete this row", "Delete this field", "Copy the row"):
+        assert label in js
+
+
+def test_filter_by_a_cell_value(client, tmp_path):
+    """The filters the cell menu writes ("agency = \\"KSPCB\\"", "lat > 12.9") work on the server."""
+    from tests.helpers import ok
+    p = tmp_path / "s.csv"
+    p.write_text('name,agency,lat\n"City Railway Station",KSPCB,12.97\nBTM Layout,CPCB,12.91\nHebbal,KSPCB,13.03\n')
+    with open(p, "rb") as f:
+        path = ok(client.post("/api/tables/upload", files={"file": ("s.csv", f, "text/csv")}))["path"]
+    rows = lambda q: ok(client.get("/api/tables/rows", params={"path": path, "q": q}))["filtered"]   # noqa: E731
+    assert rows('agency = "KSPCB"') == 2 and rows('agency != "KSPCB"') == 1 and rows("lat > 12.95") == 2
+    assert rows('name = "City Railway Station"') == 1

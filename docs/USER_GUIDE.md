@@ -256,6 +256,11 @@ The data viewer opens below the map when you open a table, an attribute table or
 - **Column statistics:** for every column, the type, missing values, distinct values, min / median / mean / max / standard deviation, and a mini histogram (numbers) or the most frequent values (text).
 - **Train a model** opens Classical ML ▸ Train a model with the table selected. ⬇ downloads the file.
 
+**Right-click in the data viewer** (tables and attribute tables):
+- **On a column header:** sort (A → Z / Z → A, smallest / largest first), column statistics, copy the column name or the values shown, *Show points on map…* (number columns of a table without detected coordinates), and the editing actions: rename, calculate values, convert to number / whole number / text, add a field, delete the field.
+- **On a cell:** copy the value or the whole row; **show only / hide rows with this value** (and, for numbers, rows above / below it): this writes the filter into the search box (e.g. `agency = "KSPCB"`, `lat > 12.9`), where you can change or clear it; show the row on the map; edit the cell; add a row; delete the row (or all ticked rows).
+- Editing actions start the edit session below for you, so nothing changes the file until you **Save**, and **Undo** works.
+
 **Editing tables and attribute tables:** click **✎ Edit** in the viewer's toolbar. This starts an **edit session**: every change goes to a working copy, and the original table or layer is not touched until you save.
 
 | Action | How |

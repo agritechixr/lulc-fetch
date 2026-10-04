@@ -15,6 +15,7 @@
   "core/contents-items.js",
   "core/data-viewer.js",
   "core/table-editing.js",
+  "core/table-menu.js",
   "core/folder-picker.js",
   "core/projects.js",
   "core/cache.js",

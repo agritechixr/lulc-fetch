@@ -83,7 +83,7 @@
         <button class="btn small" data-ed="undo" title="Undo the last change">↶ Undo</button>
         <button class="btn small" data-ed="discard" title="Throw away all changes since you started editing">Discard</button>
         <button class="btn small primary" data-ed="save" title="Save the changes: over the original or as a new ${isAttr ? "layer" : "table"}">💾 Save…</button>
-        <span class="hint vt-edit-hint" style="margin:0">Double-click a cell to edit · ⋯ on a column for more</span>
+        <span class="hint vt-edit-hint" style="margin:0">Double-click a cell to edit · right-click a cell or column for more</span>
       </div>
       <div class="vt-wrap"><div class="vt-content"></div></div>`;
     t.sel ||= new Set(); t.pending ||= new Map();
@@ -160,6 +160,7 @@
         return `<td data-c="${i}" class="${num[i] ? "num" : ""} ${c.dirty ? "dirty" : ""}">${fmtCell(c.v, d.types[i])}</td>`; }).join("")}</tr>`; }).join("")}</tbody></table>`
       : `<div class="vw-empty small"><b>No rows match</b><span>Clear the search or change the filter${ed && t.kind !== "attr" ? ", or add a row" : ""}.</span></div>`;
     if (ed) wireEditing(t, d, content);
+    wireTableMenus(t, d, content);   // right-click: column and cell menus (table-menu.js)
     $$("th[data-col]", content).forEach((th) => th.onclick = (e) => {
       if (e.target.closest(".th-menu")) return;
       const c = th.dataset.col;
