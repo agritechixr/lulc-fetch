@@ -109,7 +109,8 @@
           const folder = f.path.split("/").slice(0, -1).join(" / ");
           const head = folder !== last ? `<div class="lib-folder">${esc(folder || "(top)")}</div>` : "";
           last = folder;
-          const facts = [f.type, f.features != null ? `${f.features.toLocaleString()} ${f.geometry?.length === 1 ? f.geometry[0].toLowerCase() + (f.features === 1 ? "" : "s") : "features"}` : "", mb(f.size)].filter(Boolean).join(" · ");
+          const facts = [f.type, f.features != null ? `${f.features.toLocaleString()} ${f.geometry?.length === 1 ? f.geometry[0].toLowerCase() + (f.features === 1 ? "" : "s") : "features"}` : "",
+                         f.rows != null ? `${f.rows.toLocaleString()} rows` : "", f.bands != null ? `${f.bands} bands` : "", mb(f.size)].filter(Boolean).join(" · ");
           return `${head}<div class="lib-row" data-path="${esc(f.path)}">
               <span class="lib-name" title="${esc(f.path)}"><b>${esc(f.title || f.path.split("/").pop())}</b><small>${esc(facts)}${f.fields?.length ? ` · fields: ${esc(f.fields.slice(0, 6).join(", "))}${f.fields.length > 6 ? "…" : ""}` : ""}</small></span>
               <button class="btn small ${f.local ? "" : "primary"}" data-add ${st.busy.has(f.path) ? "disabled" : ""}>${st.busy.has(f.path) ? "Adding…" : f.local ? "✓ Add" : "Add"}</button></div>`;
@@ -128,7 +129,8 @@
                                  { tool: "library", title: `Library · ${f.title || f.path.split("/").pop()}` });
           const name = f.title || r.name;
           if (r.kind === "raster") await addRasterFromPath(r.path, { name });
-          else if (r.kind === "table") { const it = addItem({ kind: "table", name: r.file, path: r.path }, { open: true }); if (r.lonlat) await tablePoints(it, "", r.lonlat); }
+          // a table with latitude / longitude also goes on the map, unless the catalog says it is a time series (one row per place and time)
+          else if (r.kind === "table") { const it = addItem({ kind: "table", name: r.file, path: r.path }, { open: true }); if (r.lonlat && f.points !== false) await tablePoints(it, "", r.lonlat); }
           else {
             const fc = await api(`/api/library/geojson?path=${encodeURIComponent(r.path)}`);
             const gj = typeof fc === "string" ? JSON.parse(fc) : fc;
