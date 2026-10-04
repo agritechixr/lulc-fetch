@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LULC Fetch: land-cover mapping on your own computer</title>
-<meta name="description" content="Free desktop app to find Sentinel-2 and Landsat imagery, compute indices, train machine-learning models (Random Forest, SVM, Maximum Likelihood, XGBoost…) and classify satellite images into land-use / land-cover maps. Works offline. Mac and Windows.">
+<meta name="description" content="Free desktop app to find Sentinel-2 and Landsat imagery, compute indices, train machine-learning models (Random Forest, SVM, Maximum Likelihood, XGBoost…), classify satellite images into land-use / land-cover maps, interpolate and forecast air quality and rainfall. Works offline. Mac and Windows.">
 <meta property="og:title" content="LULC Fetch: land-cover maps from satellite images">
 <meta property="og:description" content="Find imagery, train classical ML models and map land use / land cover, all on your own computer. Free and open source.">
 <meta property="og:image" content="assets/hero.jpg">
@@ -184,6 +184,26 @@ footer .links2 { display: flex; gap: 18px; }
   .grid, .local, .dl, .compare, .steps, .types { grid-template-columns: 1fr; }
   .hero { padding-top: 48px; }
 }
+/* forecasting & open data */
+.shot.tall { max-width: 380px; justify-self: center; }
+.sample-wrap { overflow-x: auto; margin-top: 40px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.sample { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.sample caption { caption-side: top; text-align: left; padding: 14px 18px 4px; font-weight: 700; }
+.sample th, .sample td { padding: 8px 14px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+.sample th:first-child, .sample td:first-child, .sample th:nth-child(2), .sample td:nth-child(2) { text-align: left; }
+.sample th { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.sample tr:last-child td { border-bottom: 0; }
+.aqi { display: inline-block; min-width: 86px; text-align: center; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #14211b; }
+.aqi.sat { background: #a3c853; } .aqi.mod { background: #fff833; } .aqi.poor { background: #f29c33; } .aqi.vpoor { background: #e93f33; color: #fff; }
+.datasets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 40px; text-align: left; }
+.datasets .card h3 { display: flex; align-items: center; gap: 8px; }
+.datasets dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 12px 0 0; font-size: 13.5px; }
+.datasets dt { color: var(--muted); }
+.datasets dd { margin: 0; }
+.pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--accent-2); color: var(--accent); }
+.pill.model { background: #fef3c7; color: #92400e; }
+@media (prefers-color-scheme: dark) { .pill.model { background: #3b2f12; color: #fcd34d; } }
+@media (max-width: 900px) { .datasets { grid-template-columns: 1fr; } .shot.tall { max-width: 320px; } }
 </style>
 </head>
 <body>
@@ -194,6 +214,8 @@ footer .links2 { display: flex; gap: 18px; }
     <div class="links">
       <a href="#features">Features</a>
       <a href="#agriculture">Agriculture</a>
+      <a href="#forecast">Forecasting</a>
+      <a href="#opendata">Open data</a>
       <a href="#workflow">How it works</a>
       <a href="#data">Data</a>
       <a href="#faq">FAQ</a>
@@ -205,9 +227,9 @@ footer .links2 { display: flex; gap: 18px; }
 
 <header class="hero center">
   <div class="wrap">
-    <span class="eyebrow">Free · Open source · Mac &amp; Windows · <b>Coming next: crop disease diagnosis, satellite embeddings &amp; object detection</b></span>
+    <span class="eyebrow">Free · Open source · Mac &amp; Windows · <b>New: AQI &amp; rainfall forecasting, interpolation and open data</b></span>
     <h1>Land-cover maps from satellite images, <span>on your own computer</span></h1>
-    <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning and deep-learning models, classify images into land-use / land-cover maps and detect objects such as vehicles and ships, and diagnose crop diseases from leaf photos, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
+    <p class="lead">Find Sentinel-2 and Landsat imagery, compute indices, train machine-learning and deep-learning models, classify images into land-use / land-cover maps and detect objects such as vehicles and ships, diagnose crop diseases from leaf photos, map and forecast air quality and rainfall, with honest accuracy assessment. No coding, no cloud account, works offline.</p>
     <div class="cta">
       <a class="btn primary" id="cta-main" href="#download">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
@@ -223,7 +245,7 @@ footer .links2 { display: flex; gap: 18px; }
     </div>
     <div class="chips">
       <span>Sentinel-2</span><span>Landsat 8–9</span><span>Sentinel-1 SAR</span><span>Copernicus .SAFE</span><span>ESA WorldCover</span>
-      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings (download free)</span><span>U-Net · DeepLabV3+ · SegFormer</span><span>YOLO26 · SAM 2.1</span><span>Crop disease · 42 crops</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
+      <span>Hyperspectral</span><span>AlphaEarth &amp; TESSERA embeddings (download free)</span><span>U-Net · DeepLabV3+ · SegFormer</span><span>YOLO26 · SAM 2.1</span><span>Crop disease · 42 crops</span><span>AQI &amp; rainfall forecasting</span><span>Kriging · IDW · 7 interpolation methods</span><span>GeoTIFF · Shapefile · GeoJSON · CSV · Excel</span>
     </div>
   </div>
 </header>
@@ -251,6 +273,10 @@ footer .links2 { display: flex; gap: 18px; }
       <p class="lead">Built on GDAL, scikit-learn, XGBoost, LightGBM and PyTorch, behind a friendly interface with hints on every option.</p>
     </div>
     <div class="grid">
+      <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 20h18" opacity=".5"/><path d="M4 16l4-5 4 3 3-4"/><path d="M15 10l3-2 3-3" stroke-dasharray="2 2"/></svg></div>
+        <h3>Forecasting <span class="new-tag">new</span></h3><p>The new <b>Forecast</b> menu predicts the next hours, days or months of any value in a table: AQI per station, rainfall, humidity, sales. LightGBM, XGBoost, Random Forest and more, checked against simple baselines with honest backtests, with an uncertainty band and a map of the forecast. <a href="#forecast">See real forecasts →</a></p></div>
+      <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.5 1.5A3.3 3.3 0 0 0 7 18z"/><path d="M8 21v-1M12 21v-1M16 21v-1" opacity=".7"/></svg></div>
+        <h3>AQI &amp; weather data <span class="new-tag">new</span></h3><p>Hourly air quality (PM2.5, PM10, NO₂, SO₂, CO, O₃ and the Indian AQI, computed the CPCB way) and weather for any points, up to 92 days back plus the next 16 days of weather forecast. Free, no account (Open-Meteo: CAMS and ECMWF).</p></div>
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="17" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="7" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="14" r="1.6" fill="currentColor" stroke="none"/><path d="M3 12c3-5 6-7 9-6s4 5 9 3"/><path d="M3 20c4-3 8-4 11-3s5 1 7-1" opacity=".5"/></svg></div>
         <h3>Interpolation <span class="new-tag">new</span></h3><p>A surface from values at points (air-quality stations, rain gauges, soil samples): IDW, kriging, spline, natural neighbour, nearest neighbour, trend surface and TIN, cut to any boundary, with a leave-one-out check that compares the methods.</p></div>
       <div class="card new"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/></svg></div>
@@ -498,6 +524,119 @@ footer .links2 { display: flex; gap: 18px; }
   </div>
 </section>
 
+<section id="forecast">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Forecasting · new Forecast menu</span>
+      <h2>What will the air be like tomorrow? Will it rain this week?</h2>
+      <p class="lead">Give LULC Fetch a table with a date column (AQI at every station, rainfall at every grid point, any value over time) and it trains a forecasting model, checks it against simple guesses, and forecasts the next hours, days or months, with an uncertainty band and a map.</p>
+    </div>
+    <div class="stats center">
+      <div class="big"><b>31%</b><span>lower error than "same time yesterday" for Bengaluru's AQI 48 hours ahead</span></div>
+      <div class="big"><b>10%</b><span>lower error than "same as today" for daily rain 7 days ahead, all of India</span></div>
+      <div class="big"><b>4,964</b><span>rainfall grid points × 11 years of IMD daily data, trained on in under a minute</span></div>
+      <div class="big"><b>57</b><span>air-quality stations in Bengaluru and Delhi, hourly since August 2022</span></div>
+    </div>
+
+    <div class="steps" style="margin-top:56px">
+      <div class="step"><h3>Get data</h3><p>Your own CSV / Excel / Parquet, or hourly AQI and weather for any points with <b>Get AQI &amp; weather data</b>.</p></div>
+      <div class="step"><h3>Train</h3><p>One model learns from all stations together: past values, hour and season, nearby stations, weather.</p></div>
+      <div class="step"><h3>Backtest</h3><p>Trained on the past only, it forecasts periods it hasn't seen, spread over the last year, against simple baselines.</p></div>
+      <div class="step"><h3>Forecast</h3><p>The next steps for every station, with an 80 % band, as a table and a chart; saved for <b>Forecast with a model</b>.</p></div>
+      <div class="step"><h3>Map</h3><p>Put any hour on the map and krige it into a surface over the city's wards with <b>Interpolation</b>.</p></div>
+    </div>
+
+    <div class="show">
+      <div class="txt">
+        <span class="tag">Bengaluru · hourly AQI</span>
+        <h3>The next 48 hours at every station</h3>
+        <p>Trained on 3 years of hourly AQI at Bengaluru's 13 monitoring stations (476,000 rows) with temperature, humidity, wind and rain, on 4 October 2026 at 14:00. Five machine-learning models and two simple baselines were backtested at three cut-offs across the past year; linear regression won, with an average error of 15 AQI points, 31 % better than "the same time yesterday".</p>
+        <ul>
+          <li>The daily rush-hour peaks continue into the forecast (dashed), with the 80 % band widening further ahead</li>
+          <li>The error grows from 1 AQI point one hour ahead to 22 two days ahead, and the tool says so</li>
+          <li>Training and comparing every model took 97 seconds on a MacBook</li>
+        </ul>
+      </div>
+      <img width="700" height="1359" class="shot tall" src="assets/forecast-bengaluru.jpg" alt="Train forecasting model result for Bengaluru: MAE 15.37, 31 % better than baseline, a chart of Central Silk Board's AQI with the 48-hour forecast and its band, and the comparison of all models" loading="lazy">
+    </div>
+
+    <div class="sample-wrap">
+      <table class="sample">
+        <caption>The forecast table it writes: Central Silk Board, from 4 October 2026, 14:00 (real output)</caption>
+        <thead><tr><th>Time</th><th>Category</th><th>Hours ahead</th><th>Forecast AQI</th><th>Low</th><th>High</th></tr></thead>
+        <tbody>
+          <tr><td>4 Oct 15:00</td><td><span class="aqi mod">Moderate</span></td><td>1</td><td>142</td><td>137</td><td>147</td></tr>
+          <tr><td>4 Oct 20:00</td><td><span class="aqi mod">Moderate</span></td><td>6</td><td>105</td><td>99</td><td>111</td></tr>
+          <tr><td>5 Oct 02:00</td><td><span class="aqi sat">Satisfactory</span></td><td>12</td><td>63</td><td>54</td><td>71</td></tr>
+          <tr><td>5 Oct 14:00</td><td><span class="aqi mod">Moderate</span></td><td>24</td><td>129</td><td>106</td><td>152</td></tr>
+          <tr><td>6 Oct 14:00</td><td><span class="aqi mod">Moderate</span></td><td>48</td><td>125</td><td>88</td><td>161</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="show rev">
+      <div class="txt">
+        <span class="tag">Delhi · when a simple guess wins</span>
+        <h3>Tomorrow's AQI across 273 wards, and an honest warning</h3>
+        <p>The same steps for Delhi's 44 stations: the forecast for 5 October, 16:00 is kriged over the city's wards from the Library, from 245 (Poor) in the north to 317 (Very Poor) in the south. But the backtest says LightGBM's error (56) is <b>worse</b> than simply keeping the last value (37), and the tool shows that warning in orange.</p>
+        <ul>
+          <li>Why: Delhi's AQI in 2026 is higher than in any earlier year of the data (October 230 vs 129–176), so models that learned from the past expect it to fall back</li>
+          <li>With <b>Compare all and keep the best</b>, the app would keep the simple baseline here, rather than a model that only looks clever</li>
+        </ul>
+      </div>
+      <img width="1800" height="1104" class="shot" src="assets/forecast-delhi.jpg" alt="Delhi's 273 wards coloured by the kriged AQI forecast for the next day, with the 44 stations, and the training result warning that LightGBM does not beat the last-value baseline" loading="lazy">
+    </div>
+
+    <div class="show">
+      <div class="txt">
+        <span class="tag">India · daily rainfall</span>
+        <h3>A week of rain for every 27 km of India</h3>
+        <p>IMD's gridded rainfall (4,964 points, 2015–2025, measured by about 7,000 rain gauges) in one table of 20 million rows. The map shows real rain on 15 July 2025: the Western Ghats, central India and the Bay of Bengal coast. LightGBM forecasts each of the next 7 days directly, without feeding its own guesses back in, so it doesn't invent rain in dry spells.</p>
+        <ul>
+          <li>Average error 4.4 mm/day, 10 % better than "same as today", checked in every season</li>
+          <li>Inputs that mattered: recent rain (36 %), where the point is (32 %), rain at nearby points (13 %)</li>
+          <li>Large tables are sampled to 1.5 million rows for training, so a laptop copes: 46 seconds</li>
+        </ul>
+      </div>
+      <img width="1800" height="1104" class="shot" src="assets/forecast-rain.jpg" alt="Map of India with IMD daily rainfall on 15 July 2025 in blues, and the result of training LightGBM on 4,964 rainfall grid points: MAE 4.38 mm, 10 % better than baseline" loading="lazy">
+    </div>
+
+    <div class="crops">
+      <div class="card"><h3>Models</h3><div class="chips"><span>LightGBM</span><span>XGBoost</span><span>Gradient boosting</span><span>Random Forest</span><span>Linear (ridge)</span><span>Baseline: last value</span><span>Baseline: same time last cycle</span></div>
+        <p style="margin-top:12px">Step by step (each prediction feeds the next: smooth daily cycles such as AQI) or direct (each step from what is known now: values that are often zero, such as rain). <b>Automatic</b> tries the best model both ways.</p></div>
+      <div class="card"><h3>What the model sees</h3><div class="chips"><span>Past values &amp; averages</span><span>Same hour yesterday / last week</span><span>Hour, weekday, season</span><span>Nearby stations</span><span>Latitude / longitude</span><span>Weather (incl. forecasts)</span></div>
+        <p style="margin-top:12px">Hourly, daily, weekly or monthly data; one place or thousands. A weather forecast in the table is used for the future; otherwise inputs repeat the last cycle.</p></div>
+    </div>
+    <p class="note center">The AQI examples use CAMS air-quality model data (about 11 km cells) with the Indian AQI computed from it, not CPCB station measurements; nearby stations can share values. Forecasts are statistical, not official warnings: for health advisories follow CPCB / SAFAR, and for weather IMD. Rainfall: IMD gridded data, Pai et al. (2014), <i>Mausam</i> 65(1).</p>
+  </div>
+</section>
+
+<section class="alt" id="opendata">
+  <div class="wrap center">
+    <span class="eyebrow">Open data</span>
+    <h2>Ready-made data for India, free</h2>
+    <p class="lead">Datasets prepared and checked with LULC Fetch, with their sources, licences and how they were made. The ones on Hugging Face open from the Library menu in one click.</p>
+    <div class="datasets">
+      <div class="card"><h3>Daily rainfall, all India <span class="pill">measured</span></h3>
+        <p>IMD's 0.25° gridded rainfall from about 7,000 rain gauges: one GeoTIFF per year (a band per day) and one forecasting-ready table.</p>
+        <dl><dt>Coverage</dt><dd>4,964 points · 2015–2025 daily</dd><dt>Size</dt><dd>20 million values · 72 MB</dd><dt>Source</dt><dd>IMD Pune · cite Pai et al. (2014)</dd><dt>Where</dt><dd>Coming to the Library</dd></dl></div>
+      <div class="card"><h3>Hourly AQI: Bengaluru &amp; Delhi <span class="pill model">model</span></h3>
+        <p>PM2.5, PM10, NO₂, SO₂, CO, O₃ and the Indian AQI at 57 station locations, with hourly temperature, humidity, wind and rain.</p>
+        <dl><dt>Coverage</dt><dd>13 + 44 stations · Aug 2022 – Oct 2026</dd><dt>Size</dt><dd>2.1 million rows · 32 MB</dd><dt>Source</dt><dd>CAMS &amp; ERA5 via Open-Meteo (CC BY 4.0)</dd><dt>Where</dt><dd>Coming to the Library; make your own with Get AQI &amp; weather data</dd></dl></div>
+      <div class="card"><h3>India boundaries <span class="pill">vector</span></h3>
+        <p>States, districts, sub-districts, villages, constituencies, city wards, highways and railways, ready in the Library menu.</p>
+        <dl><dt>Coverage</dt><dd>307 layers</dd><dt>Where</dt><dd><a href="https://huggingface.co/datasets/ixrbhii/indian-shapefiles">Hugging Face</a></dd><dt>Source</dt><dd>datta07/INDIAN-SHAPEFILES</dd></dl></div>
+      <div class="card"><h3>Satellite embeddings <span class="pill">AI</span></h3>
+        <p>Google AlphaEarth (64-D) and TESSERA (128-D) for any area of the world, downloaded only for your area by the Embeddings menu.</p>
+        <dl><dt>Coverage</dt><dd>10 m · 2017–2025</dd><dt>Licence</dt><dd>CC BY 4.0 / CC0</dd></dl></div>
+      <div class="card"><h3>Crop disease Q&amp;A <span class="pill">text</span></h3>
+        <p>About 9,000 expert questions and answers on symptoms, treatment and pests, behind the Crop disease guide.</p>
+        <dl><dt>Coverage</dt><dd>42 crops</dd><dt>Where</dt><dd><a href="https://huggingface.co/datasets/ixrbhii/crop-disease-qa">Hugging Face</a></dd></dl></div>
+    </div>
+    <p class="note">"Model" data is computed by an atmospheric model, not measured at a station. Each dataset ships with a README listing its source, licence, columns and known limits.</p>
+  </div>
+</section>
+
 <section class="alt" id="honest">
   <div class="wrap center">
     <span class="eyebrow">Honest accuracy</span>
@@ -532,7 +671,7 @@ footer .links2 { display: flex; gap: 18px; }
     <h2>Your data stays on your computer</h2>
     <div class="local" style="text-align:left">
       <div class="card"><h3>Runs locally</h3><p>Everything runs on your own machine: no upload, no cloud processing, no account needed for analysis.</p></div>
-      <div class="card"><h3>Works offline</h3><p>All analysis, machine learning and editing work without internet. Internet is only used to find and download imagery, for basemaps, for address search, to download satellite embeddings, and once per crop to download its disease model.</p></div>
+      <div class="card"><h3>Works offline</h3><p>All analysis, machine learning and editing work without internet. Internet is only used to find and download imagery, for basemaps, for address search, to download satellite embeddings, AQI and weather data or Library layers, and once per crop to download its disease model.</p></div>
       <div class="card"><h3>Free &amp; open</h3><p>Open source under the Apache 2.0 licence. Inspect it, improve it, and use it in research, teaching or projects.</p></div>
     </div>
   </div>
@@ -588,6 +727,8 @@ footer .links2 { display: flex; gap: 18px; }
       <details><summary>Can it do deep learning?</summary><p>Yes. <b>Make training data</b> cuts your image and ground truth into patches, <b>Train classify model</b> trains U-Net, DeepLabV3+, PSPNet, SegFormer, FCN, YOLO26 semantic and more, and <b>Classify image</b> maps whole scenes. <b>Detect object</b> finds vehicles, ships, planes, storage tanks, people and more in high-resolution aerial or drone images with open-source pretrained models (YOLO26, including an aerial model trained on DOTA, Faster R-CNN, RetinaNet, Mask R-CNN, and SAM 2.1 segment-everything), and <b>Train detection model</b> teaches YOLO your own objects from labelled polygons or points. The first time, the app offers to install the free PyTorch add-on (about 0.8 GB on Mac; on Windows 1.1 GB for CPU only or 3.5 GB with NVIDIA GPU support); YOLO and SAM need a second, smaller add-on (ultralytics, AGPL-3.0). Training uses the Apple GPU on Macs and an NVIDIA GPU on Windows if there is one.</p></details>
       <details><summary>Can it tell which disease my crop has?</summary><p>Yes. <b>Agri ▸ Diagnose crop disease</b> recognises the crop on a leaf photo (42 crops, from apple and mango to rice, maize, tomato and sugarcane) and gives the top 3 diseases with confidence, using one ConvNeXt model per crop. Unclear photos get "retake" instead of a guess, and photos with GPS become a disease map. <b>Agri ▸ Crop disease guide</b> has about 9,000 expert answers on symptoms, treatment and pests, and works offline. The models download from Hugging Face the first time each crop is needed (about 95 MB per crop); after that it works offline.</p></details>
       <details><summary>What are satellite embeddings, and are they free?</summary><p>An embedding turns every 10 m pixel into a list of numbers that sums up a whole year of satellite observations, so alike places get alike numbers. The new <b>Embeddings</b> menu downloads them for your area from two open datasets, Google AlphaEarth Foundations (64-D, CC-BY-4.0) and TESSERA from the University of Cambridge (128-D, CC0), for 2017–2025, free and without an account. Then find places similar to the ones you click, or classify and cluster them with a few labelled points.</p></details>
+      <details><summary>Can it forecast air quality or rainfall?</summary><p>Yes. The <b>Forecast</b> menu has three tools: <b>Get AQI &amp; weather data</b> (hourly air quality with the Indian AQI, and weather including the next days' forecast, for any points, free from Open-Meteo), <b>Train forecasting model</b> (any table with a date column: one station or thousands, hourly to monthly, with LightGBM, XGBoost, Random Forest, linear and baseline models compared by backtesting), and <b>Forecast with a model</b> (run a saved model on newer data). Each forecast comes with an uncertainty band, and can be put on the map and turned into a surface with Interpolation.</p></details>
+      <details><summary>How do I know a forecast is any good?</summary><p>Every model is backtested: trained only on the data before a cut-off, it forecasts the period after it, at several cut-offs spread over the last year, and its error is compared with two simple guesses (the last value, and the same time one cycle ago). The result shows the error at each step ahead, how much better than the guesses the model is, and an orange warning when it isn't, as happened with Delhi's 2026 AQI. Then the simplest method that works is the one to trust.</p></details>
       <details><summary>Where are my files stored?</summary><p>In <b>Documents ▸ LULC Fetch</b> by default, or in a project folder you choose. You can save any result to another folder as well.</p></details>
     </div>
   </div>
