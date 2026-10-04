@@ -119,7 +119,7 @@ def page(path: str | Path, *, offset: int = 0, limit: int = 100, query: str = ""
     rows = [[_safe(cols[c][i]) for c in t.column_names] for i in range(len(sel))]
     return {"columns": t.column_names, "types": [_kind(f.type) for f in t.schema], "rows": rows,
             "row_ids": [int(i) for i in sel], "offset": offset, "total": t.num_rows, "filtered": int(len(idx)),
-            "lonlat": lonlat_columns(t.column_names)}
+            "lonlat": detect_lonlat(t)}
 
 
 def stats(path: str | Path) -> dict:
@@ -153,13 +153,57 @@ def lonlat_columns(names) -> list[str] | None:
     return [lon, lat] if lon and lat else None
 
 
+def _norm(name: str) -> str:
+    """'Latitude (deg)', 'LAT_DD', 'gps latitude' → 'latitude', 'lat_dd', 'gps_latitude'"""
+    return re.sub(r"[^a-z0-9]+", "_", re.sub(r"\(.*?\)", "", name.lower())).strip("_")
+
+
+def _axis_score(name: str, axis: str) -> int:
+    """How much a column name looks like longitude / latitude: 3 sure, 2 likely, 1 only x / y, 0 no."""
+    n = _norm(name)
+    if axis == "lon":
+        if n in ("lon", "lng", "long", "longitude", "x_wgs84") or "longitude" in n:
+            return 3
+        if n.startswith(("lon_", "lng_", "long_")) or n.endswith(("_lon", "_lng", "_long")) or n in ("lon_dd", "londd"):
+            return 2
+        return 1 if n in ("x", "point_x", "x_coord") else 0
+    if n in ("lat", "latitude", "y_wgs84") or "latitude" in n:
+        return 3
+    if n.startswith("lat_") or n.endswith("_lat") or n in ("lat_dd", "latdd"):
+        return 2
+    return 1 if n in ("y", "point_y", "y_coord") else 0
+
+
+def detect_lonlat(t: pa.Table) -> list[str] | None:
+    """The longitude and latitude columns of a table: by name (lon / lng / long / longitude…, lat / latitude…, x / y as a
+    last resort) and by value (numbers, mostly within ±180 / ±90). None when there is no such pair."""
+    def ok(col: str, lim: float) -> bool:
+        try:
+            v = np.asarray(t[col].to_numpy(zero_copy_only=False), dtype="float64")
+        except (ValueError, TypeError, pa.ArrowInvalid):
+            return False
+        v = v[np.isfinite(v)]
+        return v.size > 0 and np.mean(np.abs(v) <= lim) >= 0.9 and np.ptp(v) > 0 if v.size > 1 else v.size > 0 and abs(v[0]) <= lim
+    best = {}
+    for axis, lim in (("lon", 180.0), ("lat", 90.0)):
+        cands = sorted(((s, c) for c in t.column_names if (s := _axis_score(c, axis))), key=lambda x: -x[0])
+        best[axis] = next((c for _, c in cands if ok(c, lim)), None)
+    if best["lon"] and best["lat"] and best["lon"] != best["lat"]:
+        return [best["lon"], best["lat"]]
+    return None
+
+
 def points(path: str | Path, *, max_points: int = 20000, query: str = "", lon: str | None = None, lat: str | None = None) -> dict:
     """Rows with longitude / latitude columns as a GeoJSON FeatureCollection (sampled to max_points)."""
     path = Path(path)
     t = load(path)
-    ll = [lon, lat] if lon and lat else lonlat_columns(t.column_names)
+    ll = [lon, lat] if lon and lat else detect_lonlat(t)
     if not ll:
-        raise ValueError("This table has no longitude / latitude columns (e.g. 'lon' and 'lat')")
+        raise ValueError("No longitude / latitude columns found (e.g. 'lon' / 'lng' / 'longitude' and 'lat' / 'latitude', in degrees): "
+                         "choose the columns")
+    missing = [c for c in ll if c not in t.column_names]
+    if missing:
+        raise ValueError(f"No column {missing[0]!r} in this table")
     idx = _view(path, t, query or "", None, False)
     sampled = len(idx) > max_points
     if sampled:

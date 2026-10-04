@@ -51,7 +51,10 @@
         const fd = new FormData();
         fd.append("file", f);
         const r = await api("/api/tables/upload", { method: "POST", body: fd });
-        addItem({ kind: "table", name: r.name, path: r.path }, { open: true });
+        const it = addItem({ kind: "table", name: r.name, path: r.path }, { open: true });
+        // a table with positions (lat / lon columns): its rows also go on the map as points
+        if (r.lonlat) await tablePoints(it, "", r.lonlat);
+        else if ((r.columns || []).some((c) => /lat|lon|lng|coord|east|north|^[xy]$/i.test(c))) toast(`${f.name}: added as a table. To show it on the map, right-click it ▸ Show points on map… and choose the longitude / latitude columns`);
       } catch (e) { toast(`${f.name}: ${e.message}`, true); }
     }
     for (const group of [...(shpParts.length ? [shpParts] : []), ...others.map((f) => [f])]) {

@@ -95,7 +95,13 @@ async def upload_table(file: UploadFile = File(...)):
             raise
         except Exception as e:
             raise HTTPException(400, f"Couldn't read {name}: {e}")
-    return {"path": ws.rel(out), "name": out.name}
+    from lulc_fetch.tableview import detect_lonlat, load
+    try:   # coordinates found → the app also shows the rows as points on the map
+        tb = load(out)
+        lonlat, columns = detect_lonlat(tb), tb.column_names
+    except Exception:
+        lonlat, columns = None, []
+    return {"path": ws.rel(out), "name": out.name, "lonlat": lonlat, "columns": columns}
 
 
 @router.get("/api/tables/rows")

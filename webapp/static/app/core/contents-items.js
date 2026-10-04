@@ -74,7 +74,7 @@
     showMenu(it.name, isT ? [
       ["Open in data viewer", () => openItem(it)],
       ["Column statistics", () => openItem(it, "stats")],
-      ["Show points on map (lon / lat)", () => tablePoints(it)],
+      ["Show points on map…", () => tablePoints(it)],
       ["Train a model with this table", () => { switchTool("ml"); openMlSub("train"); refreshTrainTables(it.path); }],
       "-",
       ["Save to folder…", () => saveItemToFolder(it)],
@@ -97,15 +97,50 @@
     if (it.kind === "table") openTab({ key: "item:" + it.id, kind: "table", title: it.name, path: it.path, item: it, ...(mode ? { mode } : {}) });
     else openTab({ key: "item:" + it.id, kind: "picture", title: it.name, path: it.path, item: it });
   }
-  async function tablePoints(it, q = "") {
+  // a table's rows as points on the map: the longitude / latitude columns are found by name and value (lat, lon, lng,
+  // longitude, Latitude (deg)…, x / y in degrees), or chosen in a dialog when they aren't
+  async function tablePoints(it, q = "", cols = null) {
     status(`Loading points from ${it.name}…`, true);
     try {
-      const fc = await api(`/api/tables/points?path=${encodeURIComponent(it.path)}&q=${encodeURIComponent(q)}`);
-      if (!fc.features.length) return toast("No rows with valid longitude / latitude", true);
-      addVectorLayer({ type: "FeatureCollection", features: fc.features }, `${it.name.replace(/\.[^.]+$/, "")} · points`);
+      const p = new URLSearchParams({ path: it.path, q });
+      if (cols) { p.set("lon", cols[0]); p.set("lat", cols[1]); }
+      const fc = await api(`/api/tables/points?${p}`);
+      const skipped = fc.total - fc.features.length;
+      if (!fc.features.length) { status(""); toast(`No rows of ${it.name} have a valid longitude / latitude${cols ? "" : ": choose the columns"}`, true); return cols ? null : chooseXY(it); }
+      const l = addVectorLayer({ type: "FeatureCollection", features: fc.features }, `${it.name.replace(/\.[^.]+$/, "")} · points`, { tableSource: it.path });
       status(`${fc.features.length.toLocaleString()} points added`);
-      if (fc.sampled) toast(`Showing a sample of ${fc.features.length.toLocaleString()} of ${fc.total.toLocaleString()} rows`);
-    } catch (e) { status(""); toast(e.message, true); }
+      toast(`${fc.features.length.toLocaleString()} point${fc.features.length === 1 ? "" : "s"} from ${it.name} (${fc.columns[1]} / ${fc.columns[0]})` +
+            (fc.sampled ? `: a sample of ${fc.total.toLocaleString()} rows` : skipped > 0 ? `; ${skipped} row${skipped === 1 ? "" : "s"} without a position skipped` : ""));
+      return l;
+    } catch (e) {
+      status("");
+      if (/No longitude \/ latitude columns/.test(e.message)) return chooseXY(it);
+      toast(e.message, true);
+    }
+  }
+  // choose the longitude / latitude columns of a table (numbers first, the likely ones preselected)
+  async function chooseXY(it) {
+    let d;
+    try { d = await api(`/api/tables/rows?path=${encodeURIComponent(it.path)}&limit=3`); } catch (e) { return toast(e.message, true); }
+    const num = d.columns.filter((c, i) => /int|float|number|double/.test(d.types[i] || ""));
+    const order = [...num, ...d.columns.filter((c) => !num.includes(c))];
+    const guess = (re) => order.find((c) => re.test(c)) || "";
+    const opts = order.map((c) => `<option value="${esc(c)}">${esc(c)}${num.includes(c) ? "" : " (text)"}</option>`).join("");
+    $("#xy-lon").innerHTML = opts; $("#xy-lat").innerHTML = opts;
+    $("#xy-lon").value = d.lonlat?.[0] || guess(/lon|lng|long|^x$/i) || num[0] || order[0];
+    $("#xy-lat").value = d.lonlat?.[1] || guess(/lat|^y$/i) || num[1] || order[1] || order[0];
+    $("#xy-title").textContent = `Show ${it.name} on the map`;
+    const sample = () => {
+      const i = d.columns.indexOf($("#xy-lon").value), j = d.columns.indexOf($("#xy-lat").value);
+      $("#xy-sample").textContent = d.rows.length ? `First row: longitude ${d.rows[0][i]}, latitude ${d.rows[0][j]}` : "";
+    };
+    $("#xy-lon").onchange = sample; $("#xy-lat").onchange = sample; sample();
+    $("#xy-go").onclick = () => {
+      if ($("#xy-lon").value === $("#xy-lat").value) return toast("Longitude and latitude must be different columns", true);
+      $("#dlg-xy").close();
+      tablePoints(it, "", [$("#xy-lon").value, $("#xy-lat").value]);
+    };
+    $("#dlg-xy").showModal();
   }
   async function placePicture(it) {
     const b = map.getBounds();

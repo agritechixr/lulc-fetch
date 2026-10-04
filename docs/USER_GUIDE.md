@@ -188,11 +188,12 @@ Everything you work with is listed in **Contents**, on the left, in two sections
     - Without georeferencing (an ordinary photo): it's listed under 2D data as a *picture*, marked *not on map*, and opens in the data viewer. **Place on map** stretches it over the current map view. Zoom the map to the right area first. It then becomes a GeoTIFF layer.
   - **Shapefile** (`.zip`, or `.shp` + `.shx` + `.dbf` + `.prj` selected together; other projections are converted), **GeoJSON**, **KML / KMZ**.
   - **Tables:** CSV, TSV / TXT (the comma, tab, semicolon or `|` separator is detected), Excel `.xlsx` (first sheet; the first row holds the column names) and Parquet. Tables are stored in `tables/`, so **every tool can use them**, e.g. Train a model.
+  - **Tables with positions** (a point per row: stations, field samples, GPS points): when a table has longitude / latitude columns in degrees, its rows are **also shown on the map** as a point layer, with every column in the point's popup and attribute table. The columns are found by name: `lat` / `latitude` / `Latitude (deg)` / `lat_dd` / `station_lat`… and `lon` / `lng` / `long` / `longitude` / `lon_dd`…, or `x` / `y` when their values are degrees. Rows without a position are skipped (you're told how many). If the names aren't recognised, right-click the table ▸ **Show points on map…** and choose the two columns (a sample row shows which is which). Export the point layer as a Shapefile, GeoJSON or KML like any layer.
 - **Workspace:** GeoTIFFs and tables already on your computer from earlier downloads, results, imports and command-line output.
 - Tools add their results automatically: downloads, index results, PCA, stacks, classified maps, Raster → table tables, your area of interest, scene footprints and previews.
 
 ### Tables in Contents
-Double-click a table, or click its ▭ button, to open it in the data viewer. Right-click or **⋯** for: Open · Column statistics · **Show points on map** (for tables with `lon` / `lat` columns) · Train a model with this table · Download · Remove from Contents. Removing it from Contents keeps the file.
+Double-click a table, or click its ▭ button, to open it in the data viewer. Right-click or **⋯** for: Open · Column statistics · **Show points on map…** (its longitude / latitude columns are found, or you choose them) · Train a model with this table · Download · Remove from Contents. Removing it from Contents keeps the file.
 
 ### Working with layers
 | Action | How |

@@ -1184,6 +1184,21 @@
 </dialog>
 
 
+<!-- A table's rows as points on the map: choose the longitude / latitude columns -->
+<dialog id="dlg-xy" class="modal">
+  <div class="modal-head"><h3 id="xy-title">Show a table on the map</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <p class="hint" style="margin-top:0" id="xy-hint">Choose the columns that hold each row's position, in degrees (WGS 84, as GPS and Google Maps give).</p>
+    <div class="grid2">
+      <label>Longitude (east–west, e.g. 77.59)<select id="xy-lon"></select></label>
+      <label>Latitude (north–south, e.g. 12.97)<select id="xy-lat"></select></label>
+    </div>
+    <p class="hint" id="xy-sample"></p>
+  </div>
+  <div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="xy-go">Show points</button></div>
+</dialog>
+
+
 <!-- Field calculator -->
 <dialog id="dlg-calc" class="modal wide">
   <div class="modal-head"><h3 id="fc-title">Field calculator</h3><button class="x" data-close>×</button></div>

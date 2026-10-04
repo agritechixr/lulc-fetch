@@ -160,3 +160,31 @@ def test_pixel_popup_lists_every_band(client):
     js = client.get("/static/app.js").text
     assert "extra.slice(0, 20)" not in js and "px-scroll" in js
     assert 'map.on("contextmenu"' in js and "function toUtm" in js
+
+
+@pytest.mark.parametrize("cols,want", [
+    ({"lat": [12.9, 13.0], "lon": [77.5, 77.6]}, ["lon", "lat"]),
+    ({"Latitude (deg)": [12.9, 13.0], "Longitude (deg)": [77.5, 77.6]}, ["Longitude (deg)", "Latitude (deg)"]),
+    ({"LAT_DD": [12.9, 13.0], "LNG_DD": [77.5, 77.6]}, ["LNG_DD", "LAT_DD"]),
+    ({"x": [77.5, 77.6], "y": [12.9, 13.0]}, ["x", "y"]),
+    ({"x": [780000.0, 781000.0], "y": [1435000.0, 1436000.0]}, None),     # metres (UTM), not degrees
+    ({"long": ["far", "near"], "lat": [12.9, 13.0]}, None),                  # a text column called "long"
+])
+def test_lonlat_columns_are_found(cols, want):
+    import pyarrow as pa
+
+    from lulc_fetch.tableview import detect_lonlat
+    assert detect_lonlat(pa.table(cols)) == want
+
+
+def test_csv_with_coordinates_becomes_points(client, tmp_path):
+    """+ Add data: a CSV's coordinate columns are reported with the upload, and its rows come back as points."""
+    from tests.helpers import ok
+    p = tmp_path / "stations.csv"
+    p.write_text("name,lat,lon,address\nA,12.97,77.59,Bengaluru\nB,,,(no position)\nC,13.01,77.62,Hebbal\n")
+    with open(p, "rb") as f:
+        r = ok(client.post("/api/tables/upload", files={"file": ("stations.csv", f, "text/csv")}))
+    assert r["lonlat"] == ["lon", "lat"] and "address" in r["columns"]
+    fc = ok(client.get("/api/tables/points", params={"path": r["path"]}))
+    assert len(fc["features"]) == 2 and fc["features"][0]["geometry"]["coordinates"] == [77.59, 12.97]
+    assert fc["features"][0]["properties"]["address"] == "Bengaluru"
