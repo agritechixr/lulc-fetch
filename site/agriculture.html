@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agriculture: crop disease diagnosis · LULC Fetch</title>
+<meta name="description" content="Photograph a leaf and get the crop and its disease for 42 crops, a disease map from geotagged photos, and 9,000 expert answers on symptoms and treatment, offline.">
+<meta property="og:title" content="Agriculture: crop disease diagnosis · LULC Fetch">
+<meta property="og:description" content="Photograph a leaf and get the crop and its disease for 42 crops, a disease map from geotagged photos, and 9,000 expert answers on symptoms and treatment, offline.">
+<meta property="og:image" content="assets/hero.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav id="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links" id="nav-links">
+      <a href="features.html">Features</a><a href="mapping.html">Land cover &amp; AI</a><a href="agriculture.html" class="on" aria-current="page">Agriculture</a><a href="air.html">Air &amp; rain</a><a href="data.html">Open data</a><a href="faq.html">FAQ</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+    </div>
+    <a class="btn small primary" href="index.html#download">Download</a>
+    <button class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</nav>
+
+<section class="agri" id="agriculture">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Agriculture · new Agri menu</span>
+      <h1 class="ptitle">Which disease does this crop have? Ask a leaf photo.</h1>
+      <p class="lead">Photograph a leaf in the field. LULC Fetch recognises the crop, finds the disease with a deep-learning model trained for that crop, and tells you how to manage it. Photos taken with location on become a disease map of your fields, ready to compare with NDVI from satellite images.</p>
+    </div>
+    <div class="stats center">
+      <div class="big"><b>42</b><span>crops diagnosed, from apple and mango to rice, maize, tomato and sugarcane</span></div>
+      <div class="big"><b>91–100%</b><span>disease-model accuracy on held-out test photos, per crop</span></div>
+      <div class="big"><b>99.8%</b><span>crop recognised correctly by the crop detector (2,621 test photos)</span></div>
+      <div class="big"><b>9,076</b><span>expert questions &amp; answers on symptoms, treatment and pests</span></div>
+    </div>
+
+    <div class="leaves">
+      <figure><img src="assets/leaves/apple_scab.jpg" alt="Apple leaf diagnosed as Apple Scab" loading="lazy" width="256" height="256"><figcaption><b class="bad">Apple Scab</b>Apple · 92 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/grape_black_rot.jpg" alt="Grape leaf diagnosed as Black Rot" loading="lazy" width="256" height="256"><figcaption><b class="bad">Black Rot</b>Grape · 94 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/maize_common_rust.jpg" alt="Maize leaf diagnosed as Common Rust" loading="lazy" width="256" height="256"><figcaption><b class="bad">Common Rust</b>Maize · 95 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/potato_early_blight.jpg" alt="Potato leaf diagnosed as Early Blight" loading="lazy" width="256" height="256"><figcaption><b class="bad">Early Blight</b>Potato · 97 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/tomato_late_blight.jpg" alt="Tomato leaf diagnosed as Late Blight" loading="lazy" width="256" height="256"><figcaption><b class="bad">Late Blight</b>Tomato · 97 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/strawberry_leaf_scorch.jpg" alt="Strawberry leaf diagnosed as Leaf Scorch" loading="lazy" width="256" height="256"><figcaption><b class="bad">Leaf Scorch</b>Strawberry · 95 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/peach_bacterial_spot.jpg" alt="Peach leaf diagnosed as Bacterial Spot" loading="lazy" width="256" height="256"><figcaption><b class="bad">Bacterial Spot</b>Peach · 89 % sure</figcaption></figure>
+      <figure><img src="assets/leaves/tomato_healthy.jpg" alt="Tomato leaf diagnosed as Healthy" loading="lazy" width="256" height="256"><figcaption><b class="ok">Healthy</b>Tomato · 88 % sure</figcaption></figure>
+    </div>
+    <p class="cta-note center">Real leaf photos from the public PlantVillage dataset (CC0), diagnosed by LULC Fetch with the crop detected automatically. Confidence is the disease model's.</p>
+
+    <div class="steps" style="margin-top:56px">
+      <div class="step"><h3>Add photos</h3><p>Single leaf photos, or a whole folder from a field survey (up to 5,000).</p></div>
+      <div class="step"><h3>Photo check</h3><p>Too dark, blank, blurry or not a leaf? You get "retake photo" with a tip, never a guess.</p></div>
+      <div class="step"><h3>Crop</h3><p>Two crop detectors recognise 42 crops, or you choose the crop yourself.</p></div>
+      <div class="step"><h3>Disease</h3><p>That crop's ConvNeXt model gives the top 3 diseases with confidence.</p></div>
+      <div class="step"><h3>Map &amp; act</h3><p>A results table, a disease map from GPS photos, and the guide's advice for each disease.</p></div>
+    </div>
+
+    <div class="show">
+      <div class="txt">
+        <span class="tag">Diagnose crop disease</span>
+        <h3>A disease map from a field walk</h3>
+        <p>Add the photos from your phone and click <b>Diagnose</b>. Every photo with a GPS position becomes a point: <b style="color:#dc2626">red</b> diseased, <b style="color:#16a34a">green</b> healthy, <b style="color:#d97706">orange</b> retake. The summary counts each crop and disease, and the results table (one row per photo, with the top 3 diagnoses) opens under the map.</p>
+        <ul>
+          <li>15 photos in under 6 seconds on a MacBook (Apple GPU)</li>
+          <li>Export the points as Shapefile, GeoJSON or KML, or lay them over NDVI</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/agri.jpg" alt="LULC Fetch showing 15 diagnosed leaf photos as red and green points on satellite imagery of farmland, with a summary of diseases per crop" loading="lazy">
+    </div>
+
+    <div class="show rev">
+      <div class="txt">
+        <span class="tag">Every photo explained</span>
+        <h3>Top 3 diagnoses, and how sure the model is</h3>
+        <p>Each photo gets a card: the crop and how sure the detector is, the diagnosis with confidence bars for the three most likely diseases, and a link to read about it. Photos the models can't trust are refused with a tip on how to retake them, as in the farmer app the models come from.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/agri-cards.jpg" alt="Result cards for leaf photos: healthy apple, apple scab, a refused blank photo and grape black rot, each with top-3 confidence bars" loading="lazy">
+    </div>
+
+    <div class="show">
+      <div class="txt">
+        <span class="tag">Crop disease guide</span>
+        <h3>Symptoms, treatment and spray schedules, offline</h3>
+        <p>About 9,000 questions and answers by agriculture experts, from extension booklets and datasets. Pick a crop and a disease, or search with your own words (<i>yellow leaves</i>, <i>fruit drop</i>, <i>spray schedule</i>). Answers are grouped into symptoms, management, pests and growing practices, with the growth stage they apply to.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/agri-guide.jpg" alt="Crop disease guide showing mango diseases and the management answers for powdery mildew" loading="lazy">
+    </div>
+
+    <div class="crops">
+      <div class="card"><h3>Full guide: symptoms, treatment, pests</h3><div class="chips"><span>Apple</span><span>Banana</span><span>Brinjal</span><span>Cashew</span><span>Cherry</span><span>Coconut</span><span>Custard Apple</span><span>Guava</span><span>Mango</span><span>Mulberry (varieties)</span><span>Okra</span><span>Papaya</span><span>Pomegranate</span><span>Rose</span><span>Strawberry</span><span>Watermelon</span></div></div>
+      <div class="card"><h3>Diagnosis with symptom descriptions</h3><div class="chips"><span>Apricot</span><span>Betel</span><span>Bitter Gourd</span><span>Black Pepper</span><span>Bottle Gourd</span><span>Cassava</span><span>Chrysanthemum</span><span>Citrus</span><span>Coffee</span><span>Cucumber</span><span>Cucurbit (pumpkin / melon)</span><span>Fig</span><span>Grape</span><span>Loquat</span><span>Maize</span><span>Peach</span><span>Pear</span><span>Potato</span><span>Rice</span><span>Ridge Gourd</span><span>Snake Gourd</span><span>Soybean</span><span>Sugarcane</span><span>Tea</span><span>Tomato</span><span>Walnut</span></div></div>
+    </div>
+    <p class="note center">The models come from the Multi-Crop Disease Decision Support System (ConvNeXt-Small, trained on public datasets such as PlantVillage and LeafNet and on field photos). They are on <a href="https://huggingface.co/ixrbhii/multicrop-disease-models">Hugging Face</a> and download by themselves the first time a crop is diagnosed (about 95 MB per crop), and each crop's model is also its own repository in <a href="https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993">this collection</a>; the questions and answers are the open dataset <a href="https://huggingface.co/datasets/ixrbhii/crop-disease-qa">crop-disease-qa</a>. Test photos come from the same datasets the models learned from, so real field photos can score lower. Photo diagnosis supports, but doesn't replace, a local agriculture expert.</p>
+  </div>
+</section>
+
+
+<section class="next">
+  <div class="wrap center">
+    <h2>Try it on your own data</h2>
+    <p class="lead">Free for Mac and Windows. No account, no cloud: everything runs on your computer.</p>
+    <div class="cta"><a class="btn primary" href="index.html#download">Download free</a><a class="btn" href="faq.html">Questions?</a></div>
+  </div>
+</section>
+
+<div class="lb" id="lb"><img alt=""></div>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links2">
+      <a href="https://github.com/agritechixr/lulc-fetch">GitHub</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/releases">Releases</a>
+      <a href="https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993">Crop disease models</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/issues">Report a problem</a>
+    </div>
+    <span>Apache 2.0 licence</span>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

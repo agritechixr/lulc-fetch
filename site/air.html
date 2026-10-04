@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Air & rain: interpolation and forecasting · LULC Fetch</title>
+<meta name="description" content="Map air quality from monitoring stations with kriging and six other methods, and forecast AQI and rainfall with LightGBM, XGBoost and more, checked against simple baselines. Real results for Bengaluru, Delhi and India.">
+<meta property="og:title" content="Air & rain: interpolation and forecasting · LULC Fetch">
+<meta property="og:description" content="Map air quality from monitoring stations with kriging and six other methods, and forecast AQI and rainfall with LightGBM, XGBoost and more, checked against simple baselines. Real results for Bengaluru, Delhi and India.">
+<meta property="og:image" content="assets/hero.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav id="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links" id="nav-links">
+      <a href="features.html">Features</a><a href="mapping.html">Land cover &amp; AI</a><a href="agriculture.html">Agriculture</a><a href="air.html" class="on" aria-current="page">Air &amp; rain</a><a href="data.html">Open data</a><a href="faq.html">FAQ</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+    </div>
+    <a class="btn small primary" href="index.html#download">Download</a>
+    <button class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</nav>
+
+<section id="forecast">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Air &amp; rain · Forecast menu</span>
+      <h1 class="ptitle">What will the air be like tomorrow? Will it rain this week?</h1>
+      <p class="lead">Give LULC Fetch a table with a date column (AQI at every station, rainfall at every grid point, any value over time) and it trains a forecasting model, checks it against simple guesses, and forecasts the next hours, days or months, with an uncertainty band and a map.</p>
+      <div class="jump"><a href="#bengaluru">Bengaluru AQI</a><a href="#delhi">Delhi: a simple guess wins</a><a href="#rain">India rainfall</a><a href="#interpolation">Interpolation</a><a href="#models">Models</a></div>
+    </div>
+    <div class="stats center">
+      <div class="big"><b>31%</b><span>lower error than "same time yesterday" for Bengaluru's AQI 48 hours ahead</span></div>
+      <div class="big"><b>10%</b><span>lower error than "same as today" for daily rain 7 days ahead, all of India</span></div>
+      <div class="big"><b>4,964</b><span>rainfall grid points × 11 years of IMD daily data, trained on in under a minute</span></div>
+      <div class="big"><b>57</b><span>air-quality stations in Bengaluru and Delhi, hourly since August 2022</span></div>
+    </div>
+
+    <div class="steps" style="margin-top:56px">
+      <div class="step"><h3>Get data</h3><p>Your own CSV / Excel / Parquet, or hourly AQI and weather for any points with <b>Get AQI &amp; weather data</b>.</p></div>
+      <div class="step"><h3>Train</h3><p>One model learns from all stations together: past values, hour and season, nearby stations, weather.</p></div>
+      <div class="step"><h3>Backtest</h3><p>Trained on the past only, it forecasts periods it hasn't seen, spread over the last year, against simple baselines.</p></div>
+      <div class="step"><h3>Forecast</h3><p>The next steps for every station, with an 80 % band, as a table and a chart; saved for <b>Forecast with a model</b>.</p></div>
+      <div class="step"><h3>Map</h3><p>Put any hour on the map and krige it into a surface over the city's wards with <b>Interpolation</b>.</p></div>
+    </div>
+
+    <div class="show" id="bengaluru">
+      <div class="txt">
+        <span class="tag">Bengaluru · hourly AQI</span>
+        <h3>The next 48 hours at every station</h3>
+        <p>Trained on 3 years of hourly AQI at Bengaluru's 13 monitoring stations (476,000 rows) with temperature, humidity, wind and rain, on 4 October 2026 at 14:00. Five machine-learning models and two simple baselines were backtested at three cut-offs across the past year; linear regression won, with an average error of 15 AQI points, 31 % better than "the same time yesterday".</p>
+        <ul>
+          <li>The daily rush-hour peaks continue into the forecast (dashed), with the 80 % band widening further ahead</li>
+          <li>The error grows from 1 AQI point one hour ahead to 22 two days ahead, and the tool says so</li>
+          <li>Training and comparing every model took 97 seconds on a MacBook</li>
+        </ul>
+      </div>
+      <img width="700" height="1359" class="shot tall" src="assets/forecast-bengaluru.jpg" alt="Train forecasting model result for Bengaluru: MAE 15.37, 31 % better than baseline, a chart of Central Silk Board's AQI with the 48-hour forecast and its band, and the comparison of all models" loading="lazy">
+    </div>
+
+    <div class="sample-wrap">
+      <table class="sample">
+        <caption>The forecast table it writes: Central Silk Board, from 4 October 2026, 14:00 (real output)</caption>
+        <thead><tr><th>Time</th><th>Category</th><th>Hours ahead</th><th>Forecast AQI</th><th>Low</th><th>High</th></tr></thead>
+        <tbody>
+          <tr><td>4 Oct 15:00</td><td><span class="aqi mod">Moderate</span></td><td>1</td><td>142</td><td>137</td><td>147</td></tr>
+          <tr><td>4 Oct 20:00</td><td><span class="aqi mod">Moderate</span></td><td>6</td><td>105</td><td>99</td><td>111</td></tr>
+          <tr><td>5 Oct 02:00</td><td><span class="aqi sat">Satisfactory</span></td><td>12</td><td>63</td><td>54</td><td>71</td></tr>
+          <tr><td>5 Oct 14:00</td><td><span class="aqi mod">Moderate</span></td><td>24</td><td>129</td><td>106</td><td>152</td></tr>
+          <tr><td>6 Oct 14:00</td><td><span class="aqi mod">Moderate</span></td><td>48</td><td>125</td><td>88</td><td>161</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="show rev" id="delhi">
+      <div class="txt">
+        <span class="tag">Delhi · when a simple guess wins</span>
+        <h3>Tomorrow's AQI across 273 wards, and an honest warning</h3>
+        <p>The same steps for Delhi's 44 stations: the forecast for 5 October, 16:00 is kriged over the city's wards from the Library, from 245 (Poor) in the north to 317 (Very Poor) in the south. But the backtest says LightGBM's error (56) is <b>worse</b> than simply keeping the last value (37), and the tool shows that warning in orange.</p>
+        <ul>
+          <li>Why: Delhi's AQI in 2026 is higher than in any earlier year of the data (October 230 vs 129–176), so models that learned from the past expect it to fall back</li>
+          <li>With <b>Compare all and keep the best</b>, the app would keep the simple baseline here, rather than a model that only looks clever</li>
+        </ul>
+      </div>
+      <img width="1800" height="1104" class="shot" src="assets/forecast-delhi.jpg" alt="Delhi's 273 wards coloured by the kriged AQI forecast for the next day, with the 44 stations, and the training result warning that LightGBM does not beat the last-value baseline" loading="lazy">
+    </div>
+
+    <div class="show" id="rain">
+      <div class="txt">
+        <span class="tag">India · daily rainfall</span>
+        <h3>A week of rain for every 27 km of India</h3>
+        <p>IMD's gridded rainfall (4,964 points, 2015–2025, measured by about 7,000 rain gauges) in one table of 20 million rows. The map shows real rain on 15 July 2025: the Western Ghats, central India and the Bay of Bengal coast. LightGBM forecasts each of the next 7 days directly, without feeding its own guesses back in, so it doesn't invent rain in dry spells.</p>
+        <ul>
+          <li>Average error 4.4 mm/day, 10 % better than "same as today", checked in every season</li>
+          <li>Inputs that mattered: recent rain (36 %), where the point is (32 %), rain at nearby points (13 %)</li>
+          <li>Large tables are sampled to 1.5 million rows for training, so a laptop copes: 46 seconds</li>
+        </ul>
+      </div>
+      <img width="1800" height="1104" class="shot" src="assets/forecast-rain.jpg" alt="Map of India with IMD daily rainfall on 15 July 2025 in blues, and the result of training LightGBM on 4,964 rainfall grid points: MAE 4.38 mm, 10 % better than baseline" loading="lazy">
+    </div>
+
+    <div class="crops" id="models">
+      <div class="card"><h3>Models</h3><div class="chips"><span>LightGBM</span><span>XGBoost</span><span>Gradient boosting</span><span>Random Forest</span><span>Linear (ridge)</span><span>Baseline: last value</span><span>Baseline: same time last cycle</span></div>
+        <p style="margin-top:12px">Step by step (each prediction feeds the next: smooth daily cycles such as AQI) or direct (each step from what is known now: values that are often zero, such as rain). <b>Automatic</b> tries the best model both ways.</p></div>
+      <div class="card"><h3>What the model sees</h3><div class="chips"><span>Past values &amp; averages</span><span>Same hour yesterday / last week</span><span>Hour, weekday, season</span><span>Nearby stations</span><span>Latitude / longitude</span><span>Weather (incl. forecasts)</span></div>
+        <p style="margin-top:12px">Hourly, daily, weekly or monthly data; one place or thousands. A weather forecast in the table is used for the future; otherwise inputs repeat the last cycle.</p></div>
+    </div>
+    <p class="note center">The AQI examples use CAMS air-quality model data (about 11 km cells) with the Indian AQI computed from it, not CPCB station measurements; nearby stations can share values. Forecasts are statistical, not official warnings: for health advisories follow CPCB / SAFAR, and for weather IMD. Rainfall: IMD gridded data, Pai et al. (2014), <i>Mausam</i> 65(1).</p>
+  </div>
+</section>
+
+
+<section class="alt" id="interpolation">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Interpolation · Tools menu</span>
+      <h2>From a few stations to a map of the whole city</h2>
+      <p class="lead">Values measured at points (air-quality stations, rain gauges, soil samples, wells) become a continuous surface, cut to any boundary, with a check of how far to trust each method.</p>
+    </div>
+    <div class="show">
+      <div class="txt">
+        <span class="tag">Kriging · live AQI</span>
+        <h3>Bengaluru's air, station by station</h3>
+        <p><b>Tools ▸ Interpolation</b> turns values measured at points into a continuous surface. Here: the live AQI of Bengaluru's 7 reporting CPCB stations (4 October 2026, 12:00, from CPCB's public feed), kriged over the city's 197 wards from the Library, in India's AQI colours. Silk Board stands out at 143 (Moderate); Peenya is Good at 32.</p>
+        <ul>
+          <li>Seven methods: IDW, kriging (with its standard error), spline, natural neighbour, nearest neighbour, trend surface, TIN</li>
+          <li>Cut to any boundary; cells in metres on the local UTM grid</li>
+          <li>Compare all methods: each station predicted from the others (leave-one-out RMSE, MAE, bias)</li>
+        </ul>
+      </div>
+      <img width="1800" height="1140" class="shot" src="assets/interpolation.jpg" alt="Kriged AQI surface over Bengaluru's wards in CPCB colours, with the seven monitoring stations and the Interpolation tool panel" loading="lazy">
+    </div>
+
+    <div class="show rev">
+      <div class="txt">
+        <span class="tag">Seven methods, one dataset</span>
+        <h3>See how each method fills the gaps</h3>
+        <p>The same 7 readings, seven ways. IDW, kriging and spline give smooth gradients; nearest neighbour gives Thiessen zones; natural neighbour and TIN stay inside the stations' outline; a trend surface shows only the broad north-west to south-east rise. With few points, the leave-one-out check shows how far to trust each.</p>
+      </div>
+      <img width="2204" height="1446" class="shot" src="assets/interpolation-methods.jpg" alt="Seven AQI maps of Bengaluru made with IDW, kriging, spline, natural neighbour, nearest neighbour, trend surface and TIN, with the AQI legend" loading="lazy">
+    </div>
+
+  </div>
+</section>
+
+<section class="next">
+  <div class="wrap center">
+    <h2>Try it on your own data</h2>
+    <p class="lead">Free for Mac and Windows. No account, no cloud: everything runs on your computer.</p>
+    <div class="cta"><a class="btn primary" href="index.html#download">Download free</a><a class="btn" href="faq.html">Questions?</a></div>
+  </div>
+</section>
+
+<div class="lb" id="lb"><img alt=""></div>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links2">
+      <a href="https://github.com/agritechixr/lulc-fetch">GitHub</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/releases">Releases</a>
+      <a href="https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993">Crop disease models</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/issues">Report a problem</a>
+    </div>
+    <span>Apache 2.0 licence</span>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open data for India · LULC Fetch</title>
+<meta name="description" content="Ready-made, documented data for India: IMD daily rainfall 2015–2025, hourly AQI for Bengaluru and Delhi, 307 boundary layers, satellite embeddings and crop-disease answers.">
+<meta property="og:title" content="Open data for India · LULC Fetch">
+<meta property="og:description" content="Ready-made, documented data for India: IMD daily rainfall 2015–2025, hourly AQI for Bengaluru and Delhi, 307 boundary layers, satellite embeddings and crop-disease answers.">
+<meta property="og:image" content="assets/hero.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav id="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links" id="nav-links">
+      <a href="features.html">Features</a><a href="mapping.html">Land cover &amp; AI</a><a href="agriculture.html">Agriculture</a><a href="air.html">Air &amp; rain</a><a href="data.html" class="on" aria-current="page">Open data</a><a href="faq.html">FAQ</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+    </div>
+    <a class="btn small primary" href="index.html#download">Download</a>
+    <button class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</nav>
+
+<section id="opendata">
+  <div class="wrap center">
+    <span class="eyebrow">Open data</span>
+    <h1 class="ptitle">Ready-made data for India, free</h1>
+    <p class="lead">Datasets prepared and checked with LULC Fetch, with their sources, licences and how they were made. The ones on Hugging Face open from the Library menu in one click.</p>
+    <div class="datasets">
+      <div class="card"><h3>Daily rainfall, all India <span class="pill">measured</span></h3>
+        <p>IMD's 0.25° gridded rainfall from about 7,000 rain gauges: one GeoTIFF per year (a band per day) and one forecasting-ready table.</p>
+        <dl><dt>Coverage</dt><dd>4,964 points · 2015–2025 daily</dd><dt>Size</dt><dd>20 million values · 72 MB</dd><dt>Source</dt><dd>IMD Pune · cite Pai et al. (2014)</dd><dt>Where</dt><dd>Coming to the Library</dd></dl></div>
+      <div class="card"><h3>Hourly AQI: Bengaluru &amp; Delhi <span class="pill model">model</span></h3>
+        <p>PM2.5, PM10, NO₂, SO₂, CO, O₃ and the Indian AQI at 57 station locations, with hourly temperature, humidity, wind and rain.</p>
+        <dl><dt>Coverage</dt><dd>13 + 44 stations · Aug 2022 – Oct 2026</dd><dt>Size</dt><dd>2.1 million rows · 32 MB</dd><dt>Source</dt><dd>CAMS &amp; ERA5 via Open-Meteo (CC BY 4.0)</dd><dt>Where</dt><dd>Coming to the Library; make your own with Get AQI &amp; weather data</dd></dl></div>
+      <div class="card"><h3>India boundaries <span class="pill">vector</span></h3>
+        <p>States, districts, sub-districts, villages, constituencies, city wards, highways and railways, ready in the Library menu.</p>
+        <dl><dt>Coverage</dt><dd>307 layers</dd><dt>Where</dt><dd><a href="https://huggingface.co/datasets/ixrbhii/indian-shapefiles">Hugging Face</a></dd><dt>Source</dt><dd>datta07/INDIAN-SHAPEFILES</dd></dl></div>
+      <div class="card"><h3>Satellite embeddings <span class="pill">AI</span></h3>
+        <p>Google AlphaEarth (64-D) and TESSERA (128-D) for any area of the world, downloaded only for your area by the Embeddings menu.</p>
+        <dl><dt>Coverage</dt><dd>10 m · 2017–2025</dd><dt>Licence</dt><dd>CC BY 4.0 / CC0</dd></dl></div>
+      <div class="card"><h3>Crop disease Q&amp;A <span class="pill">text</span></h3>
+        <p>About 9,000 expert questions and answers on symptoms, treatment and pests, behind the Crop disease guide.</p>
+        <dl><dt>Coverage</dt><dd>42 crops</dd><dt>Where</dt><dd><a href="https://huggingface.co/datasets/ixrbhii/crop-disease-qa">Hugging Face</a></dd></dl></div>
+    </div>
+    <p class="note">"Model" data is computed by an atmospheric model, not measured at a station. Each dataset ships with a README listing its source, licence, columns and known limits.</p>
+  </div>
+</section>
+
+
+<section class="next">
+  <div class="wrap center">
+    <h2>Try it on your own data</h2>
+    <p class="lead">Free for Mac and Windows. No account, no cloud: everything runs on your computer.</p>
+    <div class="cta"><a class="btn primary" href="index.html#download">Download free</a><a class="btn" href="faq.html">Questions?</a></div>
+  </div>
+</section>
+
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links2">
+      <a href="https://github.com/agritechixr/lulc-fetch">GitHub</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/releases">Releases</a>
+      <a href="https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993">Crop disease models</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/issues">Report a problem</a>
+    </div>
+    <span>Apache 2.0 licence</span>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

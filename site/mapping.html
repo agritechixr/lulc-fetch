@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Land cover & AI · LULC Fetch</title>
+<meta name="description" content="Classify satellite images into land-cover maps with classical machine learning or deep learning, cluster them, detect objects in aerial images and explore AlphaEarth and TESSERA embeddings.">
+<meta property="og:title" content="Land cover & AI · LULC Fetch">
+<meta property="og:description" content="Classify satellite images into land-cover maps with classical machine learning or deep learning, cluster them, detect objects in aerial images and explore AlphaEarth and TESSERA embeddings.">
+<meta property="og:image" content="assets/hero.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav id="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links" id="nav-links">
+      <a href="features.html">Features</a><a href="mapping.html" class="on" aria-current="page">Land cover &amp; AI</a><a href="agriculture.html">Agriculture</a><a href="air.html">Air &amp; rain</a><a href="data.html">Open data</a><a href="faq.html">FAQ</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+    </div>
+    <a class="btn small primary" href="index.html#download">Download</a>
+    <button class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</nav>
+
+<section id="tour">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Land cover &amp; AI</span>
+      <h1 class="ptitle">From satellite images to maps you can trust</h1>
+      <p class="lead">Every screenshot is LULC Fetch working on real data: Sentinel-2 over Bengaluru, NAIP aerial imagery, AlphaEarth embeddings.</p>
+      <div class="jump"><a href="#classify">Classical ML for raster</a><a href="#indices">Index analysis</a><a href="#report">Evaluation report</a><a href="#cluster">Unsupervised learning</a><a href="#deep-learning">Deep learning</a><a href="#dl-report">Deep-learning report</a><a href="#detection">Object detection</a><a href="#embeddings">Satellite embeddings</a><a href="#tables">Tables &amp; editing</a></div>
+    </div>
+    <div class="show" id="classify">
+      <div class="txt">
+        <span class="tag">Classical ML for raster</span>
+        <h3>One click from image to map</h3>
+        <p>Pick an image and its ground truth (polygons, points or a land-cover raster), choose a model, and get a classified map with a confidence layer and a full accuracy report.</p>
+        <ul>
+          <li>Detects RGB, multispectral, hyperspectral, SAR and pixel embeddings, and suggests suitable models</li>
+          <li>SVM (RBF / linear), Maximum Likelihood, Spectral Angle Mapper, Minimum Distance, Random Forest, XGBoost …</li>
+          <li>PCA band reduction for 100+ band hyperspectral data</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/hero.jpg" alt="Classified land-cover map of Bengaluru with training-pixel counts and accuracy metrics" loading="lazy">
+    </div>
+
+    <div class="show rev" id="indices">
+      <div class="txt">
+        <span class="tag">Index analysis</span>
+        <h3>30 indices, checked for you</h3>
+        <p>Vegetation, water, built-up, burn, snow and radar indices in one click, or type your own formula. LULC Fetch reads band names, warns when a band is missing, and converts raw values to reflectance automatically.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/ndvi.jpg" alt="NDVI map of Bengaluru computed from Sentinel-2" loading="lazy">
+    </div>
+
+    <div class="show" id="report">
+      <div class="txt">
+        <span class="tag">Evaluation report</span>
+        <h3>Know how good your model really is</h3>
+        <p>Every trained model comes with a stand-alone HTML report you can share or print: overall accuracy, kappa, confusion matrices with producer's and user's accuracy, per-class scores, ROC and precision–recall curves, calibration and feature importance.</p>
+      </div>
+      <img width="1355" height="1800" class="shot" src="assets/report.jpg" alt="HTML evaluation report with accuracy tiles and confusion matrices" loading="lazy">
+    </div>
+
+    <div class="show rev" id="cluster">
+      <div class="txt">
+        <span class="tag">Unsupervised learning</span>
+        <h3>Find natural groups, no labels needed</h3>
+        <p>Six clustering methods with automatic choice of the number of clusters, quality scores, cluster profiles and comparison with known labels. Save a clustering as a model to make an unsupervised land-cover map.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/cluster.jpg" alt="Clustering results with cluster sizes and a 2D scatter view" loading="lazy">
+    </div>
+
+    <div class="show" id="deep-learning">
+      <div class="txt">
+        <span class="tag">Deep learning · new</span>
+        <h3>Train a U-Net in minutes, and watch it learn</h3>
+        <p>Turn your image and ground truth into patches with <b>Make training data</b>, pick an architecture and a backbone from the dropdown, and train. Loss and mIoU curves update after every epoch; early stopping keeps the best model, and Cancel never throws work away.</p>
+        <ul>
+          <li>U-Net, U-Net++, DeepLabV3 / V3+, PSPNet, FPN, LinkNet, SegFormer, FCN, LR-ASPP</li>
+          <li>ImageNet-pretrained backbones adapted to any number of bands</li>
+          <li>Spatial-block validation, Dice / focal losses and class weights for rare classes</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/dl.jpg" alt="Deep-learning training panel with live loss and mIoU curves next to a land-cover map predicted by U-Net" loading="lazy">
+    </div>
+
+    <div class="show rev" id="dl-report">
+      <div class="txt">
+        <span class="tag">Deep-learning report</span>
+        <h3>See what the network gets right, and wrong</h3>
+        <p>Every model gets a one-file HTML report: mIoU, pixel accuracy, kappa, training curves with the best epoch, confusion matrices, IoU and F1 per class, and example patches shown as image, ground truth and prediction side by side.</p>
+      </div>
+      <img width="1355" height="1800" class="shot" src="assets/dlreport.jpg" alt="Deep-learning report with scores and training curves" loading="lazy">
+    </div>
+
+    <div class="show" id="detection">
+      <div class="txt">
+        <span class="tag">Object detection · new</span>
+        <h3>Count every car, ship and plane in an aerial image</h3>
+        <p><b>Detect object</b> searches the whole image tile by tile and joins objects cut by tile edges back together. Here YOLO26, pretrained on the DOTA aerial dataset, finds 858 vehicles, ships and more in 4 seconds on a 0.6 m NAIP image of Seattle, with no training.</p>
+        <ul>
+          <li>YOLO26 (boxes, outlines, rotated boxes), Faster R-CNN, RetinaNet, FCOS, SSD, Mask R-CNN</li>
+          <li>SAM 2.1: outline any detected object, or segment everything</li>
+          <li><b>Train detection model</b>: your own classes from labelled polygons or points</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/detect.jpg" alt="Aerial image of downtown Seattle with about 850 vehicles outlined by rotated boxes, detected by YOLO26 trained on DOTA" loading="lazy">
+    </div>
+
+    <div class="show rev" id="embeddings">
+      <div class="txt">
+        <span class="tag">Satellite embeddings · new</span>
+        <h3>Click a place, find every place like it</h3>
+        <p>The <b>Embeddings</b> menu downloads free AI embeddings for your area straight from Google AlphaEarth or TESSERA: every 10 m pixel becomes a vector that sums up a whole year of satellite data. Click a place and LULC Fetch scores every pixel by how alike it is. Here: one click on a place in central Bengaluru, and every pixel that is alike lights up, from 13 km² of AlphaEarth downloaded in 16 seconds.</p>
+        <ul>
+          <li>See which years (2017–2025) exist for your area before downloading</li>
+          <li>A colour view (PCA) shows fields, crops, water and built-up areas at a glance</li>
+          <li>Classify or cluster the embeddings with the other tools; a few labelled points are enough</li>
+        </ul>
+      </div>
+      <img width="1800" height="1125" class="shot" src="assets/embeddings.jpg" alt="Similarity map from AlphaEarth embeddings over Bengaluru: places similar to the clicked point are bright" loading="lazy">
+    </div>
+
+    <div class="show" id="tables">
+      <div class="txt">
+        <span class="tag">Tables &amp; editing</span>
+        <h3>Edit tables like in a GIS, or with Python</h3>
+        <p>Open any table or attribute table under the map. Add fields with the calculator (including polygon area and perimeter), edit cells, or run pandas code. Changes stay in a working copy until you choose to save or discard them.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/calc.jpg" alt="Field calculator dialog with live preview" loading="lazy">
+    </div>
+
+  </div>
+</section>
+
+<section class="next">
+  <div class="wrap center">
+    <h2>Try it on your own data</h2>
+    <p class="lead">Free for Mac and Windows. No account, no cloud: everything runs on your computer.</p>
+    <div class="cta"><a class="btn primary" href="index.html#download">Download free</a><a class="btn" href="faq.html">Questions?</a></div>
+  </div>
+</section>
+
+<div class="lb" id="lb"><img alt=""></div>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links2">
+      <a href="https://github.com/agritechixr/lulc-fetch">GitHub</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/releases">Releases</a>
+      <a href="https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993">Crop disease models</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/issues">Report a problem</a>
+    </div>
+    <span>Apache 2.0 licence</span>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>
