@@ -39,17 +39,22 @@
         <button data-cmd="credentials">Credentials…</button>
       </div>
     </div>
-    <div class="menu"><button class="menu-btn">Tools</button>
-      <div class="menu-pop wide" id="tools-menu"></div>
-    </div>
-    <div class="menu"><button class="menu-btn">Agri</button>
-      <div class="menu-pop wide" id="agri-menu"></div>
-    </div>
-    <div class="menu"><button class="menu-btn">Embeddings</button>
-      <div class="menu-pop wide" id="embed-menu"></div>
-    </div>
-    <div class="menu"><button class="menu-btn">Forecast</button>
-      <div class="menu-pop wide" id="forecast-menu"></div>
+    <!-- Analysis: Tools, Agri, Embeddings and Forecast side by side (the category on the left, its tools on the right) -->
+    <div class="menu" id="analysis-menu"><button class="menu-btn">Analysis</button>
+      <div class="menu-pop analysis-pop">
+        <div class="an-cats" role="tablist" aria-label="Analysis">
+          <button type="button" class="an-cat" role="tab" data-an="tools"><span class="ic" data-ic="analyze"></span><span><b>Tools</b><small>Imagery, indices, classical ML, deep learning, detection, interpolation</small></span></button>
+          <button type="button" class="an-cat" role="tab" data-an="agri"><span class="ic" data-ic="leaf"></span><span><b>Agri</b><small>Crop disease diagnosis and guide</small></span></button>
+          <button type="button" class="an-cat" role="tab" data-an="embed"><span class="ic" data-ic="embed"></span><span><b>Embeddings</b><small>AlphaEarth &amp; TESSERA, light models</small></span></button>
+          <button type="button" class="an-cat" role="tab" data-an="forecast"><span class="ic" data-ic="forecast"></span><span><b>Forecast</b><small>AQI &amp; weather data, forecasting models</small></span></button>
+        </div>
+        <div class="an-panels">
+          <div class="an-panel" data-an-panel="tools" id="tools-menu" role="tabpanel"></div>
+          <div class="an-panel" data-an-panel="agri" id="agri-menu" role="tabpanel"></div>
+          <div class="an-panel" data-an-panel="embed" id="embed-menu" role="tabpanel"></div>
+          <div class="an-panel" data-an-panel="forecast" id="forecast-menu" role="tabpanel"></div>
+        </div>
+      </div>
     </div>
     <div class="menu"><button class="menu-btn">Library</button>
       <div class="menu-pop wide" id="library-menu"></div>
@@ -167,7 +172,7 @@
     </div>
     <div class="tool-body">
     <section id="tab-home" class="tabpanel">
-      <p class="hint" style="margin-top:0">Pick a tool from the <b>Tools</b> menu, or start here:</p>
+      <p class="hint" style="margin-top:0">Pick a tool from the <b>Analysis</b> menu (Tools, Agri, Embeddings, Forecast), or start here:</p>
       <div class="tool-cards" id="tool-cards"></div>
       <div id="home-products" class="hidden">
         <div class="home-label">Sentinel products in your data folder</div>

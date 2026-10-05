@@ -67,7 +67,20 @@
                              ml: "Predict a value from other columns without time (regression / classification on tables)" } },
     library: { el: "#library-menu", label: "", shortcuts: [] },
   };
-  let currentTool = "home";
+  // the Analysis menu: a category on the left (Tools, Agri, Embeddings, Forecast), its tools on the right
+  function showAnalysis(cat) {
+    $$("#analysis-menu [data-an]").forEach((b) => { const on = b.dataset.an === cat; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
+    $$("#analysis-menu [data-an-panel]").forEach((p) => p.classList.toggle("hidden", p.dataset.anPanel !== cat));
+    prefs.set("analysis-cat", cat);
+  }
+  $$("#analysis-menu [data-ic]").forEach((s) => { s.innerHTML = svg(s.dataset.ic); });
+  $$("#analysis-menu [data-an]").forEach((b) => {
+    b.onmouseenter = () => showAnalysis(b.dataset.an);
+    b.onfocus = () => showAnalysis(b.dataset.an);
+    b.onclick = (e) => { e.stopPropagation(); showAnalysis(b.dataset.an); $("[data-tool]", $(`#analysis-menu [data-an-panel="${b.dataset.an}"]`))?.focus(); };
+  });
+  showAnalysis(prefs.get("analysis-cat", "tools"));
+    let currentTool = "home";
 
   // Tools are listed A–Z; each explanation is behind an ⓘ button (click it to show / hide, or hover for a tooltip)
   const byTitle = (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
