@@ -23,12 +23,13 @@
     if (!box.children.length) box.innerHTML = `<div class="hist-empty">Loading…</div>`;
     let h;
     try { h = await api("/api/history?limit=12"); } catch (e) { box.innerHTML = `<div class="hist-empty">${esc(e.message)}</div>`; return; }
-    box.innerHTML = `<div class="rb-group"><div class="rb-items"><button data-hall class="rb-big"><span class="ic">${svg("history")}</span>Full history…</button></div><div class="rb-cap">History</div></div>
+    box.innerHTML = `<div class="rb-group"><div class="rb-items"><button data-hall class="rb-big"><span class="ic">${svg("history")}</span>Full history…</button><button data-hwfs class="rb-big" title="Chains of tool runs, run again on new data"><span class="ic">${svg("workflow")}</span>Workflows</button></div><div class="rb-cap">History</div></div>
       <div class="rb-group"><div class="rb-items${h.rows.length ? " rb-tri" : ""}">` +
       (h.rows.length ? h.rows.map(histRow).join("") : `<div class="hist-empty">No runs yet: every tool you run is listed here, with its settings and results.</div>`) +
       `</div><div class="rb-cap">Recent tool runs</div></div>`;
     $$("[data-hid]", box).forEach((row) => row.onclick = () => { toggleMenu(null); openHistory(row.dataset.hid); });
     $("[data-hall]", box).onclick = () => { toggleMenu(null); openHistory(null); };
+    $("[data-hwfs]", box).onclick = () => { toggleMenu(null); switchTool("workflows"); };
   }
   function openHistory(id) {
     hist.win ||= floatWin($("#hist-float"), $("#hist-head"), "hist-float", () => { const m = $("#map").getBoundingClientRect(); return { x: m.left + 16, y: m.top + 16, w: 520, h: 560 }; });
@@ -99,12 +100,13 @@
         <div class="hidden" data-heditbox><textarea class="hist-edit" spellcheck="false" aria-label="Settings (JSON)"></textarea>
           <div class="row tight" style="margin:6px 0 0;gap:6px"><button class="btn small primary" data-hrunedit>Run with these settings</button><button class="btn small ghost" data-hcancel>Cancel</button><span class="hint" data-hjsonerr style="margin:0;color:var(--err)"></span></div></div>`
         : `<p class="hint" style="margin:4px">${esc(e.repeat_note || "This run can't be repeated from here (it was recorded before Run again existed).")}</p>`}
-      <div class="row tight" style="margin:12px 4px 0;gap:6px;flex-wrap:wrap"><button class="btn small" data-hcopy>Copy as JSON</button>${tool ? `<button class="btn small" data-htool="${esc(tool.id)}">Open ${esc(tool.title)}</button>` : ""}${e.error ? `<button class="btn small ghost" data-herrlog>Error log</button>` : ""}</div>`;
+      <div class="row tight" style="margin:12px 4px 0;gap:6px;flex-wrap:wrap">${e.repeatable && e.status === "done" ? `<button class="btn small" data-hwf title="A workflow that runs this again on other data (Analysis ▸ Tools ▸ Workflows)">Make a workflow…</button>` : ""}<button class="btn small" data-hcopy>Copy as JSON</button>${tool ? `<button class="btn small" data-htool="${esc(tool.id)}">Open ${esc(tool.title)}</button>` : ""}${e.error ? `<button class="btn small ghost" data-herrlog>Error log</button>` : ""}</div>`;
     $$("[data-hreveal]", body).forEach((b) => b.onclick = () => {
       api("/api/project/reveal", { method: "POST", json: { path: b.dataset.hreveal } }).catch((x) => toast(x, true));   // opens its folder
     });
     $$("[data-hmap]", body).forEach((b) => b.onclick = () => addRasterFromPath(b.dataset.hmap).catch((x) => toast(`Can't add it to the map: ${x.message}`, true)));
     $$("[data-htool]", body).forEach((a) => a.onclick = (ev) => { ev.preventDefault(); switchTool(a.dataset.htool); });
+    $("[data-hwf]", body)?.addEventListener("click", () => openTool("workflows", { fromHistory: [e.id] }));
     $("[data-hcopy]", body).onclick = async () => { try { await navigator.clipboard.writeText(JSON.stringify(e, null, 2)); toast("Copied"); } catch { toast("Couldn't copy", true); } };
     $("[data-herrlog]", body)?.addEventListener("click", () => window.open("/api/errors/file", "_blank", "noopener"));
     if (e.repeatable) {

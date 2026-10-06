@@ -113,7 +113,7 @@ def test_tool_files_register_themselves(client):
         ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
         if "LF.tool(" in js.text:
             assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
-    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun"])
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows"])
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200
@@ -257,3 +257,42 @@ def test_elevation_profile(client, data):
     assert len(r["distance"]) == len(r["value"]) == 50 and r["length"] > 0
     assert sum(v is not None for v in r["value"]) > 40
     assert client.post("/api/rasters/profile", json={"path": data["s2"], "coords": line, "band": 99}).status_code == 400
+
+
+def _fake_run(jid, endpoint, body, outputs, started):
+    """A finished run in the History, as the job manager records it (its request kept for Run again)."""
+    import json as _json
+
+    from webapp import history
+    from webapp import workspace as ws
+    history._append({"type": "run", "id": jid, "kind": "test", "title": f"Run {jid}", "status": "done", "endpoint": endpoint,
+                     "started": started, "finished": started + 1, "outputs": [str(ws.root() / o) for o in outputs]})
+    history.requests_dir().mkdir(parents=True, exist_ok=True)
+    (history.requests_dir() / f"{jid}.json").write_text(_json.dumps({"endpoint": endpoint, "body": body, "workspace": str(ws.root())}))
+
+
+def test_workflow_from_history_links_steps_and_makes_inputs(client):
+    area = {"type": "Polygon", "coordinates": [[[77.4, 12.9], [77.5, 12.9], [77.5, 13.0], [77.4, 12.9]]]}
+    _fake_run("wfa1", "/api/jobs", {"kind": "labels", "aoi": area, "year": 2021}, ["downloads/wfa1/landcover.tif"], 1000)
+    _fake_run("wfa2", "/api/analyze/export", {"path": "downloads/wfa1/landcover.tif", "indices": ["NDVI"], "clip": area}, ["analysis/x/out.tif"], 2000)
+    wf = ok(client.post("/api/workflows/from-history", json={"job_ids": ["wfa2", "wfa1"]}))
+    assert [s["endpoint"] for s in wf["steps"]] == ["/api/jobs", "/api/analyze/export"]   # in the order they ran
+    assert wf["steps"][1]["body"]["path"] == {"$step": 0, "ext": ".tif", "nth": 0}           # the first step's output
+    kinds = {i["type"] for i in wf["inputs"]}
+    assert kinds == {"area", "value"} and len(wf["inputs"]) == 2                              # one area (used twice), the year
+    assert wf["steps"][0]["body"]["aoi"] == wf["steps"][1]["body"]["clip"]
+    saved = ok(client.put("/api/workflows/new", json={"workflow": {**wf, "name": "Land cover → NDVI"}}))
+    listed = ok(client.get("/api/workflows"))["workflows"]
+    assert any(w["id"] == saved["id"] and w["steps"] == 2 for w in listed)
+    assert ok(client.get(f"/api/workflows/{saved['id']}"))["name"] == "Land cover → NDVI"
+    ok(client.delete(f"/api/workflows/{saved['id']}"))
+    assert client.get(f"/api/workflows/{saved['id']}").status_code == 404
+
+
+def test_workflow_refuses_housekeeping_and_bad_links(client):
+    bad = {"name": "x", "inputs": [], "steps": [{"endpoint": "/api/project/close", "body": {"a": 1}}]}
+    assert client.put("/api/workflows/new", json={"workflow": bad}).status_code == 400
+    loop = {"name": "x", "inputs": [], "steps": [{"endpoint": "/api/jobs", "body": {"path": {"$step": 0, "ext": ".tif", "nth": 0}}}]}
+    assert client.put("/api/workflows/new", json={"workflow": loop}).status_code == 400
+    missing = {"name": "x", "inputs": [], "steps": [{"endpoint": "/api/jobs", "body": {"path": {"$in": "in9"}}}]}
+    assert client.put("/api/workflows/new", json={"workflow": missing}).status_code == 400

@@ -1607,6 +1607,14 @@
   <div class="modal-foot"><button class="btn small ghost" data-close>Close</button><button class="btn small" id="pr-print">Print / Save as PDF…</button><button class="btn small primary" id="pr-png">Save as PNG</button></div>
 </dialog>
 
+<!-- Workflows ▸ New from History: tick the runs that make the workflow -->
+<dialog id="dlg-wf-pick" class="modal">
+  <div class="modal-head"><h3>New workflow from the History</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body"><p class="hint" style="margin-top:0">Tick the runs, in any order: they become the steps in the order they ran. Where a run used an earlier one's result, the workflow does too.</p>
+    <div id="wfp-list" class="wfp-list"></div></div>
+  <div class="modal-foot"><button class="btn small ghost" data-close>Cancel</button><button class="btn small primary" id="wfp-make">Make the workflow</button></div>
+</dialog>
+
 <!-- 3D extrude (a polygon layer's right-click menu in a 3D map) -->
 <dialog id="dlg-extrude" class="modal">
   <div class="modal-head"><h3 id="ex-title">Extrude in 3D</h3><button class="x" data-close>×</button></div>
@@ -1664,6 +1672,7 @@
 <script src="/static/tools/forecast/getdata.js"></script>
 <script src="/static/tools/forecast/train.js"></script>
 <script src="/static/tools/forecast/run.js"></script>
+<script src="/static/tools/workflows/workflows.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

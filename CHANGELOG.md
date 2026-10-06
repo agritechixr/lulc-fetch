@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Workflows** (Analysis ▸ Tools ▸ Workflows, or History ▸ Workflows): make a chain of tools from runs in the History
+  (their files, areas and years become inputs; a step uses an earlier step's result where the runs did), then run it on
+  other data, once or for each layer or polygon (batch); edit, export and import workflows. Server: `/api/workflows`.
 - **Top bar:** the logo (About) and a quick access bar: Save, Save as, Undo, Redo, plus any ribbon command or tool
   (right-click a ribbon button to add it or see its shortcut); **search every command, tool, layer, map and bookmark
   (Ctrl+K / Ctrl+F)**.
