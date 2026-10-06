@@ -131,6 +131,24 @@ def raster_grid(path: str, band: int = 1, scale: float = 1.0, offset: float = 0.
         raise HTTPException(400, f"Can't read heights from the file: {e}")
 
 
+class ProfileRequest(BaseModel):
+    path: str
+    coords: list[list[float]] = Field(min_length=2, max_length=5000)
+    band: int = 1
+    samples: int = 256
+
+
+@router.post("/api/rasters/profile")
+def raster_profile(req: ProfileRequest):
+    """Heights (a band's values) along a line: View ▸ Measure ▸ Profile."""
+    from lulc_fetch.analysis import profile
+
+    try:
+        return profile(_raster_path(req.path), req.coords, band=req.band, samples=req.samples)
+    except (*rasterio_errors(), ValueError) as e:
+        raise HTTPException(400, f"Can't make the profile: {e}")
+
+
 @router.get("/api/rasters/file")
 def raster_file(path: str):
     p = _raster_path(path)

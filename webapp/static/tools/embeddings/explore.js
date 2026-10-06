@@ -84,7 +84,7 @@
         try {
           const r = await runJob("/api/emb/colour", { path: src.path }, { tool: "embexplore", title: "Making a colour view", save: "embexplore" });
           await addRasterFromPath(r.path, { name: `${src.name} colour view`, zoom: false, render: { rgb: [1, 2, 3], stretch: "none" } });
-        } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+        } catch (e) { if (notCancelled(e)) toast(e, true); }
       };
       $("#em-classify").onclick = () => switchTool("rasterml");
 

@@ -58,7 +58,7 @@
         <a href="https://github.com/${REPO}/issues" target="_blank" rel="noopener">Report a problem</a>
         <a href="https://github.com/${REPO}/blob/main/LICENSE" target="_blank" rel="noopener">Licence</a></div>`;
     $$("[data-reveal]", $("#about-body")).forEach((b) => b.onclick = () =>
-      api("/api/project/reveal", { method: "POST", json: { path: b.dataset.reveal } }).catch((e) => toast(e.message, true)));
+      api("/api/project/reveal", { method: "POST", json: { path: b.dataset.reveal } }).catch((e) => toast(e, true)));
   }
   // the details as plain text, for a bug report
   function aboutText() {
@@ -93,4 +93,4 @@
   };
   $("#btn-about").onclick = (e) => { e.stopPropagation(); openAbout(); };
   // the version next to the name in the menu bar
-  api("/api/about").then((a) => { about.info = a; $("#brand-ver").textContent = prettyVersion(a.version); }).catch(() => {});
+  api("/api/about").then((a) => { about.info = a; $("#btn-about").title = `LULC Fetch ${prettyVersion(a.version)}: about this version, the environment, folders`; }).catch(() => {});

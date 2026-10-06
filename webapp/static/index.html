@@ -17,11 +17,28 @@
 <body>
 <!-- ================= menu bar ================= -->
 <header class="menubar">
-  <button type="button" class="brand" id="btn-about" title="About LULC Fetch: version, environment, folders" aria-haspopup="dialog"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span>LULC Fetch</span><small class="brand-ver" id="brand-ver"></small></button>
+  <button type="button" class="brand" id="btn-about" title="LULC Fetch: about this version, the environment, folders" aria-label="About LULC Fetch" aria-haspopup="dialog"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></button>
+  <!-- quick access: save, save as, undo, redo (as in Word) -->
+  <div class="qat" role="toolbar" aria-label="Quick access">
+    <button type="button" class="qa" id="qa-save" data-cmd="save" title="Save (Ctrl+S)" aria-label="Save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3"/><rect x="7" y="13" width="10" height="6" rx="1"/></svg></button>
+    <button type="button" class="qa" id="qa-saveas" data-cmd="save-as" title="Save as a new project… (Ctrl+Shift+S)" aria-label="Save as"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l3 3v5"/><path d="M7 3v5h8V3"/><path d="M7 21v-6h5"/><path d="M15.5 21l.6-2.6 4.6-4.6a1.4 1.4 0 0 1 2 2l-4.6 4.6z"/></svg></button>
+    <span class="qa-sep"></span>
+    <button type="button" class="qa" id="qa-undo" data-cmd="undo" title="Nothing to undo (Ctrl+Z)" aria-label="Undo" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+    <button type="button" class="qa" id="qa-redo" data-cmd="redo" title="Nothing to redo (Ctrl+Y)" aria-label="Redo" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+    <span class="qa-extra" id="qa-extra"></span>
+  </div>
   <!-- the ribbon, as in Word: each tab shows its commands in a band under the tabs (pinned, or shown on click when collapsed) -->
   <nav class="menus" id="menus">
     <div class="menu"><button class="menu-btn">File</button>
       <div class="menu-pop">
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="save" class="rb-big" title="Save the project (Ctrl+S); in the temporary workspace, save it as a project"><span class="ic" data-ic="save"></span>Save</button>
+          <button data-cmd="save-as" class="rb-big" title="Save as a new project folder, with copies of the files (Ctrl+Shift+S)"><span class="ic" data-ic="saveas"></span>Save as</button>
+          </div><div class="rb-cap">Save</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="export-png" class="rb-big" title="Save the map as it is shown as a picture (PNG), 2D or 3D"><span class="ic" data-ic="image"></span>Picture</button>
+          <button data-cmd="print" class="rb-big" title="A page with a title, the map, a legend, a scale bar and a north arrow: PNG, print or PDF"><span class="ic" data-ic="print"></span>Print layout</button>
+          </div><div class="rb-cap">Export map</div></div>
         <div class="rb-group"><div class="rb-items">
           <button data-cmd="project-new" class="rb-big"><span class="ic" data-ic="fnew"></span>New project</button>
           <button data-cmd="project-open" class="rb-big"><span class="ic" data-ic="fopen"></span>Open project</button>
@@ -44,6 +61,7 @@
           </div></div><div class="rb-cap">Selected layer</div></div>
         <div class="rb-group"><div class="rb-items">
           <div class="rb-stack">
+            <button data-cmd="recover" class="rb-small" id="mi-recover" title="Bring back the temporary workspace as it was before Start fresh"><span class="ic" data-ic="history"></span>Recover last session…</button>
             <button data-cmd="clean-cache" class="rb-small"><span class="ic" data-ic="clean"></span>Clean up working files…</button>
             <button data-cmd="credentials" class="rb-small"><span class="ic" data-ic="key"></span>Credentials…</button>
           </div></div><div class="rb-cap">Settings</div></div>
@@ -124,6 +142,16 @@
           <button data-cmd="zoom-all" class="rb-big"><span class="ic" data-ic="zoomall"></span>Zoom to all layers</button>
           </div><div class="rb-cap">Navigate</div></div>
         <div class="rb-group"><div class="rb-items">
+          <button data-cmd="measure:distance" class="rb-big" title="Measure a distance: click points on the map, double-click to finish"><span class="ic" data-ic="mdist"></span>Distance</button>
+          <button data-cmd="measure:area" class="rb-big" title="Measure an area: click the corners, double-click to finish"><span class="ic" data-ic="marea"></span>Area</button>
+          <button data-cmd="measure:height" class="rb-big" title="Read the height (from a DEM) where you click"><span class="ic" data-ic="mheight"></span>Height</button>
+          <button data-cmd="measure:profile" class="rb-big" title="Elevation profile: draw a line on a DEM and see the heights along it as a chart"><span class="ic" data-ic="mprofile"></span>Profile</button>
+          </div><div class="rb-cap">Measure</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="swipe" class="rb-big" id="mi-swipe" title="Compare two layers: drag a line across the map (2D maps)"><span class="ic" data-ic="swipe"></span>Swipe</button>
+          <button data-cmd="side-by-side" class="rb-big" id="mi-side" title="The 2D map and a 3D map side by side, moving together"><span class="ic" data-ic="sidebyside"></span>Side by side</button>
+          </div><div class="rb-cap">Compare</div></div>
+        <div class="rb-group"><div class="rb-items">
           <div class="rb-stack">
             <button data-cmd="theme:auto" class="rb-small radio" data-group="theme">Match system</button>
             <button data-cmd="theme:light" class="rb-small radio" data-group="theme">Light</button>
@@ -141,6 +169,7 @@
           <button data-cmd="guide" class="rb-big"><span class="ic" data-ic="guide"></span>Quick guide</button>
           <button data-cmd="start" class="rb-big"><span class="ic" data-ic="home"></span>Getting started</button>
           <button data-cmd="shortcuts" class="rb-big"><span class="ic" data-ic="keys"></span>Keyboard shortcuts</button>
+          <button data-cmd="tour" class="rb-big" title="Six short hints about the window: ribbon, quick access, search, Contents, map, maps"><span class="ic" data-ic="tour"></span>Tour</button>
           <button data-cmd="about" class="rb-big" title="Version, environment, folders (or click the logo)"><span class="ic" data-ic="info"></span>About</button>
           </div><div class="rb-cap">Help</div></div>
         <div class="rb-group"><div class="rb-items">
@@ -151,6 +180,13 @@
       </div>
     </div>
   </nav>
+  <!-- search every command, tool, layer, map and bookmark (Ctrl+K or Ctrl+F) -->
+  <div class="cmd-search" id="cmd-search">
+    <span class="cs-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg></span>
+    <input type="text" id="cmd-input" placeholder="Search commands, tools, layers…" aria-label="Search commands" autocomplete="off" spellcheck="false">
+    <kbd class="cs-kbd">Ctrl K</kbd>
+    <div class="cmd-results hidden" id="cmd-results" role="listbox"></div>
+  </div>
   <div class="menubar-right">
     <button id="btn-project" class="project-chip" title="Project: where your layers and results are kept"><span class="pc-ic"></span><span id="project-name">Temporary workspace</span><span class="pc-saved" id="project-saved"></span><span class="pc-caret">▾</span></button>
     <span class="active-tool" id="active-tool"></span>
@@ -168,33 +204,33 @@
     <div class="pane-head">
       <h2>Contents</h2>
       <div class="pane-actions">
-        <button class="btn small primary" id="btn-add-data" title="Add GeoTIFF, RGB pictures (JPG / PNG), shapefile, GeoJSON, KML or tables (CSV, Excel, Parquet) from your computer">+ Add data</button>
-        <button class="btn small" id="btn-add-ws" title="Add a GeoTIFF or table that is already in the workspace (downloads, results)">Workspace</button>
         <button class="x" data-cmd="toggle-contents" title="Hide Contents (Ctrl+1)">×</button>
       </div>
     </div>
     <div class="contents-scroll">
       <div class="sect" id="sect-2d">
         <button class="sect-head" data-sect="2d" title="Map layers: rasters, RGB images, vectors. Click to collapse / expand">
-          <span class="sect-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span><span class="sect-ic"></span><b>2D data</b><small>rasters · RGB · vectors</small><span class="sect-count" id="count-2d">0</span></button>
+          <span class="sect-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span><span class="sect-ic"></span><b>2D data</b><span class="sect-count" id="count-2d">0</span></button>
         <div class="sect-body">
           <div class="layer-list" id="layer-list"></div>
           <div class="item-list" id="picture-list"></div>
-          <div class="contents-empty" id="contents-empty">
-            <b>No layers yet</b>
-            Add GeoTIFFs, RGB pictures (JPG / PNG), shapefiles, GeoJSON or KML with <b>+ Add data</b> or drop them on the map. Downloads and tool results appear here automatically.
-          </div>
+          <div class="contents-empty" id="contents-empty"></div>
+        </div>
+      </div>
+      <div class="sect hidden" id="sect-3d">
+        <button class="sect-head" data-sect="3d" title="Heights: DEMs and other height layers; in a 3D map they are the land. Click to collapse / expand">
+          <span class="sect-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span><span class="sect-ic"></span><b>3D data</b><span class="sect-count" id="count-3d">0</span></button>
+        <div class="sect-body">
+          <div class="layer-list" id="layer-list-3d"></div>
+          <div class="contents-empty" id="contents-3d-empty"></div>
         </div>
       </div>
       <div class="sect" id="sect-tab">
         <button class="sect-head" data-sect="tab" title="Tables: CSV, TSV, Excel, Parquet. Click to collapse / expand">
-          <span class="sect-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span><span class="sect-ic"></span><b>Tabular data</b><small>CSV · Excel · Parquet</small><span class="sect-count" id="count-tab">0</span></button>
+          <span class="sect-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span><span class="sect-ic"></span><b>Tabular data</b><span class="sect-count" id="count-tab">0</span></button>
         <div class="sect-body">
           <div class="item-list" id="table-list"></div>
-          <div class="contents-empty" id="tables-empty">
-            <b>No tables yet</b>
-            Add CSV, TSV, Excel or Parquet files with <b>+ Add data</b>, or make one with <b>Raster → table</b>. Double-click a table to open it under the map.
-          </div>
+          <div class="contents-empty" id="tables-empty"></div>
         </div>
       </div>
     </div>
@@ -211,10 +247,32 @@
       <div id="map3d" class="map3d hidden">
         <div class="v3-vpc"><button type="button" id="v3-menu" title="3D view options: zoom, heights, help">[–]</button><button type="button" id="v3-view" title="Look from a standard view">[SW Isometric]</button><button type="button" id="v3-style" title="Visual style">[Realistic]</button></div>
         <div class="v3-cube" id="v3-cube"><button type="button" class="v3-home" title="Home: SW Isometric, everything in view" aria-label="Home view"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg></button></div>
+        <button type="button" class="v3-wcs" id="v3-wcs" title="Coordinate system: WCS (world). Click for details">WCS ▾</button>
+        <!-- the navigation bar, as in AutoCAD: pan, zoom (▾ more), orbit (▾ continuous), views -->
+        <div class="v3-nav" id="v3-nav" role="toolbar" aria-label="Navigation bar">
+          <button type="button" class="nb-x" data-nav="close" title="Close the navigation bar (bring it back from [–])" aria-label="Close the navigation bar">×</button>
+          <button type="button" class="nb" data-nav="home" title="Home: SW Isometric with everything in view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg></button>
+          <hr>
+          <button type="button" class="nb" data-nav="pan" title="Pan: dragging with the left button moves the view (the wheel button always pans)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12"/><path d="M11 11.5v-7a1.5 1.5 0 0 1 3 0V12"/><path d="M14 11.5V6a1.5 1.5 0 0 1 3 0v6.5"/><path d="M17 9.5a1.5 1.5 0 0 1 3 0V15a7 7 0 0 1-7 7h-1.2a7 7 0 0 1-5.6-2.8L3.4 15.5a1.6 1.6 0 0 1 2.4-2.1L8 15.5"/></svg></button>
+          <button type="button" class="nb" data-nav="zoom" title="Zoom extents: everything in view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5"/><circle cx="11" cy="11" r="4"/><path d="M14 14l3 3"/></svg></button>
+          <button type="button" class="nb-more" data-nav="zoom-menu" title="More zoom: in, out, to the selected layer" aria-label="More zoom">▾</button>
+          <button type="button" class="nb on" data-nav="orbit" title="Orbit: dragging with the left button turns the view around its centre (Shift + wheel button also orbits)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="9" ry="4"/><path d="M12 3v18" opacity=".55"/><path d="M18.5 15.2l2 .3-.6 2" /><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></button>
+          <button type="button" class="nb-more" data-nav="orbit-menu" title="More orbit: continuous orbit" aria-label="More orbit">▾</button>
+          <hr>
+          <button type="button" class="nb" data-nav="views" title="Standard views: Top, Front, isometric…"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><path d="M14 18.5l3.2-3.2 3.3 3.2-3.3 3.3z"/></svg></button>
+        </div>
         <svg class="v3-ucs" id="v3-ucs" viewBox="-44 -44 88 88" aria-label="UCS icon: the X, Y and Z axes"></svg>
         <div class="v3-msg" id="v3-msg"></div>
       </div>
       <div id="map-hint" class="map-hint hidden"></div>
+      <!-- View ▸ Measure: distance, area, height (2D and 3D maps) -->
+      <div class="measure-box hidden" id="measure-box" role="status" aria-live="polite"></div>
+      <div class="profile-box hidden" id="profile-box"></div>
+      <!-- View ▸ Compare ▸ Swipe: the line and the two layers' names -->
+      <div class="swipe hidden" id="swipe">
+        <div class="swipe-bar"><select id="swipe-left" aria-label="Left layer"></select><button type="button" class="btn small ghost" id="swipe-flip" title="Swap the sides">⇄</button><select id="swipe-right" aria-label="Right layer"></select><button type="button" class="x" id="swipe-x" title="Stop comparing (Esc)">×</button></div>
+        <div class="swipe-line" id="swipe-line"><span class="swipe-knob">⟷</span></div>
+      </div>
       <div id="drop-overlay" class="drop-overlay hidden"><div>Drop files to add them<small>GeoTIFF · JPG / PNG (+ world file) · Shapefile (.zip or .shp + .shx + .dbf + .prj) · GeoJSON · KML / KMZ<br>Tables: CSV · TSV · Excel (.xlsx) · Parquet<br>Sentinel-1 / Sentinel-2 products: .SAFE folder or .SAFE.zip</small></div></div>
     </div>
     <div class="hresize" id="rz-viewer" title="Drag to resize · double-click to reset"></div>
@@ -371,7 +429,7 @@
       <div class="card">
         <h2>Input image</h2>
         <select id="an-input"><option value="">Choose a raster layer…</option></select>
-        <p class="hint" id="an-input-hint">Uses a raster layer from <b>Contents</b>. Add one with <b>+ Add data</b>, <b>Workspace</b>, or download from <b>Find imagery</b>.</p>
+        <p class="hint" id="an-input-hint">Uses a raster layer from <b>Contents</b>. Add one with <b>Insert ▸ Add data</b> or <b>GeoTIFF from workspace</b>, or download from <b>Find imagery</b>.</p>
         <div class="area-pick">
           <label>Area to analyse<select id="an-area"></select></label>
           <p class="hint" id="an-area-hint">The whole image is analysed.</p>
@@ -1203,7 +1261,13 @@
   </label>
   <span class="sb-item mono" id="sb-zoom">z 5</span>
   <span class="sb-item" title="Map display projection: Web Mercator. Exports keep each file's own CRS.">EPSG:3857</span>
+  <button class="sb-item sb-btn sb-bell" id="sb-bell" title="Notifications: the last messages" aria-label="Notifications" aria-haspopup="dialog"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="sb-badge hidden" id="sb-badge"></span></button>
 </footer>
+<!-- Notifications (the bell): the last 60 messages, failures with what to do and the technical details -->
+<div class="notes-pop hidden" id="notes-pop" role="dialog" aria-label="Notifications">
+  <div class="np-head"><b>Notifications</b><span class="np-acts"><button type="button" class="btn small ghost" id="np-errors" title="Show only what failed">Failures only</button><button type="button" class="btn small ghost" id="np-clear">Clear all</button><button type="button" class="x" id="np-x" title="Close">×</button></span></div>
+  <div class="np-list" id="np-list"></div>
+</div>
 
 
 <!-- Folder picker -->
@@ -1513,6 +1577,61 @@
     <button class="btn small" id="about-check">Check for updates</button><button class="btn small primary" id="about-copy">Copy details</button></div>
 </dialog>
 
+<!-- After a crash (the temporary workspace): restore the last session or start fresh (it stays recoverable from File) -->
+<dialog id="dlg-recover" class="modal">
+  <div class="modal-head"><h3>Restore your last session?</h3></div>
+  <div class="modal-body"><p id="rc-text"></p><p class="hint">Start fresh keeps a copy: <b>File ▸ Recover last session</b> brings it back later.</p></div>
+  <div class="modal-foot"><button class="btn small" id="rc-fresh">Start fresh</button><button class="btn small primary" id="rc-restore">Restore</button></div>
+</dialog>
+
+<!-- File ▸ Export map ▸ Print layout -->
+<dialog id="dlg-print" class="modal wide">
+  <div class="modal-head"><h3>Print layout</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body pr-body">
+    <div class="pr-form">
+      <label>Title <input type="text" id="pr-title" maxlength="120"></label>
+      <label>Subtitle <input type="text" id="pr-sub" maxlength="160" placeholder="e.g. NDVI, March 2025 · prepared by …"></label>
+      <div class="row tight" style="gap:8px">
+        <label style="flex:1">Paper <select id="pr-paper"><option>A4</option><option>A3</option><option>Letter</option></select></label>
+        <label style="flex:1">Orientation <select id="pr-orient"><option value="landscape">Landscape</option><option value="portrait">Portrait</option></select></label>
+      </div>
+      <label>Resolution <select id="pr-dpi"><option value="150">150 dpi (screen, e-mail)</option><option value="200" selected>200 dpi</option><option value="300">300 dpi (print)</option></select></label>
+      <label class="check"><input type="checkbox" id="pr-legend" checked> Legend</label>
+      <label class="check"><input type="checkbox" id="pr-scale" checked> Scale bar (2D maps)</label>
+      <label class="check"><input type="checkbox" id="pr-north" checked> North arrow</label>
+      <label class="check"><input type="checkbox" id="pr-date" checked> Date</label>
+      <p class="hint">The map shows what is on screen now; move or zoom it, then reopen this to change the view.</p>
+    </div>
+    <div class="pr-prev"><img id="pr-preview" alt="Preview of the page"></div>
+  </div>
+  <div class="modal-foot"><button class="btn small ghost" data-close>Close</button><button class="btn small" id="pr-print">Print / Save as PDF…</button><button class="btn small primary" id="pr-png">Save as PNG</button></div>
+</dialog>
+
+<!-- 3D extrude (a polygon layer's right-click menu in a 3D map) -->
+<dialog id="dlg-extrude" class="modal">
+  <div class="modal-head"><h3 id="ex-title">Extrude in 3D</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <label>Height from <select id="ex-field"></select></label>
+    <label id="ex-height-row">Height (m) <input type="number" id="ex-height" min="0" step="any" value="10"></label>
+    <label>Multiply by <input type="number" id="ex-scale" min="0" step="any" value="1"></label>
+    <p class="hint" id="ex-hint"></p>
+  </div>
+  <div class="modal-foot"><button class="btn small ghost hidden" id="ex-remove">Remove the extrusion</button><span style="flex:1"></span><button class="btn small ghost" data-close>Cancel</button><button class="btn small primary" id="ex-apply">Extrude</button></div>
+</dialog>
+
+<!-- File ▸ Save as: a new project folder with what is open now (the files the layers use are copied in) -->
+<dialog id="dlg-saveas" class="modal">
+  <div class="modal-head"><h3>Save as a project</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body">
+    <label>Project name <input type="text" id="sa-name" maxlength="80" placeholder="e.g. Bengaluru crops 2025"></label>
+    <label>Save in <span class="row tight" style="gap:6px"><input type="text" id="sa-folder" placeholder="/Users/you/Documents" style="flex:1"><button type="button" class="btn small" id="sa-browse">Browse…</button></span></label>
+    <p class="hint" id="sa-preview"></p>
+    <p class="hint">Every map and layer is saved, and the files they use (downloads, results, uploads, tables) are copied into the project folder, so it opens anywhere.</p>
+    <p class="hint hidden" id="sa-error" style="color:var(--err)"></p>
+  </div>
+  <div class="modal-foot"><button class="btn small ghost" data-close>Cancel</button><button class="btn small primary" id="sa-save">Save</button></div>
+</dialog>
+
 <!-- Help -->
 <dialog id="dlg-help" class="modal">
   <div class="modal-head"><h3 id="help-title">Help</h3><button class="x" data-close>×</button></div>
@@ -1521,6 +1640,8 @@
 
 <!-- Layer context menu -->
 <div class="ctx-menu hidden" id="ctx-menu"></div>
+<!-- the first-run tour: a highlight on one part of the window and a card beside it -->
+<div class="tour hidden" id="tour" role="dialog" aria-label="Tour"><div class="tour-spot" id="tour-spot"></div><div class="tour-card" id="tour-card"></div></div>
 <div class="tip-pop hidden" id="tip-pop" role="tooltip"></div>
 <div id="toasts"></div>
 

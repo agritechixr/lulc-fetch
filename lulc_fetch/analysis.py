@@ -631,6 +631,38 @@ def elevation_grid(path: str | Path, *, band: int = 1, scale: float = 1.0, offse
             "values": base64.b64encode(out.astype("<f4").tobytes()).decode()}
 
 
+def profile(path: str | Path, coords: list, *, band: int = 1, samples: int = 256) -> dict:
+    """One band's values (a DEM's heights) along a line of lon/lat points: `samples` points evenly spaced along it by
+    great-circle distance (metres). Values are as stored in the file; nodata or outside the raster is None."""
+    import math
+
+    pts = [(float(x), float(y)) for x, y in coords]
+    if len(pts) < 2:
+        raise ValueError("A profile needs a line of at least 2 points")
+
+    def dist(a, b):
+        la1, la2 = math.radians(a[1]), math.radians(b[1])
+        h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin(math.radians(b[0] - a[0]) / 2) ** 2
+        return 2 * 6371008.8 * math.asin(min(1.0, math.sqrt(h)))
+
+    seg = [dist(pts[i - 1], pts[i]) for i in range(1, len(pts))]
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    total = float(cum[-1])
+    d = np.linspace(0, total, max(2, min(int(samples), 2000)))
+    lons = np.interp(d, cum, [p[0] for p in pts])
+    lats = np.interp(d, cum, [p[1] for p in pts])
+    with rasterio.open(path) as src:
+        if not 1 <= band <= src.count:
+            raise ValueError(f"The file has {src.count} band(s); there is no band {band}")
+        if src.crs is None:
+            raise ValueError("The file has no coordinate system")
+        xs, ys = warp_transform("EPSG:4326", src.crs, lons.tolist(), lats.tolist())
+        vals = []
+        for v in src.sample(zip(xs, ys), indexes=band, masked=True):
+            vals.append(None if np.ma.is_masked(v[0]) or not np.isfinite(float(v[0])) else float(v[0]))
+    return {"length": total, "distance": d.tolist(), "lon": lons.tolist(), "lat": lats.tolist(), "value": vals}
+
+
 def export_png(path: str | Path, out: str | Path, *, world_file: bool = False, max_px: int = 8192, **spec) -> Path:
     """Write the layer as it is displayed, on the file's own grid. With `world_file`, returns a .zip
     holding the PNG plus .pgw / .prj so GIS software can place it."""

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Top bar:** the logo (About) and a quick access bar: Save, Save as, Undo, Redo, plus any ribbon command or tool
+  (right-click a ribbon button to add it or see its shortcut); **search every command, tool, layer, map and bookmark
+  (Ctrl+K / Ctrl+F)**.
+- **Undo / Redo (Ctrl+Z / Ctrl+Y)** for layers and maps: add, remove, move, rename, show / hide, opacity, style, 2D ↔ 3D
+  data, paste, remove all, new / closed / renamed maps.
+- **Save (Ctrl+S) / Save as (Ctrl+Shift+S):** Save as makes a new project folder and copies in the files the layers use
+  (`/api/project/save-as`).
+- **View ▸ Measure:** distance, area, height and an **elevation profile** chart (`/api/rasters/profile`), on 2D and 3D
+  maps (in 3D: along the ground, climb and descent); keep any measurement as a layer.
+- **View ▸ Compare:** **Swipe** two layers with a line across the map; **Side by side**: the 2D map and a 3D map moving
+  together.
+- **File ▸ Export map:** the view as a **picture** (PNG, 2D or 3D) or a **print layout** (title, legend, scale bar, north
+  arrow, date, credits) as PNG or printed / PDF.
+- **3D maps:** ViewCube with 26 clickable faces, edges and corners; AutoCAD navigation bar (pan, zoom, orbit, continuous
+  orbit) and WCS label; **extrude polygons** by an attribute; files dropped on a 3D map go into it.
+- **Contents:** 2D data, **3D data** (DEMs; 3D maps only, a DEM in a 2D map is marked ⚠) and tabular data; no Add data /
+  Workspace buttons there (they are in Insert and File).
+- **Notifications** (the bell in the status bar): the last 60 messages, failures with the technical details.
+- **Friendlier errors:** what happened → what to do, for the usual technical messages.
+- **Crash recovery:** after an unexpected close, "Restore your last session?"; File ▸ Recover last session.
+- **First-run tour** (Help ▸ Tour); the ribbon's ticks and highlights follow every change.
 - **Ribbon, as in Word:** the menu bar is now File · Insert · Analysis · History · View · Help, each tab's commands shown
   as icon buttons in groups under the tabs; pinned by default (double-click a tab, the ⌃ button or Ctrl+F1 to hide it).
 - **Insert ▸ 2D / 3D: several maps**, each a tab under the ribbon with its own Contents; rename (double-click the tab),

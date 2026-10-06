@@ -30,7 +30,7 @@
         toast("Deep-learning add-on installed");
         renderAddon(panel).then((ok) => ok && ({ "tab-dltrain": refreshDt, "tab-detect": refreshOd, "tab-traindet": refreshTd }[panel.id]
           || PLUGINS[panel.id.slice(4)]?.hooks?.open || refreshDp)());
-      } catch (err) { if (notCancelled(err)) toast(err.message, true); }
+      } catch (err) { if (notCancelled(err)) toast(err, true); }
       finally { btn.disabled = false; }
     };
     return false;
@@ -108,7 +108,7 @@
       await api("/api/dl/dataset", { method: "POST", json: { folder: f } });
       prefs.set("dt-ds-last", f); prefs.set("dt-ds", f);
       await refreshDt();
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   };
   async function refreshDtResume() {
     try { dlx.models = await api("/api/dl/models"); } catch { dlx.models = []; }
@@ -180,7 +180,7 @@
           <button class="btn" data-dt-reveal>Show in folder</button><button class="btn" data-dt-use>Classify image with it</button></div>
       </div>`;
     box.classList.remove("hidden");
-    $("[data-dt-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e.message, true));
+    $("[data-dt-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e, true));
     $("[data-dt-use]", box).onclick = () => { prefs.set("dp-model", r.folder); switchTool("dlpredict"); };
     box.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -208,7 +208,7 @@
       ${m.has_report ? `<a href="/api/dl/report?folder=${encodeURIComponent(m.folder)}" target="_blank" rel="noopener">Open its report</a> · ` : ""}<a href="#" data-dp-forget>Remove from list</a>`;
     $("[data-dp-forget]", $("#dp-model-info"))?.addEventListener("click", async (e) => {
       e.preventDefault();
-      await api(`/api/dl/models?folder=${encodeURIComponent(m.folder)}`, { method: "DELETE" }).catch((x) => toast(x.message, true));
+      await api(`/api/dl/models?folder=${encodeURIComponent(m.folder)}`, { method: "DELETE" }).catch((x) => toast(x, true));
       prefs.set("dp-model", ""); refreshDp();
     });
     if (m && !$("#dp-name").dataset.touched) $("#dp-name").value = `${m.name}_map`.slice(0, 60);
@@ -221,7 +221,7 @@
     const f = await pickFolder({ title: "Choose a deep-learning model folder", start: prefs.get("dp-last", ""), okLabel: "Use this model" });
     if (!f) return;
     try { const r = await api("/api/dl/models/add", { method: "POST", json: { folder: f } }); prefs.set("dp-last", f); prefs.set("dp-model", r.folder); refreshDp(); }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toast(e, true); }
   };
   function renderDpLayers() {
     const rasters = layers.filter((l) => l.type === "raster" && !l.derived && l.path), m = dpModel();
@@ -230,7 +230,7 @@
       dlx.dpOn[(fit || rasters[rasters.length - 1]).id] = true;
     }
     $("#dp-layers").innerHTML = rasters.length ? rasters.slice().reverse().map((l) => `<div class="st-layer ${dlx.dpOn[l.id] ? "on" : ""}"><label><input type="checkbox" data-dpl="${esc(l.id)}" ${dlx.dpOn[l.id] ? "checked" : ""}>${esc(l.name)}
-        <small>${l.info?.count ?? "?"} bands</small></label></div>`).join("") : '<p class="hint">Add the image to classify to Contents first (+ Add data).</p>';
+        <small>${l.info?.count ?? "?"} bands</small></label></div>`).join("") : '<p class="hint">Add the image to classify to Contents first (Insert ▸ Add data).</p>';
     $$("[data-dpl]").forEach((c) => c.onchange = () => { dlx.dpOn[c.dataset.dpl] = c.checked; renderDpLayers(); });
     const chosen = rasters.filter((l) => dlx.dpOn[l.id]).reverse();
     const nb = chosen.reduce((a, l) => a + (l.info?.count || 0), 0);

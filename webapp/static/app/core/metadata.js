@@ -125,7 +125,7 @@
       else if (v.startsWith("r:")) l.render = { rgb: v.slice(2).split(",").map(Number) };
       else if (v.startsWith("b:")) l.render = { band: +v.slice(2), ...style };
       else l.render = { index: l.render.index, formula: l.render.formula, ...style };
-      try { await renderRaster(l); } catch (e) { toast(e.message, true); }
+      try { await renderRaster(l); } catch (e) { toast(e, true); }
       if (an.resultId === l.id && l.legend?.kind === "continuous") showResult(l.legend);
     }
     renderContents();

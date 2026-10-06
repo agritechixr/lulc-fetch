@@ -187,7 +187,7 @@
           if (i === 0) li.onmouseenter();
         });
         if (res[0]) map.fitBounds([[res[0].bbox[1], res[0].bbox[0]], [res[0].bbox[3], res[0].bbox[2]]], { padding: [40, 40] });
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toast(e, true); }
     });
   }
   $("#geo-go").onclick = geocode;
@@ -207,7 +207,7 @@
         (n > 1 ? " They are merged into one area." : "") +
         (fc.warning ? `<div class="warn">${esc(fc.warning)}</div>` : "");
       setAOI(fc.aoi, [...files][0].name);
-    } catch (e) { info.textContent = ""; toast(e.message, true); }
+    } catch (e) { info.textContent = ""; toast(e, true); }
   }
   const drop = $("#drop");
   $("#file").onchange = (e) => upload(e.target.files);

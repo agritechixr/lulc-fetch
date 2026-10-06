@@ -8,7 +8,10 @@
   // ------------------------------------------------------------------ 3D map
   const v3 = { T: null, Orbit: null, loading: null, on: false, doc: null, renderer: null, scene: null, camera: null, controls: null, root: null,
     cube: null, grids: new Map(), textures: new Map(), ground: null, surfaces: [], base: 0, origin: [0, 0], cosLat: 1,
-    exag: prefs.get("v3-exag", "auto"), k: 1, style: prefs.get("v3-style", "realistic"), viewName: "SW Isometric", syncTimer: 0, anim: 0, frame: 0 };
+    exag: prefs.get("v3-exag", "auto"), k: 1, style: prefs.get("v3-style", "realistic"), viewName: "SW Isometric", syncTimer: 0, anim: 0, frame: 0, spin: 0,
+    nav: prefs.get("v3-nav", true), cubeOn: prefs.get("v3-cube", true), ucsOn: prefs.get("v3-ucs", true), mode: "orbit" };
+  // the layers drawn: the open map's, or those of the 3D map shown beside a 2D map (View ▸ Side by side)
+  const src3d = () => v3.src || layers;
   const R_EARTH = 6378137, HALF_WORLD = Math.PI * R_EARTH;
   const toMerc = (lon, lat) => [R_EARTH * lon * Math.PI / 180, R_EARTH * Math.log(Math.tan(Math.PI / 4 + Math.max(-85, Math.min(85, lat)) * Math.PI / 360))];
   const fromMerc = (x, y) => [x / R_EARTH * 180 / Math.PI, (2 * Math.atan(Math.exp(y / R_EARTH)) - Math.PI / 2) * 180 / Math.PI];
@@ -51,8 +54,15 @@
     });
     v3.renderer.domElement.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });
     v3.renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
-    v3.controls.addEventListener("change", render3d);
-    v3.controls.addEventListener("start", () => { cancelAnimationFrame(v3.anim); if (v3.viewName !== "Custom") { v3.viewName = "Custom"; vpcLabels(); } });
+    // the view's name becomes "Custom" once the user really turns or moves it (a plain click doesn't)
+    let userMove = false;
+    v3.controls.addEventListener("start", () => { cancelAnimationFrame(v3.anim); userMove = true; });
+    v3.controls.addEventListener("end", () => { userMove = false; });
+    v3.controls.addEventListener("change", () => {
+      if (userMove && v3.viewName !== "Custom") { v3.viewName = "Custom"; vpcLabels(); }
+      render3d();
+      if (link.on) syncFrom3d();   // side by side: the 2D map follows
+    });
     v3.scene.add(new T.AmbientLight(0xffffff, 1.1));
     const sun = new T.DirectionalLight(0xffffff, 2.8);
     sun.position.set(-1, 1, 1.6);   // from the north-west, as in a hillshade
@@ -193,7 +203,8 @@
     });
     const dark = getComputedStyle(document.body).backgroundColor.match(/\d+/g)?.slice(0, 3).reduce((a, b) => a + +b, 0) < 200;
     v3.scene.background = new T.Color(dark ? 0x10151b : 0xdfe7ef);
-    const vis = layers.filter((l) => l.visible);   // index 0 = on top
+    const vis = src3d().filter((l) => l.visible);   // index 0 = on top
+    if (v3.doc && !v3.doc.originSet && vis.length) moveOrigin();
     v3.surfaces = vis.filter(isSurface).map((l) => ({ l, g: grid3d(l) })).filter((s) => s.g);
     const lows = v3.surfaces.map((s) => s.g.min).filter(Number.isFinite), highs = v3.surfaces.map((s) => s.g.max).filter(Number.isFinite);
     v3.base = lows.length ? Math.min(...lows) : 0;
@@ -208,12 +219,13 @@
         if (s) addSurface(l, s.g, order++);
       } else if (l.type === "raster" || l.type === "image") {
         if (l.image || l.url) addDrape(l, order++);
-      } else if (l.type === "vector") addVector(l, relief, order++);
+      } else if (l.type === "vector") { if (l.extrude) addExtrusions(l); addVector(l, relief, order++); }
     }
     addGround(relief);
     const surfaces = vis.filter(isSurface).length;
     $("#v3-msg").textContent = loading ? "Reading heights…" : !vis.length ? "This 3D map is empty: add a DEM (a single-band GeoTIFF of heights), imagery or vector layers"
       : !surfaces ? "No height layer: add a DEM to see the land in 3D (other layers lie flat)" : "";
+    if (measure.on) drawMeasure3d();   // heights may have changed (exaggeration, a new DEM)
     render3d();
   }
   // Auto heights: flat land is raised so its relief is about a fifth of the surfaces' width (×1 to ×20)
@@ -373,14 +385,26 @@
   function extent3d() {
     let box = null;
     const add = (b) => { if (!b) return; box = box ? [Math.min(box[0], b[0]), Math.min(box[1], b[1]), Math.max(box[2], b[2]), Math.max(box[3], b[3])] : b; };
-    layers.filter((l) => l.visible).forEach((l) => {
-      const b = layerBounds(l);
+    src3d().filter((l) => l.visible).forEach((l) => {
+      const b = l.type === "vector" && !l.leaflet ? L.geoJSON(l.geojson).getBounds() : layerBounds(l);   // a map not drawn in 2D
       if (b?.isValid()) add(mercBox([[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]]));
     });
     if (!box) { const b = map.getBounds(); add(mercBox([[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]])); }
     if (box[2] - box[0] < 50) { box[0] -= 25; box[2] += 25; }
     if (box[3] - box[1] < 50) { box[1] -= 25; box[3] += 25; }
     return box;
+  }
+
+  // the first layers of a 3D map set its origin (0, 0, 0) to their centre; the camera keeps looking at the same place
+  function moveOrigin() {
+    const box = extent3d(), o = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2], [dx, dy] = toScene(...o);
+    v3.camera.position.x -= dx; v3.camera.position.y -= dy;
+    v3.controls.target.x -= dx; v3.controls.target.y -= dy;
+    v3.origin = v3.doc.origin = o;
+    v3.cosLat = Math.cos(fromMerc(...o)[1] * Math.PI / 180);
+    v3.doc.originSet = true;
+    v3.ground = null;
+    v3.controls.update();
   }
 
   // ---- camera: fit an extent, go to a named view (animated)
@@ -441,6 +465,15 @@
     t.colorSpace = v3.T.SRGBColorSpace;
     return t;
   }
+  // The cube is made of 26 hotspots, as in AutoCAD: 6 face centres, 12 edges and 8 corners. Each lights up under the
+  // pointer and, clicked, looks from its direction (a corner gives an isometric view, an edge a view between two faces).
+  const FACE_NAMES = { "0,0,1": "TOP", "0,0,-1": "BOTTOM", "0,-1,0": "FRONT", "0,1,0": "BACK", "-1,0,0": "LEFT", "1,0,0": "RIGHT" };
+  function spotName(d) {
+    const name = Object.entries(VIEWS3D).find(([, v]) => v.every((x, i) => Math.round(x) === d[i]))?.[0];
+    if (name) return name;
+    const parts = [d[2] > 0 ? "Top" : d[2] < 0 ? "Bottom" : "", d[1] < 0 ? "Front" : d[1] > 0 ? "Back" : "", d[0] < 0 ? "Left" : d[0] > 0 ? "Right" : ""];
+    return parts.filter(Boolean).join(" · ") + (d.filter(Boolean).length === 3 ? " corner" : " edge");
+  }
   function initViewCube() {
     const T = v3.T, box = $("#v3-cube");
     const r = new T.WebGLRenderer({ antialias: true, alpha: true });
@@ -449,11 +482,36 @@
     box.prepend(r.domElement);
     const scene = new T.Scene(), cam = new T.OrthographicCamera(-1.15, 1.15, 1.15, -1.15, 0.1, 20);
     cam.up.set(0, 0, 1);
-    // BoxGeometry faces: +X, −X, +Y, −Y, +Z, −Z; the cube is turned so its +Y is up (Z) and its +Z faces south (front)
-    const names = ["RIGHT", "LEFT", "TOP", "BOTTOM", "FRONT", "BACK"];
-    const mats = names.map((n) => new T.MeshBasicMaterial({ map: labelTexture(n) }));
-    const cube = new T.Mesh(new T.BoxGeometry(1, 1, 1), mats);
-    cube.rotation.x = Math.PI / 2;
+    scene.add(new T.AmbientLight(0xffffff, 2.2));
+    const light = new T.DirectionalLight(0xffffff, 1.2);
+    scene.add(light);
+    // the 26 pieces: along each axis a corner strip (0.2), the middle (0.6) and the other corner strip (0.2)
+    const SIZE = { "-1": 0.2, 0: 0.6, 1: 0.2 }, POS = { "-1": -0.4, 0: 0, 1: 0.4 }, BASE = 0xeef1f5, HOT = 0x8fd0b5;
+    const cube = new T.Group(), pieces = [];
+    for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 1]) {
+      if (!x && !y && !z) continue;
+      const m = new T.Mesh(new T.BoxGeometry(SIZE[x], SIZE[y], SIZE[z]), new T.MeshLambertMaterial({ color: BASE }));
+      m.position.set(POS[x], POS[y], POS[z]);
+      m.userData.dir = [x, y, z];
+      cube.add(m); pieces.push(m);
+    }
+    // the face names, on the face centres (each a plane just outside the face, upright as seen from there)
+    Object.entries(FACE_NAMES).forEach(([k, name]) => {
+      const n = k.split(",").map(Number), piece = pieces.find((p) => p.userData.dir.join() === n.join());
+      const label = new T.Mesh(new T.PlaneGeometry(0.6, 0.6), new T.MeshBasicMaterial({ map: labelTexture(name, { bg: null, font: name.length > 4 ? 30 : 36 }), transparent: true }));
+      label.position.set(...n.map((v) => v * 0.502));
+      label.up.set(...(n[2] ? [0, n[2], 0] : [0, 0, 1]));   // TOP reads with north up, the sides with up up
+      label.lookAt(...n.map((v) => v * 2));
+      label.userData.piece = piece;
+      cube.add(label);
+    });
+    // the cube's outline and the lines between its pieces
+    cube.add(new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(1, 1, 1)), new T.LineBasicMaterial({ color: 0x8a96a8 })));
+    pieces.forEach((p) => {
+      const lines = new T.LineSegments(new T.EdgesGeometry(p.geometry), new T.LineBasicMaterial({ color: 0xc9d1dc }));
+      lines.position.copy(p.position);
+      cube.add(lines);
+    });
     scene.add(cube);
     const ring = new T.Mesh(new T.RingGeometry(0.78, 0.9, 48), new T.MeshBasicMaterial({ color: 0x9aa6b6, transparent: true, opacity: 0.55, side: T.DoubleSide }));
     ring.position.z = -0.55;
@@ -464,26 +522,30 @@
       s.scale.set(0.3, 0.3, 1);
       scene.add(s);
     });
-    v3.cube = { r, scene, cam, cube, mats };
-    const ray = new T.Raycaster();
+    v3.cube = { r, scene, cam, light };
+    const ray = new T.Raycaster(), targets = cube.children.filter((o) => o.isMesh);
+    let hot = null;
     const hit = (e) => {
       const rc = r.domElement.getBoundingClientRect();
       ray.setFromCamera(new T.Vector2(((e.clientX - rc.left) / rc.width) * 2 - 1, -((e.clientY - rc.top) / rc.height) * 2 + 1), cam);
-      return ray.intersectObject(cube)[0];
+      const o = ray.intersectObjects(targets, false)[0]?.object;
+      return o ? o.userData.piece || o : null;
     };
-    r.domElement.addEventListener("pointermove", (e) => {
-      const h = hit(e);
-      r.domElement.style.cursor = h ? "pointer" : "default";
-      mats.forEach((m, i) => m.color.set(h && h.face.materialIndex === i ? 0xbfe3d4 : 0xffffff));
+    const setHot = (p) => {
+      if (p === hot) return;
+      hot?.material.color.set(BASE);
+      hot = p;
+      hot?.material.color.set(HOT);
+      r.domElement.style.cursor = p ? "pointer" : "default";
+      r.domElement.title = p ? `${spotName(p.userData.dir)}: click to look from here` : "";
       renderViewCube();
-    });
-    r.domElement.addEventListener("pointerleave", () => { mats.forEach((m) => m.color.set(0xffffff)); renderViewCube(); });
+    };
+    r.domElement.addEventListener("pointermove", (e) => setHot(hit(e)));
+    r.domElement.addEventListener("pointerleave", () => setHot(null));
     r.domElement.addEventListener("click", (e) => {
-      const h = hit(e);
-      if (!h) return;
-      // a face, an edge or a corner: the axes the point is near the edge of
-      const p = h.point, d = [p.x, p.y, p.z].map((v) => Math.abs(v) > 0.3 ? Math.sign(v) : 0);
-      const name = Object.entries(VIEWS3D).find(([, v]) => v.every((x, i) => Math.round(x) === d[i]))?.[0];
+      const p = hit(e);
+      if (!p) return;
+      const d = p.userData.dir, name = Object.entries(VIEWS3D).find(([, v]) => v.every((x, i) => Math.round(x) === d[i]))?.[0];
       view3d(name || null, d);
     });
     $(".v3-home", box).onclick = () => { v3.viewName = "SW Isometric"; vpcLabels(); fit3d(null, VIEWS3D["SW Isometric"]); };
@@ -494,6 +556,7 @@
     const d = v3.camera.position.clone().sub(v3.controls.target).normalize();
     c.cam.position.copy(d.multiplyScalar(5));
     c.cam.quaternion.copy(v3.camera.quaternion);
+    c.light.position.copy(c.cam.position).add(new v3.T.Vector3(0, 0, 3));   // lit from the eye, a little from above
     c.r.render(c.scene, c.cam);
   }
 
@@ -521,6 +584,10 @@
     else if (which === "style") showMenu("Visual style", Object.entries(STYLES3D).map(([k, t]) => [mark(v3.style === k, t), () => { v3.style = k; prefs.set("v3-style", k); vpcLabels(); build3d(); }]), x, y);
     else showMenu("3D view", [
       ["Zoom to all layers", () => fit3d()],
+      [mark(v3.cubeOn, "ViewCube"), () => setShown("cube", !v3.cubeOn)],
+      [mark(v3.nav, "Navigation bar"), () => setShown("nav", !v3.nav)],
+      [mark(v3.ucsOn, "UCS icon"), () => setShown("ucs", !v3.ucsOn)],
+      "-",
       ["Reset the view (SW Isometric)", () => { v3.viewName = "SW Isometric"; vpcLabels(); fit3d(null, VIEWS3D["SW Isometric"]); }],
       "-",
       ...["auto", 0.5, 1, 2, 3, 5, 10].map((k) => [mark(v3.exag === k, k === "auto" ? `Heights: auto (now × ${v3.k})` : `Heights × ${k}`),
@@ -548,4 +615,146 @@
     const [mx, my] = fromScene(hit.point.x, hit.point.y), [lon, lat] = fromMerc(mx, my);
     showCoords({ lat, lng: lon });
     if (v3.surfaces.length && !hit.object.userData.ground) $("#sb-coords").textContent += `  Z ${fmt(hit.point.z / v3.k + v3.base, 1)} m`;
+  }
+
+  // ---- show / hide the ViewCube, the navigation bar and the UCS icon (the [–] menu, as in AutoCAD)
+  function setShown(what, on) {
+    if (what === "cube") { v3.cubeOn = on; prefs.set("v3-cube", on); }
+    if (what === "nav") { v3.nav = on; prefs.set("v3-nav", on); }
+    if (what === "ucs") { v3.ucsOn = on; prefs.set("v3-ucs", on); }
+    $("#v3-cube").classList.toggle("hidden", !v3.cubeOn);
+    $("#v3-wcs").classList.toggle("hidden", !v3.cubeOn);
+    $("#v3-nav").classList.toggle("hidden", !v3.nav);
+    $("#v3-ucs").classList.toggle("hidden", !v3.ucsOn);
+  }
+  setShown();
+
+  // ---- the navigation bar: what the left button does (orbit or pan), zoom, continuous orbit, views
+  function setNavMode(mode) {
+    stopSpin();
+    v3.mode = mode;
+    if (v3.controls) v3.controls.mouseButtons.LEFT = mode === "pan" ? v3.T.MOUSE.PAN : v3.T.MOUSE.ROTATE;
+    $$("#v3-nav [data-nav=pan], #v3-nav [data-nav=orbit]").forEach((b) => b.classList.toggle("on", b.dataset.nav === mode));
+  }
+  function zoom3dBy(f) {
+    if (!v3.controls) return;
+    const t = v3.controls.target;
+    v3.camera.position.sub(t).multiplyScalar(f).add(t);
+    v3.controls.update();
+  }
+  // continuous orbit: the view keeps turning until a click on the scene (or another tool)
+  function startSpin() {
+    if (!v3.controls) return;
+    stopSpin();
+    v3.controls.autoRotate = true;
+    v3.controls.autoRotateSpeed = 1.6;
+    v3.viewName = "Custom"; vpcLabels();
+    const loop = () => { if (!v3.controls.autoRotate || !v3.on) return; v3.controls.update(); v3.spin = requestAnimationFrame(loop); };
+    v3.spin = requestAnimationFrame(loop);
+    toast("Continuous orbit: click the 3D view to stop");
+  }
+  function stopSpin() {
+    if (v3.controls?.autoRotate) { v3.controls.autoRotate = false; cancelAnimationFrame(v3.spin); }
+  }
+  $("#map3d").addEventListener("pointerdown", (e) => { if (e.target.classList.contains("v3-canvas")) stopSpin(); }, true);
+  $("#v3-nav").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-nav]");
+    if (!b || !v3.controls) { if (b?.dataset.nav === "close") setShown("nav", false); return; }
+    e.stopPropagation();
+    const r = b.getBoundingClientRect(), x = r.left - 230, y = r.top;
+    switch (b.dataset.nav) {
+      case "close": setShown("nav", false); break;
+      case "home": stopSpin(); v3.viewName = "SW Isometric"; vpcLabels(); fit3d(null, VIEWS3D["SW Isometric"]); break;
+      case "pan": setNavMode("pan"); break;
+      case "orbit": setNavMode("orbit"); break;
+      case "zoom": stopSpin(); fit3d(); break;
+      case "zoom-menu": showMenu("Zoom", [
+        ["Zoom extents (everything)", () => fit3d()],
+        ["Zoom in", () => zoom3dBy(0.6)],
+        ["Zoom out", () => zoom3dBy(1.6)],
+        selectedLayer() ? [`Zoom to “${selectedLayer().name}”`, () => zoomTo(selectedLayer())] : null,
+      ].filter(Boolean), x, y); break;
+      case "orbit-menu": showMenu("Orbit", [
+        [`${v3.mode === "orbit" && !v3.controls.autoRotate ? "● " : "    "}Orbit (drag to turn)`, () => setNavMode("orbit")],
+        [`${v3.controls.autoRotate ? "● " : "    "}Continuous orbit (keeps turning)`, () => startSpin()],
+      ], x, y); break;
+      case "views": showMenu("View", Object.keys(VIEWS3D).map((n) => [`${v3.viewName === n ? "● " : "    "}${n}`, () => view3d(n)]), x, y); break;
+    }
+  });
+  // WCS: the coordinate system of the 3D view
+  $("#v3-wcs").onclick = (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect(), [lon, lat] = fromMerc(...v3.origin);
+    showMenu("Coordinate system", [
+      ["● WCS (world): X east, Y north, Z up", () => {}],
+      [`Origin (0, 0, 0): ${lat.toFixed(5)}, ${lon.toFixed(5)}${v3.surfaces.length ? ` at ${fmt(v3.base, 1)} m` : ""}`, () => copyText(`${lat.toFixed(6)}, ${lon.toFixed(6)}`, "Origin copied (lat, lon)")],
+      [`Units: metres · heights × ${v3.k}`, () => {}],
+    ], r.left - 200, r.bottom + 4);
+  };
+
+  // ---- 3D extrude: polygons raised by an attribute (a building's height, a field's yield) or by a fixed height, standing on
+  // the land; lighter to darker with the value. Heights are multiplied by the map's height exaggeration, like the land.
+  const polyRings = (g) => !g ? [] : g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates
+    : g.type === "GeometryCollection" ? g.geometries.flatMap(polyRings) : [];
+  function extrudeValue(l, f) {
+    const ex = l.extrude, v = ex.field ? Number(f.properties?.[ex.field]) : Number(ex.height);
+    return Number.isFinite(v) && v > 0 ? v * (ex.scale ?? 1) : null;
+  }
+  function addExtrusions(l) {
+    const T = v3.T, feats = (l.geojson?.features || []).slice(0, 8000);
+    const vals = feats.map((f) => extrudeValue(l, f)).filter((v) => v != null);
+    if (!vals.length) return;
+    const lo = Math.min(...vals), hi = Math.max(...vals), base = new T.Color(l.color || "#2563eb"), hsl = base.getHSL({});
+    const mats = Array.from({ length: 8 }, (_, i) => new T.MeshLambertMaterial({   // 8 shades, light (low) to dark (high)
+      color: new T.Color().setHSL(hsl.h, Math.max(0.35, hsl.s), 0.78 - (i / 7) * 0.42), transparent: (l.opacity ?? 1) < 1, opacity: l.opacity ?? 1 }));
+    const xy = ([lon, lat]) => { const [mx, my] = toMerc(lon, lat); return toScene(mx, my); };
+    feats.forEach((f) => {
+      const v = extrudeValue(l, f);
+      if (v == null) return;
+      const shade = mats[hi > lo ? Math.round((v - lo) / (hi - lo) * 7) : 7];
+      polyRings(f.geometry).forEach((rings) => {
+        if (!rings?.[0] || rings[0].length < 4) return;
+        const shape = new T.Shape(rings[0].map((c) => new T.Vector2(...xy(c))));
+        rings.slice(1).forEach((r) => shape.holes.push(new T.Path(r.map((c) => new T.Vector2(...xy(c))))));
+        const ground = Math.min(...rings[0].map((c) => { const [mx, my] = toMerc(...c); return heightAt(mx, my); }));   // stands on the lowest corner
+        const geo = new T.ExtrudeGeometry(shape, { depth: v * v3.k, bevelEnabled: false });
+        geo.translate(0, 0, ground);
+        const m = new T.Mesh(geo, shade);
+        m.userData = { layer: l, extruded: true, value: v };
+        v3.root.add(m);
+      });
+    });
+  }
+  // the dialog: which attribute (numbers only), or a fixed height; times a factor
+  function openExtrude(l) {
+    const props = (l.geojson?.features || []).slice(0, 500).map((f) => f.properties || {});
+    const fields = [...new Set(props.flatMap(Object.keys))].filter((k) => {
+      const v = props.map((p) => p[k]).filter((x) => x !== null && x !== undefined && x !== "");
+      return v.length && v.filter((x) => Number.isFinite(Number(x))).length / v.length > 0.8;
+    });
+    const ex = l.extrude || {};
+    $("#ex-title").textContent = `Extrude “${l.name}” in 3D`;
+    $("#ex-field").innerHTML = fields.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join("") + `<option value="">A fixed height</option>`;
+    $("#ex-field").value = ex.field !== undefined ? ex.field : fields.find((k) => /height|elev|floors?|levels?|yield|value/i.test(k)) || fields[0] || "";
+    $("#ex-height").value = ex.height ?? 10;
+    $("#ex-scale").value = ex.scale ?? 1;
+    const sync = () => {
+      const f = $("#ex-field").value;
+      $("#ex-height-row").classList.toggle("hidden", !!f);
+      const v = f ? props.map((p) => Number(p[f])).filter(Number.isFinite) : [];
+      $("#ex-hint").textContent = f ? (v.length ? `“${f}” goes from ${fmtv(Math.min(...v))} to ${fmtv(Math.max(...v))}: each polygon rises that many metres × the factor (floors? use 3 as the factor).` : "")
+        : "Every polygon rises by the same height.";
+    };
+    $("#ex-field").onchange = sync;
+    sync();
+    $("#ex-remove").classList.toggle("hidden", !l.extrude);
+    $("#ex-remove").onclick = () => { delete l.extrude; saveLayers(); map3dChanged(); $("#dlg-extrude").close(); };
+    $("#ex-apply").onclick = () => {
+      const field = $("#ex-field").value, scale = +$("#ex-scale").value || 1, height = +$("#ex-height").value || 10;
+      l.extrude = field ? { field, scale } : { field: "", height, scale };
+      saveLayers(); map3dChanged();
+      $("#dlg-extrude").close();
+      toast(`“${l.name}” is extruded${field ? ` by “${field}”` : ` ${height} m`}${scale !== 1 ? ` × ${scale}` : ""}`);
+    };
+    $("#dlg-extrude").showModal();
   }

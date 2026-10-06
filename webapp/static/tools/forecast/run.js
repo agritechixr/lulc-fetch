@@ -35,7 +35,7 @@
       const model = () => st.models.find((m) => m.path === $("#fr-model").value);
 
       async function open(arg) {
-        try { st.models = await api("/api/forecast/models"); } catch (e) { toast(e.message, true); return; }
+        try { st.models = await api("/api/forecast/models"); } catch (e) { toast(e, true); return; }
         await LF.fc.schema();
         const sel = $("#fr-model"), cur = arg?.model || sel.value;
         sel.innerHTML = st.models.length ? st.models.map((m) => `<option value="${esc(m.path)}">${esc(m.name)} · ${esc(m.cfg.target)} · ${esc(m.model_title)}${m.metrics?.mae != null ? ` · MAE ${fmt(m.metrics.mae, 1)}` : ""}</option>`).join("")

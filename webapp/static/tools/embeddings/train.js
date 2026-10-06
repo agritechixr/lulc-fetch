@@ -68,7 +68,7 @@
       async function open() {
         if (!(await renderAddon($("#tab-embtrain")))) return;
         if (!st.schema) {
-          try { st.schema = await api("/api/dl/schema"); } catch (e) { toast(e.message, true); return; }
+          try { st.schema = await api("/api/dl/schema"); } catch (e) { toast(e, true); return; }
           limitDevices($("#et-device"));
         }
         if (!st.schema.archs[st.arch]) st.arch = "light_dabnet";

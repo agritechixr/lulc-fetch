@@ -150,7 +150,7 @@
         const v = prompt("More Hugging Face accounts or organisations whose public datasets the library lists (comma-separated). ixrbhii is always included.", cur);
         if (v === null) return;
         try { await api("/api/library/accounts", { method: "POST", json: { accounts: v.split(",").map((x) => x.trim()).filter(Boolean) } }); await loadDatasets(true); }
-        catch (e) { toast(e.message, true); }
+        catch (e) { toast(e, true); }
       };
 
       return { open };

@@ -39,6 +39,10 @@
     btn.ondblclick = (e) => { e.stopPropagation(); setRibbonPinned(!ribbon.pinned); if (ribbon.pinned) toggleMenu(m); };
     btn.onmouseenter = () => { if (!ribbon.pinned && openMenu && openMenu !== m) toggleMenu(m); };
   });
+  // the ribbon's ticks, radio dots, highlighted buttons and disabled commands follow the app: refreshRibbon() is called
+  // wherever they can change (commands, shortcuts, panels, selection, layers, maps) and redraws them once per frame
+  let ribbonSync = 0;
+  const refreshRibbon = () => { ribbonSync ||= requestAnimationFrame(() => { ribbonSync = 0; syncMenuChecks(); }); };
   function syncMenuChecks() {
     $("#mi-contents").classList.toggle("on", !document.body.classList.contains("no-contents"));
     $("#mi-tools").classList.toggle("on", !document.body.classList.contains("no-tools"));
@@ -53,6 +57,12 @@
     $$('[data-cmd="export-layer"], [data-cmd="remove-layer"], [data-cmd="layer-props"]').forEach((b) => b.disabled = !sel);
     $('[data-cmd="clear-layers"]').disabled = !layers.length;
     $("#mi-map-close").disabled = docs.list.length < 2;
+    let canRecover = false;
+    try { canRecover = !inProject() && !!localStorage.getItem("lulc-recovery"); } catch {}
+    $("#mi-recover").disabled = !canRecover;
+    $("#mi-swipe").classList.toggle("on", cmp.on);
+    $("#mi-side").classList.toggle("on", link.on);
+    syncQat();
     $("#mi-layer-copy").disabled = !sel;
     $("#mi-layer-copy-all").disabled = !layers.length;
     $("#mi-layer-paste").disabled = !docs.clip?.length;
@@ -62,6 +72,7 @@
     const cls = which === "contents" ? "no-contents" : "no-tools";
     document.body.classList.toggle(cls, !show);
     prefs.set(which, show);
+    refreshRibbon();
     setTimeout(() => map.invalidateSize(), 30);
   }
 
@@ -81,16 +92,22 @@
       case "export-layer": openExport(selectedLayer()); break;
       case "layer-props": openProps(selectedLayer()); break;
       case "remove-layer": { const l = selectedLayer(); if (l) removeLayer(l.id); break; }
-      case "clear-layers": if (layers.length && confirm("Remove all layers from Contents? Files on disk are kept.")) [...layers].forEach((l) => removeLayer(l.id)); break;
+      case "clear-layers": if (layers.length && confirm("Remove all layers from Contents? Files on disk are kept. (Ctrl+Z brings them back)")) historyStep(`Remove all ${layers.length} layers`, () => [...layers].forEach((l) => removeLayer(l.id))); break;
+      case "undo": undo(); break;
+      case "save": saveNow(); break;
+      case "save-as": openSaveAs(); break;
+      case "measure": startMeasure(arg); break;
+      case "redo": redo(); break;
       case "credentials": $("#btn-creds").click(); break;
       case "toggle-contents": setPane("contents", document.body.classList.contains("no-contents")); break;
       case "toggle-tools": setPane("tools", document.body.classList.contains("no-tools")); break;
       case "toggle-viewer": setViewer(!viewerOpen()); break;
       case "project-new": showProjectDialog(); break;
-      case "project-open": pickFolder({ title: "Open a project folder", mode: "project" }).then((f) => f && projectOpen(f).catch((e) => toast(e.message, true))); break;
-      case "project-close": projectClose().catch((e) => toast(e.message, true)); break;
-      case "project-reveal": api("/api/project/reveal", { method: "POST", json: {} }).catch((e) => toast(e.message, true)); break;
-      case "clean-cache": openCacheDialog().catch((e) => toast(e.message, true)); break;
+      case "project-open": pickFolder({ title: "Open a project folder", mode: "project" }).then((f) => f && projectOpen(f).catch((e) => toast(e, true))); break;
+      case "project-close": projectClose().catch((e) => toast(e, true)); break;
+      case "project-reveal": api("/api/project/reveal", { method: "POST", json: {} }).catch((e) => toast(e, true)); break;
+      case "recover": recoverSession(); break;
+      case "clean-cache": openCacheDialog().catch((e) => toast(e, true)); break;
       case "reset-layout": resetLayout(); break;
       case "basemap": setBasemap(arg); map3dChanged(); break;
       case "toggle-labels": setLabels(!map.hasLayer(placeLabels)); break;
@@ -108,10 +125,16 @@
       case "guide": showHelp("guide"); break;
       case "shortcuts": showHelp("shortcuts"); break;
       case "about": openAbout(); break;
+      case "tour": startTour(); break;
+      case "export-png": exportPicture(); break;
+      case "print": openPrint(); break;
+      case "swipe": cmp.on ? stopSwipe() : startSwipe(); break;
+      case "side-by-side": link.on ? stopSideBySide() : startSideBySide(); break;
       case "error-log": window.open("/api/errors/file", "_blank", "noopener"); break;
-      case "error-log-reveal": api("/api/errors/reveal", { method: "POST" }).catch((e) => toast(e.message, true)); break;
+      case "error-log-reveal": api("/api/errors/reveal", { method: "POST" }).catch((e) => toast(e, true)); break;
       case "start": switchTool("home"); break;
     }
+    refreshRibbon();
   }
   document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-cmd]");

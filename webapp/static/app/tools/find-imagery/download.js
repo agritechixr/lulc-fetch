@@ -109,7 +109,7 @@
         const tifs = done.files.filter((f) => /\.tiff?$/i.test(f));
         for (const f of tifs) await addRasterFromPath(`downloads/${done.id}/${f}`, { name: done.title });
         toast(tifs.length ? `Added “${done.title}” to Contents` : `${done.title} finished. Files are in Downloads & jobs.`);
-      } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+      } catch (e) { if (notCancelled(e)) toast(e, true); }
     });
   };
   function showDlError(msg) { const el = $("#dl-error"); el.textContent = msg; el.classList.remove("hidden"); }

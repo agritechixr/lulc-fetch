@@ -30,6 +30,7 @@
     $("#btn-project .pc-ic").innerHTML = p ? "📁" : "🗂";
     if (!p) $("#project-saved").textContent = "";
     $("#mi-project-close").disabled = !p;
+    refreshRibbon();
     document.title = p ? `${p.name} · LULC Fetch` : "LULC Fetch";
   }
   function clearContents() {
@@ -50,6 +51,7 @@
       restoreLayers(state ? state.layers || [] : undefined);
       restoreItems(state ? state.items || [] : undefined);
     } finally { proj.loading = false; }
+    historyReset();   // another project (or the workspace): its own Undo
   }
   async function afterSwitch(info, label) {
     proj.info = info;
@@ -89,7 +91,7 @@
       el.onclick = async (e) => {
         if (e.target.closest("[data-forget]")) { e.stopPropagation(); await api(`/api/project/recent?folder=${encodeURIComponent(el.dataset.f)}`, { method: "DELETE" }); el.remove(); return; }
         if (el.classList.contains("missing")) return toast("That project folder no longer exists", true);
-        try { await projectOpen(el.dataset.f); $("#dlg-project").close(); } catch (err) { toast(err.message, true); }
+        try { await projectOpen(el.dataset.f); $("#dlg-project").close(); } catch (err) { toast(err, true); }
       };
     });
     updatePjPreview();
@@ -114,7 +116,7 @@
   $("#pj-open").onclick = async () => {
     const f = await pickFolder({ title: "Open a project folder", mode: "project" });
     if (!f) return;
-    try { await projectOpen(f); $("#dlg-project").close(); } catch (e) { toast(e.message, true); }
+    try { await projectOpen(f); $("#dlg-project").close(); } catch (e) { toast(e, true); }
   };
   $("#pj-temp").onclick = () => $("#dlg-project").close();
   $("#pj-show").onchange = (e) => prefs.set("pj-show", e.target.checked);
@@ -123,23 +125,92 @@
     if (!inProject()) return showProjectDialog();
     const r = e.currentTarget.getBoundingClientRect(), p = proj.info.project;
     showMenu(p.folder, [
-      ["Show project folder", () => api("/api/project/reveal", { method: "POST", json: {} }).catch((x) => toast(x.message, true))],
+      ["Show project folder", () => api("/api/project/reveal", { method: "POST", json: {} }).catch((x) => toast(x, true))],
       ["Save now", () => { scheduleProjectSave(); }],
       "-",
       ["Open another project…", () => showProjectDialog()],
-      ["Close project", () => projectClose().catch((x) => toast(x.message, true))],
+      ["Close project", () => projectClose().catch((x) => toast(x, true))],
       "-",
       ["Clean up working files…", () => openCacheDialog()],
     ], r.left, r.bottom + 4);
   };
+  // ---- autosave & crash recovery. The temporary workspace is saved in the browser at every change (a project in its
+  // folder, a moment after). A clean close leaves "closed" in lulc-session; finding "open" with no other window of the
+  // app answering means the last session ended unexpectedly: then the user is asked whether to restore it.
+  const SESSION_KEYS = ["lulc-layers", "lulc-maps", "lulc-data", "lulc-saved-at"];
+  async function lastCloseWasCrash() {
+    let open = false;
+    try { open = localStorage.getItem("lulc-session") === "open"; } catch {}
+    let other = false;
+    try {   // another window of the app still open isn't a crash
+      const ch = new BroadcastChannel("lulc-session");
+      ch.onmessage = (e) => { if (e.data === "ping") ch.postMessage("pong"); else if (e.data === "pong") other = true; };
+      ch.postMessage("ping");
+      await sleep(300);
+    } catch {}
+    try { localStorage.setItem("lulc-session", "open"); } catch {}
+    addEventListener("pagehide", () => {
+      try { localStorage.setItem("lulc-session", "closed"); } catch {}
+      if (inProject() && $("#project-saved").textContent === "•") {   // a change not yet written to the project: write it now
+        try { fetch("/api/project/state", { method: "PUT", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: projectState() }) }); } catch {}
+      }
+    });
+    return open && !other;
+  }
+  function savedSession() {
+    const get = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || d); } catch { return JSON.parse(d); } };
+    const ls = get("lulc-layers", "[]"), maps = get("lulc-maps", "null"), data = get("lulc-data", "[]");
+    const nLayers = ls.length + (maps?.maps || []).reduce((t, m) => t + (m.layers?.length || 0), 0);
+    return { nLayers, nMaps: maps?.maps?.length || 1, nTables: data.filter((d) => d.kind === "table").length, at: +localStorage.getItem("lulc-saved-at") || 0 };
+  }
+  function askRestore(s) {
+    const when = s.at ? new Date(s.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "earlier";
+    $("#rc-text").innerHTML = `LULC Fetch didn't close normally last time. Your work was saved automatically (${esc(when)}): ` +
+      `<b>${s.nMaps} map${s.nMaps === 1 ? "" : "s"}</b>, <b>${s.nLayers} layer${s.nLayers === 1 ? "" : "s"}</b>${s.nTables ? `, <b>${s.nTables} table${s.nTables === 1 ? "" : "s"}</b>` : ""}.`;
+    const d = $("#dlg-recover");
+    d.showModal();
+    return new Promise((done) => {
+      $("#rc-restore").onclick = () => { d.close(); done(true); };
+      $("#rc-fresh").onclick = () => { d.close(); done(false); };
+      d.oncancel = (e) => { e.preventDefault(); };   // a choice is needed
+    });
+  }
+  // Start fresh: the last session moves to lulc-recovery (File ▸ Recover last session brings it back)
+  function stashSession() {
+    try {
+      localStorage.setItem("lulc-recovery", JSON.stringify(Object.fromEntries(SESSION_KEYS.map((k) => [k, localStorage.getItem(k)]))));
+      SESSION_KEYS.forEach((k) => localStorage.removeItem(k));
+    } catch {}
+  }
+  function recoverSession() {
+    if (inProject()) return toast("Recover last session is for the temporary workspace → close the project first (File ▸ Close project)", true);
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem("lulc-recovery") || "null"); } catch {}
+    if (!saved) return toast("There is no earlier session to recover");
+    if ((layers.length || dataItems.length) && !confirm("Replace what is open now with the earlier session? What is open now is kept, so you can switch back the same way.")) return;
+    const now = Object.fromEntries(SESSION_KEYS.map((k) => [k, localStorage.getItem(k)]));
+    try {
+      SESSION_KEYS.forEach((k) => saved[k] == null ? localStorage.removeItem(k) : localStorage.setItem(k, saved[k]));
+      localStorage.setItem("lulc-recovery", JSON.stringify(now));
+    } catch {}
+    applyState(null);
+    toast("Earlier session recovered");
+  }
   async function initProject() {
     try { proj.info = await api("/api/project"); } catch { proj.info = null; }
     renderProjectChip();
+    const crashed = await lastCloseWasCrash();
     if (inProject()) applyState(proj.info.state || {});
     else {
+      const s = savedSession();
+      let asked = false;
+      if (crashed && (s.nLayers || s.nTables)) {
+        asked = true;
+        if (!(await askRestore(s))) { stashSession(); toast("Started fresh: File ▸ Recover last session brings the last one back"); }
+      }
       applyState(null);
-      let shown = false;
-      try { shown = sessionStorage.getItem("pj-asked") === "1"; sessionStorage.setItem("pj-asked", "1"); } catch {}
+      let shown = asked;
+      try { shown = shown || sessionStorage.getItem("pj-asked") === "1"; sessionStorage.setItem("pj-asked", "1"); } catch {}   // not right after the restore question
       if (prefs.get("pj-show", true) && !shown) showProjectDialog();
     }
   }

@@ -12,8 +12,8 @@
       l.type === "raster" && !l.derived ? ["Compute indices on this layer", () => analyzeLayer(l)] : null,
       l.type === "vector" ? ["Open attribute table", () => openAttr(l)] : null,
       isPoly && l.id !== "aoi" ? ["Use as area of interest", () => useAsAoi(l)] : null,
-      is3D() && l.type === "raster" ? [isSurface(l) ? "3D: drape it instead of heights" : "3D: use its values as heights (surface)", () => {
-        l.view3d = isSurface(l) ? "drape" : "surface"; saveLayers(); map3dChanged(); }] : null,
+      is3D() && l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)) ? [l.extrude ? "3D: change the extrusion…" : "3D: extrude by an attribute…", () => openExtrude(l)] : null,
+      is3D() && l.type === "raster" && (isSurface(l) || (l.info?.count || 0) === 1) ? [isSurface(l) ? "Move to 2D data (drape it in 3D)" : "Move to 3D data (its values are heights)", () => setLayer3d(l, !isSurface(l))] : null,
       "-",
       l.type !== "image" ? ["Copy (paste into another map)  Ctrl+C", () => copyLayers([l])] : null,
       docs.clip?.length ? ["Paste into this map  Ctrl+V", () => pasteLayers()] : null,

@@ -65,7 +65,7 @@
       if (r.saved.length) api(`/api/history/${job.id}/copy`, { method: "POST", json: { folder: r.folder, files: r.saved } }).catch(() => {});
       note.innerHTML = `✓ Saved ${r.saved.length} file${r.saved.length === 1 ? "" : "s"} to <code title="${esc(r.saved.join("\n"))}">${esc(r.folder)}</code> · <a href="#" data-reveal>Show in folder</a>${r.skipped.length ? ` · <span style="color:var(--warn)">${r.skipped.length} skipped</span>` : ""}`;
       note.classList.remove("hidden");
-      $("[data-reveal]", note).onclick = (e) => { e.preventDefault(); api("/api/project/reveal", { method: "POST", json: { path: r.saved[0] || r.folder } }).catch((x) => toast(x.message, true)); };
+      $("[data-reveal]", note).onclick = (e) => { e.preventDefault(); api("/api/project/reveal", { method: "POST", json: { path: r.saved[0] || r.folder } }).catch((x) => toast(x, true)); };
       toast(`Saved a copy in ${r.folder}`);
     } catch (e) { toast(`Couldn't save the copy: ${e.message}`, true); }
   }

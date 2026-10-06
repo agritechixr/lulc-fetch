@@ -233,3 +233,27 @@ def test_about(client):
     assert a["libraries"]["GDAL"] and a["libraries"]["rasterio"]
     assert {"workspace", "settings", "logs"} <= set(a["folders"])
     assert "password" not in str(a["accounts"]).lower()
+
+
+def test_project_save_as_copies_files(client, data, home, tmp_path):
+    """File ▸ Save as: a new project with the layers' files copied in at the same places."""
+    state = {"layers": [{"type": "raster", "name": "s2", "path": data["s2"]}], "items": [],
+             "maps": {"active": "m1", "maps": [{"id": "m1", "name": "Map", "kind": "2d"}]}}
+    try:
+        r = ok(client.post("/api/project/save-as", json={"name": "Saved copy", "folder": str(tmp_path), "state": state}))
+        folder = tmp_path / "Saved copy"
+        assert r["project"]["folder"] == str(folder)
+        assert (folder / data["s2"]).is_file() and r["copied"] >= 1
+        assert ok(client.get("/api/project"))["project"]["name"] == "Saved copy"
+    finally:
+        client.post("/api/project/close")
+
+
+def test_elevation_profile(client, data):
+    info = ok(client.get("/api/rasters/info", params={"path": data["s2"]}))
+    (s, w), (n, e) = info["bounds"]
+    line = [[w + (e - w) * 0.2, s + (n - s) * 0.5], [w + (e - w) * 0.8, s + (n - s) * 0.5]]
+    r = ok(client.post("/api/rasters/profile", json={"path": data["s2"], "coords": line, "band": 1, "samples": 50}))
+    assert len(r["distance"]) == len(r["value"]) == 50 and r["length"] > 0
+    assert sum(v is not None for v in r["value"]) > 40
+    assert client.post("/api/rasters/profile", json={"path": data["s2"], "coords": line, "band": 99}).status_code == 400

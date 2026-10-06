@@ -6,6 +6,7 @@
   let vwSeq = 0, rowMarker = null;
   const viewerOpen = () => document.body.classList.contains("viewer-open");
   function setViewer(show) {
+    refreshRibbon();
     document.body.classList.toggle("viewer-open", show);
     if (show) renderViewer();
     syncMenuChecks();

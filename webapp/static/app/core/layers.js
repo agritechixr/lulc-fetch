@@ -25,16 +25,19 @@
   function buildLeaflet(l) {
     l.leaflet?.remove();
     l.leaflet = null;
+    const pane = l._pane ? { pane: l._pane } : {};   // Swipe puts the two compared layers in panes of their own
     if (l.type === "vector") {
       l.leaflet = L.geoJSON(l.geojson, {
+        ...pane,
         bubblingMouseEvents: false,
         style: (f) => vecStyle(l, f),
-        pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 6, ...vecStyle(l, f), fillOpacity: 0.85 * l.opacity, bubblingMouseEvents: false }),
+        pointToLayer: (f, ll) => L.circleMarker(ll, { ...pane, radius: 6, ...vecStyle(l, f), fillOpacity: 0.85 * l.opacity, bubblingMouseEvents: false }),
         // A selected raster wins: clicking on top of a polygon still reads the raster's pixel values.
         onEachFeature: (f, lyr) => lyr.on("contextmenu", (e) => {   // the map's right-click menu also on shapes
-          L.DomEvent.stop(e); if (picking || activeDraw) return;
+          L.DomEvent.stop(e); if (picking || activeDraw || measure.on) return;
           e.originalEvent?.preventDefault(); showMapMenu(e.latlng, e.originalEvent.clientX, e.originalEvent.clientY);
         }).on("click", (e) => {
+          if (measure.on) return;   // the map's click adds the point
           if (picking || activeDraw) return;
           const sel = selectedLayer();
           if (sel?.type === "raster" && sel.visible) identify(e.latlng);
@@ -42,7 +45,7 @@
         }),
       });
     } else if ((l.type === "image" && l.url) || (l.type === "raster" && l.image)) {
-      l.leaflet = L.imageOverlay(l.url || l.image, l.bounds, { opacity: l.opacity, interactive: false });
+      l.leaflet = L.imageOverlay(l.url || l.image, l.bounds, { ...pane, opacity: l.opacity, interactive: false });
     }
     if (l.leaflet && l.visible) l.leaflet.addTo(map);
   }
@@ -111,7 +114,8 @@
   }
   function selectLayer(id) {
     selectedId = id;
-    $$("#layer-list .layer").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
+    refreshRibbon();
+    $$(".layer-list .layer").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
   }
   function moveLayer(id, toIndex) {
     const i = layers.findIndex((l) => l.id === id);
@@ -125,6 +129,7 @@
 
   // raster layers are rendered by the server into a map-ready PNG (display style lives in l.render)
   async function renderRaster(l, { signal } = {}) {
+    saveLayers();   // a new style is an Undo step (the picture that follows belongs to it)
     l.busy = true; l.error = null;
     mapBusy.start(l);
     renderContents();
@@ -144,7 +149,7 @@
       l.busy = false;
       mapBusy.end(l);
       renderContents();
-      saveLayers();
+      saveLayers({ amend: true });
     }
   }
 
@@ -224,14 +229,17 @@
   }
 
   function renderContents() {
-    $("#layer-list").innerHTML = [...pendingLoads.values()].map((n) => `<div class="layer pending"><div class="lyr-row"><span class="spinner"></span>
-        <span class="lyr-name">${esc(n)}<small>Opening the file…</small></span></div></div>`).join("") + layers.map((l) => `
+    // in a 3D map height layers (DEMs) are listed under 3D data, the others under 2D data (one drawing order for both);
+    // a 2D map has no 3D data: a DEM there is a flat raster, marked ⚠
+    const in3d = (l) => is3D() && isSurface(l);
+    const row = (l) => `
       <div class="layer ${l.id === selectedId ? "selected" : ""} ${l.open ? "open" : ""}" data-id="${esc(l.id)}" draggable="true">
         <div class="lyr-row">
           <button class="lyr-caret" title="Show legend & opacity">▶</button>
           <input type="checkbox" ${l.visible ? "checked" : ""} title="Show / hide">
           ${layerIcon(l)}
           <span class="lyr-name" title="${esc(l.name)}${l.path ? "\n" + esc(l.path) : ""}">${esc(l.name)}<small>${esc(displayLabel(l))}</small></span>
+          ${!is3D() && isSurface(l) ? `<span class="lyr-warn" title="${esc(WARN_3D_IN_2D)}" aria-label="3D data in a 2D map">⚠</span>` : ""}
           ${l.busy ? '<span class="spinner"></span>' : ""}
           <button class="lyr-zoom" title="Zoom to layer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M11 8v6M8 11h6"/></svg></button>
           <button class="lyr-more" title="Layer options">⋯</button>
@@ -243,8 +251,12 @@
           <label>Opacity <input type="range" min="0" max="100" value="${Math.round(l.opacity * 100)}" data-op></label>
           ${l.path ? `<div class="lyr-meta">${esc(l.path)}${l.info ? ` · ${esc(l.info.crs)} · ${l.info.width}×${l.info.height}` : ""}</div>` : ""}
         </div>
-      </div>`).join("");
-    $$("#layer-list .layer[data-id]").forEach((el) => {
+      </div>`;
+    $("#layer-list").innerHTML = [...pendingLoads.values()].map((n) => `<div class="layer pending"><div class="lyr-row"><span class="spinner"></span>
+        <span class="lyr-name">${esc(n)}<small>Opening the file…</small></span></div></div>`).join("") + layers.filter((l) => !in3d(l)).map(row).join("");
+    $("#layer-list-3d").innerHTML = layers.filter(in3d).map(row).join("");
+    $("#sect-3d").classList.toggle("hidden", !is3D());
+    $$(".layer-list .layer[data-id]").forEach((el) => {
       const l = getLayer(el.dataset.id);
       el.onclick = (e) => { if (!e.target.closest("input, button")) selectLayer(l.id); };
       el.ondblclick = (e) => { if (!e.target.closest("input, button")) zoomTo(l); };
@@ -267,11 +279,14 @@
         if (!id || id === l.id) return;
         e.preventDefault(); e.stopPropagation();
         const target = layers.findIndex((x) => x.id === l.id), from = layers.findIndex((x) => x.id === id);
+        if (is3D()) setLayer3d(getLayer(id), isSurface(l));   // dropped among the other section's layers: it moves to that section
         moveLayer(id, from < target ? target : target);
       };
     });
     updateSectionCounts();
     map3dChanged();
+    swipeLayersChanged();
+    refreshRibbon();
     refreshAnalyzeInputs();
     if (pcaState.schema) refreshPcaInputs();
     if (currentTool === "raster2table") refreshRtInputs();
@@ -288,6 +303,31 @@
     if (currentTool === "export") { refreshExportLayers(); if (!exportLayer()) renderExportForm(); }
   }
 
+  // a raster in 3D data (its values are heights: the land in a 3D map) or in 2D data (draped)
+  const WARN_3D_IN_2D = "3D data (heights) in a 2D map: it is shown flat here. Open or paste it into a 3D map (Insert ▸ 3D) to see the land in 3D.";
+  function setLayer3d(l, on) {
+    if (on && !is3D()) return toast("⚠ A 2D map has no 3D data: open a 3D map (Insert ▸ 3D) to use a raster's values as heights", true);
+    if (!l || l.type !== "raster" || isSurface(l) === on) return;
+    l.view3d = on ? "surface" : "drape";
+    renderContents(); saveLayers();
+    status(on ? `${l.name} is in 3D data: in a 3D map its values are the heights` : `${l.name} is in 2D data: in a 3D map it is draped`);
+  }
+  // drop a layer on a section's empty space (or its header) to move it there
+  [["#sect-2d", false], ["#sect-3d", true]].forEach(([sel, on]) => {
+    const sect = $(sel);
+    sect.addEventListener("dragover", (e) => { if ([...e.dataTransfer.types].includes("text/layer")) { e.preventDefault(); sect.classList.add("drag-over"); } });
+    sect.addEventListener("dragleave", (e) => { if (!sect.contains(e.relatedTarget)) sect.classList.remove("drag-over"); });
+    sect.addEventListener("drop", (e) => {
+      sect.classList.remove("drag-over");
+      const id = e.dataTransfer.getData("text/layer");
+      if (!id) return;
+      e.preventDefault();
+      const l = getLayer(id);
+      if (l?.type === "raster") setLayer3d(l, on);
+      else if (l && on) toast("Only rasters can be 3D data (their values become heights)", true);
+    });
+  });
+
   function onLayerRemoved(l) {
     if (vw.tabs.some((t) => t.key === "attr:" + l.id)) closeTab("attr:" + l.id);
     if (l.id === "aoi") { state.aoi = null; $("#aoi-summary").classList.add("hidden"); $("#aoi-warn").classList.add("hidden"); $("#aoi-emb").classList.add("hidden"); }
@@ -296,15 +336,17 @@
   }
 
   // persistence: layer list survives reloads (preview images are not kept)
-  function saveLayers() {
+  function saveLayers(opts) {
     try {
       if (!inProject()) {
         const text = JSON.stringify(layers.filter((l) => l.type !== "image").map(layerState));
         if (text.length < 4e6) localStorage.setItem("lulc-layers", text);
+        localStorage.setItem("lulc-saved-at", Date.now());
         saveMaps();
       }
     } catch {}
     scheduleProjectSave();
+    historyNote(opts);   // Undo / Redo
   }
   function restoreLayers(list) {
     let saved = [];

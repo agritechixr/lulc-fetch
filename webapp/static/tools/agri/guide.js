@@ -31,7 +31,7 @@
           $("#ag-q").value = "";
         }
         if (!st.schema) {
-          try { st.schema = await LF.agri.schema(); } catch (e) { toast(e.message, true); return; }
+          try { st.schema = await LF.agri.schema(); } catch (e) { toast(e, true); return; }
           const crops = Object.entries(st.schema.crops).sort((a, b) => (a[1].limited_kb - b[1].limited_kb) || a[1].name.localeCompare(b[1].name));
           st.picker = searchPicker($("#ag-crop"), { value: st.crop, placeholder: "Type a crop: e.g. man, paddy, bhindi…", empty: "No crop matches",
             items: crops.map(([k, c]) => ({ id: k, title: c.name, aliases: c.aliases, keywords: c.labels,
@@ -50,7 +50,7 @@
         const c = st.schema.crops[st.crop];
         $("#ag-crop-info").innerHTML = `${c.kb_records.toLocaleString()} questions &amp; answers · photo model: ${c.labels.length} classes, ${pct(c.accuracy)} on test photos.` +
           (c.limited_kb ? ` <span style="color:var(--warn)">Symptom descriptions only (from LeafNet): for treatment, ask your local agriculture office.</span>` : "");
-        try { st.diseases = (await api(`/api/agri/guide/diseases?crop=${encodeURIComponent(st.crop)}`)).diseases; } catch (e) { toast(e.message, true); return; }
+        try { st.diseases = (await api(`/api/agri/guide/diseases?crop=${encodeURIComponent(st.crop)}`)).diseases; } catch (e) { toast(e, true); return; }
         renderDiseases();
         renderRecords();
       }
@@ -78,7 +78,7 @@
         if (st.disease) params.set("disease", st.disease);
         if (q) params.set("q", q);
         let r;
-        try { r = await api(`/api/agri/guide/search?${params}`); } catch (e) { toast(e.message, true); return; }
+        try { r = await api(`/api/agri/guide/search?${params}`); } catch (e) { toast(e, true); return; }
         if (seq !== st.seq) return;   // a newer search is on its way
         const S = st.schema.sections, order = ["symptoms", "management", "pests", "growing"].filter((k) => r.sections[k]);
         const sec = order.includes(st.section) ? st.section : null;

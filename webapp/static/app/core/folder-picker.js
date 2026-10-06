@@ -57,6 +57,6 @@
     const name = $("#fp-newname").value.trim();
     if (!name) return toast("Type a name for the new folder", true);
     try { const r = await api("/api/fs/mkdir", { method: "POST", json: { parent: fp.path, name } }); $("#fp-newname").value = ""; await fpLoad(fp.path); fp.sel = r.path; $(`#fp-list [data-p="${CSS.escape(r.path)}"]`)?.classList.add("sel"); fpHint(); }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toast(e, true); }
   };
   $("#fp-newname").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#fp-mkdir").click(); } });

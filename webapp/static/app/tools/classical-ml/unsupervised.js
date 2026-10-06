@@ -34,7 +34,7 @@
   async function loadUnsupTable(pre) {
     const pg = pageOf(pre), path = $(`#${pre}-table`).value;
     pg.desc = null; pg.cols = {};
-    if (!path) { $(`.uc-cols`, root(pre)).innerHTML = ""; $(`#${pre}-table-info`).innerHTML = `No tables yet. Add a CSV / Excel file with <b>+ Add data</b> or use <b>Raster → table</b>.`; return; }
+    if (!path) { $(`.uc-cols`, root(pre)).innerHTML = ""; $(`#${pre}-table-info`).innerHTML = `No tables yet. Add a CSV / Excel file with <b>Insert ▸ Add data</b> or use <b>Raster → table</b>.`; return; }
     $(`#${pre}-table-info`).innerHTML = `<span class="spinner"></span>Reading table…`;
     try { pg.desc = await api(`/api/tables/describe?path=${encodeURIComponent(path)}`); }
     catch (e) { $(`#${pre}-table-info`).textContent = e.message; return; }

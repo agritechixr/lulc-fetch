@@ -25,6 +25,41 @@
     };
   })();
 
+  // ------------------------------------------------------------------ friendlier errors
+  // Technical messages (from Python, GDAL, the network…) become what happened → what to do. The original text is kept as
+  // the error's .detail (the Notifications panel shows it under Details).
+  const FRIENDLY = [
+    [/failed to fetch|networkerror|load failed|econnrefused|connection (refused|reset)/i, "Can't reach the app's server → it may have stopped: close LULC Fetch and start it again"],
+    [/no (coordinate system|crs)|crs is (none|missing)|has no crs|no georeferenc|not georeferenced|missing.*geotransform/i, "This file has no coordinate system, so it can't be placed on the map → add it again with its .prj or world file (e.g. .tfw / .pgw), or use a GeoTIFF that has one"],
+    [/not recognized as (a|being in a) supported file format|not a supported file format|rasterioioerror|cannot open.*(tif|raster)/i, "This file can't be read as a raster → check it is a GeoTIFF (.tif) that opens in another GIS, then add it again"],
+    [/no space left|enospc|disk (is )?full/i, "The disk is full → free some space, or use File ▸ Clean up working files"],
+    [/memoryerror|out of memory|unable to allocate|cannot allocate memory/i, "Not enough memory for this → use a smaller area, fewer bands or a coarser resolution"],
+    [/cuda.*out of memory|mps.*out of memory/i, "The graphics card ran out of memory → lower the batch size or the patch size and run it again"],
+    [/no module named '?(torch|torchvision|segmentation_models_pytorch)/i, "The deep-learning add-on isn't installed → install it from the tool's panel (Train classify model offers it)"],
+    [/no module named '?ultralytics/i, "The YOLO & SAM add-on isn't installed → install it from Detect object"],
+    [/\b(401|403)\b|unauthori[sz]ed|forbidden|invalid_grant|invalid credentials|authentication failed/i, "The data service refused your account → check your sign-in in Credentials (top right)"],
+    [/\b429\b|too many requests|rate limit/i, "The data service is busy (too many requests) → wait a minute and try again"],
+    [/timed? ?out|timeout|read timeout|deadline exceeded/i, "It took too long to answer → check the internet connection, try a smaller area, or try again"],
+    [/\b50[234]\b|bad gateway|service unavailable|gateway time/i, "The data service is down for the moment → try again in a few minutes"],
+    [/getaddrinfo|name or service not known|nodename nor servname|temporary failure in name resolution|no internet/i, "No internet connection → connect and try again (data you already downloaded still works offline)"],
+    [/(no such file or directory|filenotfounderror)/i, "The file can't be found → it was moved, renamed or deleted: add it again with Insert ▸ Add data"],
+    [/permission denied|permissionerror|operation not permitted/i, "The app isn't allowed to use that file or folder → choose another folder, or check its permissions"],
+    [/^internal server error$|traceback \(most recent call last\)/i, "Something went wrong inside the app → try again; the details are in Help ▸ Error log"],
+    [/unexpected token|is not valid json|jsondecodeerror/i, "The app got an answer it couldn't read → try again; if it keeps happening see Help ▸ Error log"],
+  ];
+  function friendlyError(msg) {
+    const text = String(msg ?? "").trim() || "Something went wrong";
+    if (text.includes(" → ")) return text;   // already says what to do
+    const hit = FRIENDLY.find(([re]) => re.test(text));
+    return hit ? hit[1] : text;
+  }
+  // an Error with the friendly text, the technical one as .detail
+  function friendlyErr(msg) {
+    const e = new Error(friendlyError(msg));
+    if (e.message !== String(msg)) e.detail = String(msg);
+    return e;
+  }
+
   // ------------------------------------------------------------------ api / ui helpers
   async function api(path, opts = {}) {
     const init = { ...opts, headers: { ...(opts.headers || {}) } };
@@ -32,22 +67,32 @@
       init.body = JSON.stringify(opts.json);
       init.headers["Content-Type"] = "application/json";
     }
-    const r = await fetch(path, init);
+    let r;
+    try { r = await fetch(path, init); }
+    catch (e) { if (e.name === "AbortError") throw e; throw friendlyErr(e.message); }   // the server is unreachable
     const body = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
     if (!r.ok) {
       let msg = body?.detail ?? body;
       if (Array.isArray(msg)) msg = msg.map((d) => `${d.loc?.slice(-1)[0]}: ${d.msg}`).join("; ");
-      throw new Error(typeof msg === "string" ? msg : r.statusText);
+      throw friendlyErr(typeof msg === "string" && msg.trim() ? msg : `${r.status} ${r.statusText}`);
     }
     return body;
   }
 
-  function toast(msg, err = false) {
+  // every message is also kept for the Notifications panel (the bell in the status bar); errors say what to do next
+  const notes = { list: (() => { try { return JSON.parse(localStorage.getItem("lulc-notes") || "[]"); } catch { return []; } })(), onChange: null };
+  function toast(msg, err = false, { detail } = {}) {
+    if (msg instanceof Error) { detail = msg.detail; msg = msg.message; }
+    if (err) { const f = friendlyError(msg); if (f !== msg) { detail ||= msg; msg = f; } }
     const t = document.createElement("div");
     t.className = "toast" + (err ? " err" : "");
     t.textContent = msg;
     $("#toasts").append(t);
     setTimeout(() => t.remove(), err ? 7000 : 3500);
+    notes.list.unshift({ t: Date.now(), msg: String(msg), err: !!err, ...(detail ? { detail: String(detail).slice(0, 2000) } : {}), unread: true });
+    notes.list.length = Math.min(notes.list.length, 60);
+    try { localStorage.setItem("lulc-notes", JSON.stringify(notes.list)); } catch {}
+    notes.onChange?.();
   }
 
   async function busy(btn, label, fn) {
@@ -171,7 +216,7 @@
     if (what === "copy" && r) {
       try { await navigator.clipboard.writeText(runDetailsText(r)); toast("Details copied"); } catch { toast("Couldn't copy: select the text in the box instead", true); }
     } else if (what === "log") window.open("/api/errors/file", "_blank", "noopener");
-    else if (what === "reveal") api("/api/errors/reveal", { method: "POST" }).catch((e) => toast(e.message, true));
+    else if (what === "reveal") api("/api/errors/reveal", { method: "POST" }).catch((e) => toast(e, true));
   }
   const fmtSecs = (s) => s < 60 ? `${s < 10 ? s.toFixed(1) : Math.round(s)} s` : s < 3600 ? `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`
     : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;

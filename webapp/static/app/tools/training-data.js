@@ -11,7 +11,7 @@
     if (!Object.values(pt.on).some(Boolean) && rasters.length) pt.on[rasters[rasters.length - 1].id] = true;   // start with the oldest image
     $("#pt-layers").innerHTML = rasters.length ? rasters.slice().reverse().map((l) => `<div class="st-layer ${pt.on[l.id] ? "on" : ""}"><label><input type="checkbox" data-ptl="${esc(l.id)}" ${pt.on[l.id] ? "checked" : ""}>${esc(l.name)}
         <small>${l.info?.count ?? "?"} bands · ${l.info ? `${fmt(l.info.res[0], l.info.res[0] < 1 ? 3 : 1)} ${ptUnit(l)}` : ""}</small></label></div>`).join("")
-      : '<p class="hint">Add a raster layer (GeoTIFF) to Contents first with + Add data.</p>';
+      : '<p class="hint">Add a raster layer (GeoTIFF) to Contents first with Insert ▸ Add data.</p>';
     $$("[data-ptl]").forEach((c) => c.onchange = () => { pt.on[c.dataset.ptl] = c.checked; refreshPt(); ptChanged(); });
     const chosen = rasters.filter((l) => pt.on[l.id]).reverse();
     const ref = $("#pt-ref"), cur = ref.value;
@@ -167,7 +167,7 @@
         <p class="hint">dataset.json describes everything a deep-learning training tool needs. No train / validation split is made: the training tool decides that.</p>
       </div>`;
     box.classList.remove("hidden");
-    $("[data-pt-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e.message, true));
+    $("[data-pt-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e, true));
     $("[data-pt-map]", box).onclick = () => {
       if (pt.previewLayer && getLayer(pt.previewLayer.id)) removeLayer(pt.previewLayer.id);
       const l = addVectorLayer(r.footprints, `${r.name} patches`, { color: "#2563eb", weight: 1, fillOpacity: 0.08, ptFootprints: true, zoom: true });

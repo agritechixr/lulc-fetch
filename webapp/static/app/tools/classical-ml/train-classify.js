@@ -34,7 +34,7 @@
   async function loadTableDesc(path) {
     $("#mt-table-info").innerHTML = `<span class="spinner"></span>Reading table…`;
     try { mlx.desc = await api(`/api/tables/describe?path=${encodeURIComponent(path)}`); }
-    catch (e) { mlx.desc = null; toast(e.message, true); }
+    catch (e) { mlx.desc = null; toast(e, true); }
     renderTargetAndFeatures();
   }
   function renderTargetAndFeatures() {
@@ -399,7 +399,7 @@
         if (!el) { el = document.createElement("div"); el.className = "eval-saved"; $(".eval-save", box).prepend(el); }
         el.innerHTML = `✓ Saved to <code title="${esc(res.saved_to)}">${esc(res.saved_to)}</code>`;
         toast("Evaluation report saved");
-       } catch (err) { toast(err.message, true); }
+       } catch (err) { toast(err, true); }
       });
     });
     box.scrollIntoView({ behavior: "smooth", block: "start" });

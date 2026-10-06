@@ -51,7 +51,7 @@
     $$("[data-hid]", body).forEach((row) => row.onclick = () => showHistoryDetail(row.dataset.hid));
     $("[data-hclear]", body)?.addEventListener("click", async () => {
       if (!confirm("Clear the history? It is kept as history.old.jsonl next to it, so it can be restored by hand.")) return;
-      await api("/api/history", { method: "DELETE" }).catch((e) => toast(e.message, true));
+      await api("/api/history", { method: "DELETE" }).catch((e) => toast(e, true));
       showHistoryList();
     });
   }
@@ -101,7 +101,7 @@
         : `<p class="hint" style="margin:4px">${esc(e.repeat_note || "This run can't be repeated from here (it was recorded before Run again existed).")}</p>`}
       <div class="row tight" style="margin:12px 4px 0;gap:6px;flex-wrap:wrap"><button class="btn small" data-hcopy>Copy as JSON</button>${tool ? `<button class="btn small" data-htool="${esc(tool.id)}">Open ${esc(tool.title)}</button>` : ""}${e.error ? `<button class="btn small ghost" data-herrlog>Error log</button>` : ""}</div>`;
     $$("[data-hreveal]", body).forEach((b) => b.onclick = () => {
-      api("/api/project/reveal", { method: "POST", json: { path: b.dataset.hreveal } }).catch((x) => toast(x.message, true));   // opens its folder
+      api("/api/project/reveal", { method: "POST", json: { path: b.dataset.hreveal } }).catch((x) => toast(x, true));   // opens its folder
     });
     $$("[data-hmap]", body).forEach((b) => b.onclick = () => addRasterFromPath(b.dataset.hmap).catch((x) => toast(`Can't add it to the map: ${x.message}`, true)));
     $$("[data-htool]", body).forEach((a) => a.onclick = (ev) => { ev.preventDefault(); switchTool(a.dataset.htool); });
@@ -112,7 +112,7 @@
       $("[data-hrerun]", body).onclick = () => rerunHistory(e);
       $("[data-hedit]", body).onclick = async () => {
         try { const r = await api(`/api/history/${encodeURIComponent(e.id)}/request`); ta.value = JSON.stringify(r.body, null, 2); box.classList.remove("hidden"); ta.focus(); }
-        catch (x) { toast(x.message, true); }
+        catch (x) { toast(x, true); }
       };
       $("[data-hcancel]", body).onclick = () => box.classList.add("hidden");
       $("[data-hrunedit]", body).onclick = () => {
@@ -127,7 +127,7 @@
   // Run a recorded run again: the same request (or a changed copy) to the same tool; its results are added to Contents
   async function rerunHistory(e, changedBody = null) {
     let req;
-    try { req = await api(`/api/history/${encodeURIComponent(e.id)}/request`); } catch (x) { return toast(x.message, true); }
+    try { req = await api(`/api/history/${encodeURIComponent(e.id)}/request`); } catch (x) { return toast(x, true); }
     if (!req.same_workspace && !confirm(`This run was made in another project or workspace:\n${req.workspace}\n\nIts layers and files are looked up in the one open now, so it may not find them. Run it anyway?`)) return;
     const tool = toolOfKind(e.kind);
     if (tool) switchTool(tool.id);
@@ -151,7 +151,7 @@
       }
       toast(`Finished: ${added ? `${added} result${added > 1 ? "s" : ""} added to Contents` : "see History for its files"}`);
       if (hist.win?.open && !hist.id) showHistoryList();
-    } catch (x) { if (notCancelled(x)) toast(x.message, true); }
+    } catch (x) { if (notCancelled(x)) toast(x, true); }
   }
 
   function finishRun(tool, run, state, error) {
@@ -180,8 +180,9 @@
       if (j.status === "cancelled") throw new CancelledError();
       if (j.status === "error") {   // stays on screen with the reason (also written to logs/errors.log by the server)
         run.logs = j.logs || run.logs;
-        finishRun(tool, run, "failed", j.error || "The job failed");
-        throw new Error(j.error || "The job failed");
+        const e = friendlyErr(j.error || "The job failed");
+        finishRun(tool, run, "failed", e.message);
+        throw e;
       }
       if (save) await saveOutputs(save, j);
       finishRun(tool, run, "done");

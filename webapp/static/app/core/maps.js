@@ -12,13 +12,13 @@
   const is3D = () => activeDoc()?.kind === "3d";
   const newMapId = () => `map-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
   // a layer as saved (no Leaflet object, picture or legend: those are made again when it is opened)
-  const layerState = ({ leaflet, image, busy, error, legend, _original, ...rest }) =>
+  const layerState = ({ leaflet, image, busy, error, legend, _original, _pane, ...rest }) =>
     _original !== undefined ? { ...rest, geojson: { ...rest.geojson, features: JSON.parse(_original) } } : rest;
   const currentView = () => { const c = map.getCenter(); return { center: [+c.lat.toFixed(6), +c.lng.toFixed(6)], zoom: +map.getZoom().toFixed(2) }; };
 
   // what is saved: every map but the open one keeps its layers here (the open one's are saved as before, in `layers`)
   function mapsState() {
-    return { active: docs.active, maps: docs.list.map((d) => ({ id: d.id, name: d.name, kind: d.kind, origin: d.origin || null,
+    return { active: docs.active, maps: docs.list.map((d) => ({ id: d.id, name: d.name, kind: d.kind, origin: d.origin || null, originSet: !!d.originSet,
       view: d.id === docs.active ? currentView() : d.view || null, cam: d.id === docs.active && d.kind === "3d" ? map3dCam() || d.cam : d.cam || null,
       layers: d.id === docs.active ? undefined : d.live ? d.live.filter((l) => l.type !== "image").map(layerState) : d.stored || [] })) };
   }
@@ -32,7 +32,7 @@
     if (v3.on) hide3d(null);
     docs.list = (saved?.maps?.length ? saved.maps : [{ id: "map-1", name: "Map", kind: "2d" }]).map((m) => ({
       id: m.id || newMapId(), name: m.name || "Map", kind: m.kind === "3d" ? "3d" : "2d", view: m.view || null, cam: m.cam || null,
-      origin: m.origin || null, stored: m.layers || null, live: null }));
+      origin: m.origin || null, originSet: !!m.originSet, stored: m.layers || null, live: null }));
     docs.active = docs.list.some((d) => d.id === saved?.active) ? saved.active : docs.list[0].id;
     renderMapTabs();
     if (is3D()) show3d(activeDoc());
@@ -42,6 +42,14 @@
   function switchMap(id) {
     const cur = activeDoc(), next = docs.list.find((d) => d.id === id);
     if (!next || next === cur) return;
+    undoHist.quiet++;   // opening a map is not an Undo step (its layers being restored neither)
+    try { openMap(cur, next); } finally { undoHist.quiet--; }
+    saveLayers({ amend: true });
+  }
+  function openMap(cur, next) {
+    stopMeasure(true);
+    stopSwipe(true);
+    if (link.on) stopSideBySide(true);
     if (cur) {
       cur.view = currentView();
       if (cur.kind === "3d") hide3d(cur);
@@ -56,7 +64,8 @@
       layers.push(...next.live);
       next.live = null;
       layers.forEach((l) => {
-        if (l.visible && l.leaflet) l.leaflet.addTo(map);
+        if (!l.leaflet) buildLeaflet(l);   // prepared for a 3D view beside a 2D map, never drawn in 2D
+        else if (l.visible) l.leaflet.addTo(map);
         if (l.type === "raster" && !l.image && !l.busy) renderRaster(l).catch(() => {});   // it was still drawing when the map was left
       });
       restack();
@@ -67,7 +76,6 @@
     }
     if (next.kind === "3d") show3d(next);
     renderMapTabs();
-    saveLayers();
     status(`Map: ${next.name}`);
   }
 
@@ -80,9 +88,11 @@
   function newMap(kind, { name, stored = [] } = {}) {
     const d = { id: newMapId(), name: name || uniqueMapName(kind === "3d" ? "3D map" : "Map"), kind, view: currentView(), cam: null,
                 origin: null, stored, live: null };
-    docs.list.splice(docs.list.indexOf(activeDoc()) + 1, 0, d);
-    switchMap(d.id);
-    if (!name) editMapName(d.id);
+    historyStep(`New ${kind === "3d" ? "3D" : "2D"} map “${d.name}”`, () => {
+      docs.list.splice(docs.list.indexOf(activeDoc()) + 1, 0, d);
+      switchMap(d.id);
+    });
+    if (!name) { d.fresh = true; editMapName(d.id); }   // its first name belongs to the same step
     return d;
   }
   function duplicateMap(id) {
@@ -98,19 +108,28 @@
     if (docs.list.length === 1) return toast("This is the only map: there has to be one", true);
     const n = d.id === docs.active ? layers.length : (d.live || d.stored || []).length;
     if (n && !confirm(`Close the map “${d.name}” and its ${n} layer${n === 1 ? "" : "s"}? Files on disk are kept.`)) return;
-    if (d.id === docs.active) {
-      const i = docs.list.indexOf(d);
-      switchMap(docs.list[i + 1]?.id || docs.list[i - 1].id);
-    }
-    (d.live || []).forEach((l) => l.leaflet?.remove());
-    docs.list.splice(docs.list.indexOf(d), 1);
-    renderMapTabs();
-    saveLayers();
+    if (link.doc === d) stopSideBySide(true);
+    historyStep(`Close map “${d.name}”`, () => {
+      if (d.id === docs.active) {
+        const i = docs.list.indexOf(d);
+        switchMap(docs.list[i + 1]?.id || docs.list[i - 1].id);
+      }
+      (d.live || []).forEach((l) => l.leaflet?.remove());
+      docs.list.splice(docs.list.indexOf(d), 1);
+      renderMapTabs();
+      saveLayers();
+    });
   }
   function renameMap(id, name) {
     const d = docs.list.find((x) => x.id === id);
     name = name.trim().slice(0, 80);
-    if (d && name) { d.name = name; saveLayers(); }
+    if (d && name) {
+      d.name = name;
+      const step = undoHist.undo.at(-1);
+      if (d.fresh && step?.label.startsWith("New ")) step.label = step.label.replace(/“.*”$/, `“${name}”`);   // the step says the name given
+      saveLayers({ amend: !!d.fresh });
+    }
+    if (d) delete d.fresh;
     renderMapTabs();
   }
 
@@ -120,17 +139,22 @@
     list = list.filter((l) => l.type !== "image");
     if (!list.length) return toast("Select a layer in Contents first", true);
     docs.clip = list.map((l) => structuredClone(layerState(l)));
+    refreshRibbon();
     toast(list.length === 1 ? `Copied “${list[0].name}”: open another map and press Ctrl+V` : `Copied ${list.length} layers: open another map and press Ctrl+V`);
   }
   function pasteLayers() {
     if (!docs.clip?.length) return toast("Nothing copied yet: select a layer in Contents and press Ctrl+C", true);
     let last = null;
-    for (const s of [...docs.clip].reverse()) {   // bottom first, so the order stays the same
-      const c = copyOfLayer(s);
-      last = addLayer(c, { select: false });
-      if (last.type === "raster") renderRaster(last).catch(() => {});
-    }
+    historyStep(`Paste ${docs.clip.length === 1 ? `“${docs.clip[0].name}”` : `${docs.clip.length} layers`}`, () => {
+      for (const s of [...docs.clip].reverse()) {   // bottom first, so the order stays the same
+        const c = copyOfLayer(s);
+        last = addLayer(c, { select: false });
+        if (last.type === "raster") renderRaster(last).catch(() => {});
+      }
+    });
     selectLayer(last.id);
+    const flat = !is3D() && docs.clip.filter((d) => isSurface(d));
+    if (flat?.length) return toast(`⚠ Pasted, but ${flat.length === 1 ? `“${flat[0].name}” is` : `${flat.length} layers are`} 3D data: a 2D map shows ${flat.length === 1 ? "it" : "them"} flat. Paste into a 3D map to see the heights`, true);
     toast(`Pasted ${docs.clip.length === 1 ? `“${docs.clip[0].name}”` : `${docs.clip.length} layers`} into “${activeDoc().name}”`);
   }
 
@@ -139,7 +163,8 @@
                    "3d": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" opacity=".6"/></svg>' };
   function renderMapTabs() {
     const box = $("#map-tabs");
-    box.innerHTML = docs.list.map((d) => `<div class="mt-tab ${d.id === docs.active ? "on" : ""}" data-map="${esc(d.id)}" role="tab" aria-selected="${d.id === docs.active}"
+    refreshRibbon();
+    box.innerHTML = docs.list.map((d) => `<div class="mt-tab ${d.id === docs.active ? "on" : ""} ${link.on && link.doc === d ? "linked" : ""}" data-map="${esc(d.id)}" role="tab" aria-selected="${d.id === docs.active}"
         title="${esc(d.name)} · ${d.kind === "3d" ? "3D" : "2D"} map${d.id === docs.active ? "" : ": click to open"} · double-click to rename">
         <span class="mt-ic ${d.kind}">${MAP_IC[d.kind]}</span><span class="mt-kind">${d.kind === "3d" ? "3D" : "2D"}</span><span class="mt-name">${esc(d.name)}</span>
         <button type="button" class="mt-x" title="Close this map" aria-label="Close ${esc(d.name)}">×</button></div>`).join("") +

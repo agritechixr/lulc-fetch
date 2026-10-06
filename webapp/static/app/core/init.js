@@ -27,6 +27,7 @@
     renderMlHub();
     initMlTrain().catch((e) => toast("Classical ML: " + e.message, true));
     initProject();
+    maybeStartTour();   // the first time only
     loadCreds().catch(() => {});
     setPane("tools", false);  // the tool panel opens only when a tool is chosen from the Tools menu
     refreshJobs();

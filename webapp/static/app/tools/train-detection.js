@@ -34,7 +34,7 @@
   function renderTdLayers() {
     const rasters = odRasters(), sel = $("#td-layer"), cur = sel.value || td.layerId;
     sel.innerHTML = rasters.length ? rasters.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info?.count ?? "?"} bands</option>`).join("")
-      : `<option value="">Add the image to Contents first (+ Add data)</option>`;
+      : `<option value="">Add the image to Contents first (Insert ▸ Add data)</option>`;
     if (rasters.some((l) => l.id === cur)) sel.value = cur;
     tdLayerChanged();
   }
@@ -171,7 +171,7 @@
           <button class="btn" data-td-reveal>Show in folder</button><button class="btn" data-td-use>Detect objects with it</button></div>
       </div>`;
     box.classList.remove("hidden");
-    $("[data-td-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e.message, true));
+    $("[data-td-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: r.folder } }).catch((e) => toast(e, true));
     $("[data-td-use]", box).onclick = () => { od.model = "custom:" + r.folder; prefs.set("od-model", od.model); od.zoomTouched = false; switchTool("detect"); };
     box.scrollIntoView({ behavior: "smooth", block: "start" });
   }

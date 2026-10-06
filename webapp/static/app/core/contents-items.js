@@ -6,6 +6,7 @@
   let selectedItem = null;
   const OPEN_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 13h18M8 17h8"/></svg>';
   $("#sect-2d .sect-ic").innerHTML = svg("raster");
+  $("#sect-3d .sect-ic").innerHTML = svg("map3d");
   $("#sect-tab .sect-ic").innerHTML = svg("ml");
   $$(".sect-head").forEach((b) => {
     const sect = b.closest(".sect");
@@ -14,13 +15,16 @@
   });
   function updateSectionCounts() {
     const pics = dataItems.filter((d) => d.kind === "picture").length, tabs = dataItems.filter((d) => d.kind === "table").length;
-    $("#count-2d").textContent = layers.length + pics;
+    const n3 = is3D() ? layers.filter(isSurface).length : 0;   // a 2D map has no 3D data section
+    $("#count-2d").textContent = layers.length - n3 + pics;
+    $("#count-3d").textContent = n3;
     $("#count-tab").textContent = tabs;
-    $("#contents-empty").classList.toggle("hidden", layers.length + pics > 0);
+    $("#contents-empty").classList.toggle("hidden", layers.length - n3 + pics > 0 || pendingLoads.size > 0);
+    $("#contents-3d-empty").classList.toggle("hidden", n3 > 0);
     $("#tables-empty").classList.toggle("hidden", tabs > 0);
   }
   function saveItems() {
-    if (!inProject()) try { localStorage.setItem("lulc-data", JSON.stringify(dataItems)); } catch {}
+    if (!inProject()) try { localStorage.setItem("lulc-data", JSON.stringify(dataItems)); localStorage.setItem("lulc-saved-at", Date.now()); } catch {}
     scheduleProjectSave();
   }
   function restoreItems(list) {
@@ -115,13 +119,13 @@
     } catch (e) {
       status("");
       if (/No longitude \/ latitude columns/.test(e.message)) return chooseXY(it);
-      toast(e.message, true);
+      toast(e, true);
     }
   }
   // choose the longitude / latitude columns of a table (numbers first, the likely ones preselected)
   async function chooseXY(it) {
     let d;
-    try { d = await api(`/api/tables/rows?path=${encodeURIComponent(it.path)}&limit=3`); } catch (e) { return toast(e.message, true); }
+    try { d = await api(`/api/tables/rows?path=${encodeURIComponent(it.path)}&limit=3`); } catch (e) { return toast(e, true); }
     const num = d.columns.filter((c, i) => /int|float|number|double/.test(d.types[i] || ""));
     const order = [...num, ...d.columns.filter((c) => !num.includes(c))];
     const guess = (re) => order.find((c) => re.test(c)) || "";
@@ -149,5 +153,5 @@
       const r = await api("/api/pictures/georef", { method: "POST", json: { path: it.path, bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] } });
       await addRasterFromPath(r.path, { name: it.name.replace(/\.[^.]+$/, "") + " (placed)", zoom: false });
       toast("Placed on the map. It's now a GeoTIFF layer under 2D data.");
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   }

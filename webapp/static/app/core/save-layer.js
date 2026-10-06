@@ -19,7 +19,7 @@
       } else return toast("This layer can't be saved as a file", true);
       toast(`Saved ${r.saved?.map((p) => p.split(/[\\/]/).pop()).join(", ")} in ${r.saved_to}`);
       status(`Saved ${l.name} in ${r.saved_to}`);
-    } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+    } catch (e) { if (notCancelled(e)) toast(e, true); }
   }
   async function saveItemToFolder(it) {
     const folder = await pickFolder({ title: `Save “${it.name}” in…`, start: prefs.get("save-dir:last", ""), okLabel: "Save here" });
@@ -28,5 +28,5 @@
     try {
       const r = await api("/api/files/save", { method: "POST", json: { paths: [it.path], folder } });
       toast(r.saved.length ? `Saved ${r.saved.map((p) => p.split(/[\\/]/).pop()).join(", ")} in ${r.folder}` : `Not saved: ${r.skipped[0]?.reason}`, !r.saved.length);
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   }

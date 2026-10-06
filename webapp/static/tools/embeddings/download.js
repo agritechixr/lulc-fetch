@@ -49,7 +49,7 @@
 
       async function open(pending) {
         if (!st.meta) {
-          try { st.meta = await LF.emb.meta(); } catch (e) { toast(e.message, true); return; }
+          try { st.meta = await LF.emb.meta(); } catch (e) { toast(e, true); return; }
           $("#em-other").innerHTML = st.meta.other.map((o) => `<p class="hint"><a href="${esc(o.url)}" target="_blank" rel="noopener"><b>${esc(o.title)}</b></a>: ${esc(o.what)}. Not per-pixel maps, so not downloadable here yet.</p>`).join("");
           $("#em-year").innerHTML = st.meta.years.slice().reverse().map((y) => `<option>${y}</option>`).join("");
           $("#em-year").value = prefs.get("em-year", "2024");
@@ -117,7 +117,7 @@
             `</tbody></table><p class="hint">${r.tessera_tiles > 1 ? `TESSERA: tiles with data out of ${r.tessera_tiles} covering the area${r.tessera_sampled ? " (estimated from a sample)" : ""}. ` : ""}Click a year to use it.</p>`;
           $("#em-avail").classList.remove("hidden");
           $$("[data-em-year]").forEach((a) => a.onclick = (e) => { e.preventDefault(); setYear(a.dataset.emYear); });
-        } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+        } catch (e) { if (notCancelled(e)) toast(e, true); }
         finally { btn.disabled = false; }
       };
 

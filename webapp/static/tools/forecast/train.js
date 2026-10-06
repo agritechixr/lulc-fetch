@@ -11,7 +11,7 @@
     kinds: ["fctrain"],
     panel: `
       <div class="card">
-        <h2>Table <span class="req">required</span> ${tip("One row per time (and per station / place when there are several): a date or time column, the value to forecast, and optionally a station column, latitude / longitude and other inputs (weather…). Forecast ▸ Get AQI & weather data makes one; or + Add data (CSV / Excel).")}</h2>
+        <h2>Table <span class="req">required</span> ${tip("One row per time (and per station / place when there are several): a date or time column, the value to forecast, and optionally a station column, latitude / longitude and other inputs (weather…). Forecast ▸ Get AQI & weather data makes one; or Insert ▸ Add data (CSV / Excel).")}</h2>
         <select id="ft-table"></select>
         <p class="hint" id="ft-info"></p>
       </div>
@@ -66,7 +66,7 @@
 
       async function open(arg) {
         if (!st.schema) {
-          try { st.schema = await LF.fc.schema(); } catch (e) { toast(e.message, true); return; }
+          try { st.schema = await LF.fc.schema(); } catch (e) { toast(e, true); return; }
           renderModels();
           renderOptions();
         }
