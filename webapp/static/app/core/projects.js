@@ -6,9 +6,8 @@
   const inProject = () => !!proj.info?.project;
   function projectState() {
     const c = map.getCenter();
-    return { layers: layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, _original, ...rest }) =>
-               _original !== undefined ? { ...rest, geojson: { ...rest.geojson, features: JSON.parse(_original) } } : rest),
-             items: dataItems, view: { center: [c.lat, c.lng], zoom: map.getZoom() }, basemap: prefs.get("basemap", "streets") };
+    return { layers: layers.filter((l) => l.type !== "image").map(layerState),
+             items: dataItems, view: { center: [c.lat, c.lng], zoom: map.getZoom() }, basemap: prefs.get("basemap", "streets"), maps: mapsState() };
   }
   function scheduleProjectSave() {
     if (!inProject() || proj.loading) return;
@@ -47,6 +46,7 @@
       clearContents();
       if (state?.view?.center) map.setView(state.view.center, state.view.zoom ?? map.getZoom());
       if (state?.basemap) setBasemap(state.basemap);
+      restoreMaps(state ? state.maps || null : undefined);   // the maps (tabs); the open one's layers next
       restoreLayers(state ? state.layers || [] : undefined);
       restoreItems(state ? state.items || [] : undefined);
     } finally { proj.loading = false; }

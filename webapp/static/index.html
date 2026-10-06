@@ -17,37 +17,79 @@
 <body>
 <!-- ================= menu bar ================= -->
 <header class="menubar">
-  <div class="brand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span>LULC Fetch</span></div>
+  <button type="button" class="brand" id="btn-about" title="About LULC Fetch: version, environment, folders" aria-haspopup="dialog"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span>LULC Fetch</span><small class="brand-ver" id="brand-ver"></small></button>
+  <!-- the ribbon, as in Word: each tab shows its commands in a band under the tabs (pinned, or shown on click when collapsed) -->
   <nav class="menus" id="menus">
     <div class="menu"><button class="menu-btn">File</button>
       <div class="menu-pop">
-        <button data-cmd="project-new">New project…</button>
-        <button data-cmd="project-open">Open project…</button>
-        <button data-cmd="project-close" id="mi-project-close">Close project</button>
-        <button data-cmd="project-reveal" id="mi-project-reveal">Show project folder</button>
-        <hr>
-        <button data-cmd="add-data">Add data from computer…<kbd>Ctrl+O</kbd></button>
-        <button data-cmd="add-workspace">Add GeoTIFF from workspace…</button>
-        <button data-cmd="open-safe">Open Sentinel product (.SAFE)…</button>
-        <hr>
-        <button data-cmd="export-layer">Export selected layer…<kbd>Ctrl+E</kbd></button>
-        <button data-cmd="layer-props">Selected layer properties…</button>
-        <button data-cmd="remove-layer">Remove selected layer<kbd>Del</kbd></button>
-        <button data-cmd="clear-layers">Remove all layers</button>
-        <hr>
-        <button data-cmd="clean-cache">Clean up working files…</button>
-        <button data-cmd="credentials">Credentials…</button>
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="project-new" class="rb-big"><span class="ic" data-ic="fnew"></span>New project</button>
+          <button data-cmd="project-open" class="rb-big"><span class="ic" data-ic="fopen"></span>Open project</button>
+          <div class="rb-stack">
+            <button data-cmd="project-close" id="mi-project-close" class="rb-small"><span class="ic" data-ic="fclose"></span>Close project</button>
+            <button data-cmd="project-reveal" id="mi-project-reveal" class="rb-small"><span class="ic" data-ic="reveal"></span>Show project folder</button>
+          </div></div><div class="rb-cap">Project</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="add-data" class="rb-big" title="Add data from computer (Ctrl+O)"><span class="ic" data-ic="adddata"></span>Add data</button>
+          <div class="rb-stack">
+            <button data-cmd="add-workspace" class="rb-small"><span class="ic" data-ic="raster"></span>GeoTIFF from workspace…</button>
+            <button data-cmd="open-safe" class="rb-small"><span class="ic" data-ic="safe"></span>Sentinel product (.SAFE)…</button>
+          </div></div><div class="rb-cap">Add data</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="export-layer" class="rb-big" title="Export selected layer (Ctrl+E)"><span class="ic" data-ic="export"></span>Export layer</button>
+          <div class="rb-stack">
+            <button data-cmd="layer-props" class="rb-small"><span class="ic" data-ic="props"></span>Properties…</button>
+            <button data-cmd="remove-layer" class="rb-small" title="Remove selected layer (Del)"><span class="ic" data-ic="trash"></span>Remove layer</button>
+            <button data-cmd="clear-layers" class="rb-small"><span class="ic" data-ic="trashall"></span>Remove all layers</button>
+          </div></div><div class="rb-cap">Selected layer</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <div class="rb-stack">
+            <button data-cmd="clean-cache" class="rb-small"><span class="ic" data-ic="clean"></span>Clean up working files…</button>
+            <button data-cmd="credentials" class="rb-small"><span class="ic" data-ic="key"></span>Credentials…</button>
+          </div></div><div class="rb-cap">Settings</div></div>
       </div>
     </div>
-    <!-- Analysis: Tools, Agri, Embeddings and Forecast side by side (the category on the left, its tools on the right) -->
+    <!-- Insert: new 2D / 3D maps (tabs under the ribbon, each with its own Contents), copy & paste layers between them, add data,
+         the Library and Bookmarks -->
+    <div class="menu"><button class="menu-btn">Insert</button>
+      <div class="menu-pop">
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="new-map:2d" class="rb-big" title="A new 2D map, with its own Contents"><span class="ic" data-ic="map2d"></span>2D</button>
+          <button data-cmd="new-map:3d" class="rb-big" title="A new 3D map: DEMs as surfaces, other layers draped on them"><span class="ic" data-ic="map3d"></span>3D</button>
+          </div><div class="rb-cap">New map</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <div class="rb-stack">
+            <button data-cmd="map-rename" class="rb-small" title="Or double-click the map's tab"><span class="ic" data-ic="rename"></span>Rename map</button>
+            <button data-cmd="map-duplicate" class="rb-small"><span class="ic" data-ic="duplicate"></span>Duplicate map</button>
+            <button data-cmd="map-close" class="rb-small" id="mi-map-close"><span class="ic" data-ic="fclose"></span>Close map</button>
+          </div></div><div class="rb-cap">This map</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <div class="rb-stack">
+            <button data-cmd="layer-copy" class="rb-small" id="mi-layer-copy" title="Ctrl+C"><span class="ic" data-ic="copy"></span>Copy selected layer</button>
+            <button data-cmd="layer-copy-all" class="rb-small" id="mi-layer-copy-all"><span class="ic" data-ic="copy"></span>Copy all layers</button>
+            <button data-cmd="layer-paste" class="rb-small" id="mi-layer-paste" title="Ctrl+V"><span class="ic" data-ic="paste"></span>Paste into this map</button>
+          </div></div><div class="rb-cap">Layers</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="add-data" class="rb-big" title="Add data from computer (Ctrl+O)"><span class="ic" data-ic="adddata"></span>Add data</button>
+          <div class="rb-stack">
+            <button data-cmd="add-workspace" class="rb-small"><span class="ic" data-ic="raster"></span>GeoTIFF from workspace…</button>
+            <button data-cmd="open-safe" class="rb-small"><span class="ic" data-ic="safe"></span>Sentinel product (.SAFE)…</button>
+          </div></div><div class="rb-cap">Add data</div></div>
+        <!-- Library (ready-made GIS data) and Bookmarks (saved map views): filled by their scripts -->
+        <div class="rb-slot" id="library-menu"></div>
+        <div class="rb-slot bm-menu" id="bookmarks-menu"></div>
+      </div>
+    </div>
+    <!-- Analysis: Tools, Agri, Embeddings and Forecast (the category on the left, its tools on the right) -->
     <div class="menu" id="analysis-menu"><button class="menu-btn">Analysis</button>
       <div class="menu-pop analysis-pop">
-        <div class="an-cats" role="tablist" aria-label="Analysis">
-          <button type="button" class="an-cat" role="tab" data-an="tools"><span class="ic" data-ic="analyze"></span><span><b>Tools</b><small>Imagery, indices, classical ML, deep learning, detection, interpolation</small></span></button>
-          <button type="button" class="an-cat" role="tab" data-an="agri"><span class="ic" data-ic="leaf"></span><span><b>Agri</b><small>Crop disease diagnosis and guide</small></span></button>
-          <button type="button" class="an-cat" role="tab" data-an="embed"><span class="ic" data-ic="embed"></span><span><b>Embeddings</b><small>AlphaEarth &amp; TESSERA, light models</small></span></button>
-          <button type="button" class="an-cat" role="tab" data-an="forecast"><span class="ic" data-ic="forecast"></span><span><b>Forecast</b><small>AQI &amp; weather data, forecasting models</small></span></button>
-        </div>
+        <div class="rb-group an-catgroup"><div class="rb-items">
+          <div class="an-cats" role="tablist" aria-label="Analysis">
+            <button type="button" class="an-cat" role="tab" data-an="tools" title="Imagery, indices, classical ML, deep learning, detection, interpolation"><span class="ic" data-ic="analyze"></span><b>Tools</b></button>
+            <button type="button" class="an-cat" role="tab" data-an="agri" title="Crop disease diagnosis and guide"><span class="ic" data-ic="leaf"></span><b>Agri</b></button>
+            <button type="button" class="an-cat" role="tab" data-an="embed" title="AlphaEarth &amp; TESSERA, light models"><span class="ic" data-ic="embed"></span><b>Embeddings</b></button>
+            <button type="button" class="an-cat" role="tab" data-an="forecast" title="AQI &amp; weather data, forecasting models"><span class="ic" data-ic="forecast"></span><b>Forecast</b></button>
+          </div></div><div class="rb-cap">Category</div></div>
         <div class="an-panels">
           <div class="an-panel" data-an-panel="tools" id="tools-menu" role="tabpanel"></div>
           <div class="an-panel" data-an-panel="agri" id="agri-menu" role="tabpanel"></div>
@@ -56,42 +98,56 @@
         </div>
       </div>
     </div>
-    <div class="menu"><button class="menu-btn">Library</button>
-      <div class="menu-pop wide" id="library-menu"></div>
-    </div>
     <div class="menu"><button class="menu-btn">History</button>
-      <div class="menu-pop wide hist-menu" id="history-menu"></div>
+      <div class="menu-pop hist-menu" id="history-menu"></div>
     </div>
     <div class="menu"><button class="menu-btn">View</button>
       <div class="menu-pop">
-        <button data-cmd="toggle-contents" class="check" id="mi-contents">Contents panel<kbd>Ctrl+1</kbd></button>
-        <button data-cmd="toggle-tools" class="check" id="mi-tools">Tool panel<kbd>Ctrl+2</kbd></button>
-        <button data-cmd="toggle-viewer" class="check" id="mi-viewer">Data viewer (tables)<kbd>Ctrl+3</kbd></button>
-        <button data-cmd="reset-layout">Reset panel sizes</button>
-        <hr>
-        <div class="menu-label">Basemap</div>
-        <button data-cmd="basemap:streets" class="radio" data-group="basemap">Streets (OpenStreetMap)</button>
-        <button data-cmd="basemap:imagery" class="radio" data-group="basemap">Satellite (Esri)</button>
-        <button data-cmd="basemap:topo" class="radio" data-group="basemap">Topographic (OpenTopoMap)</button>
-        <button data-cmd="basemap:none" class="radio" data-group="basemap">No basemap</button>
-        <button data-cmd="toggle-labels" class="check" id="mi-labels">Place labels on top</button>
-        <hr>
-        <button data-cmd="zoom-all">Zoom to all layers</button>
-        <hr>
-        <div class="menu-label">Theme</div>
-        <button data-cmd="theme:auto" class="radio" data-group="theme">Match system</button>
-        <button data-cmd="theme:light" class="radio" data-group="theme">Light</button>
-        <button data-cmd="theme:dark" class="radio" data-group="theme">Dark</button>
+        <div class="rb-group"><div class="rb-items">
+          <div class="rb-stack">
+            <button data-cmd="toggle-contents" class="rb-small check" id="mi-contents" title="Ctrl+1">Contents panel</button>
+            <button data-cmd="toggle-tools" class="rb-small check" id="mi-tools" title="Ctrl+2">Tool panel</button>
+            <button data-cmd="toggle-viewer" class="rb-small check" id="mi-viewer" title="Ctrl+3">Data viewer (tables)</button>
+          </div>
+          <div class="rb-stack">
+            <button data-cmd="reset-layout" class="rb-small"><span class="ic" data-ic="layout"></span>Reset panel sizes</button>
+          </div></div><div class="rb-cap">Panels</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="basemap:streets" class="rb-big radio" data-group="basemap" title="OpenStreetMap"><span class="ic" data-ic="streets"></span>Streets</button>
+          <button data-cmd="basemap:imagery" class="rb-big radio" data-group="basemap" title="Esri World Imagery"><span class="ic" data-ic="image"></span>Satellite</button>
+          <button data-cmd="basemap:topo" class="rb-big radio" data-group="basemap" title="OpenTopoMap"><span class="ic" data-ic="topo"></span>Topographic</button>
+          <button data-cmd="basemap:none" class="rb-big radio" data-group="basemap"><span class="ic" data-ic="nomap"></span>None</button>
+          <div class="rb-stack">
+            <button data-cmd="toggle-labels" class="rb-small check" id="mi-labels">Place labels on top</button>
+          </div></div><div class="rb-cap">Basemap</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="zoom-all" class="rb-big"><span class="ic" data-ic="zoomall"></span>Zoom to all layers</button>
+          </div><div class="rb-cap">Navigate</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <div class="rb-stack">
+            <button data-cmd="theme:auto" class="rb-small radio" data-group="theme">Match system</button>
+            <button data-cmd="theme:light" class="rb-small radio" data-group="theme">Light</button>
+            <button data-cmd="theme:dark" class="rb-small radio" data-group="theme">Dark</button>
+          </div></div><div class="rb-cap">Theme</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <div class="rb-stack">
+            <button data-cmd="toggle-ribbon" class="rb-small check" id="mi-ribbon" title="Ctrl+F1, or double-click a tab">Always show the ribbon</button>
+          </div></div><div class="rb-cap">Ribbon</div></div>
       </div>
     </div>
     <div class="menu"><button class="menu-btn">Help</button>
       <div class="menu-pop">
-        <button data-cmd="guide">Quick guide</button>
-        <button data-cmd="start">Getting started</button>
-        <button data-cmd="shortcuts">Keyboard shortcuts</button>
-        <hr>
-        <button data-cmd="error-log">Error log (every failed run)</button>
-        <button data-cmd="error-log-reveal">Show the error log file</button>
+        <div class="rb-group"><div class="rb-items">
+          <button data-cmd="guide" class="rb-big"><span class="ic" data-ic="guide"></span>Quick guide</button>
+          <button data-cmd="start" class="rb-big"><span class="ic" data-ic="home"></span>Getting started</button>
+          <button data-cmd="shortcuts" class="rb-big"><span class="ic" data-ic="keys"></span>Keyboard shortcuts</button>
+          <button data-cmd="about" class="rb-big" title="Version, environment, folders (or click the logo)"><span class="ic" data-ic="info"></span>About</button>
+          </div><div class="rb-cap">Help</div></div>
+        <div class="rb-group"><div class="rb-items">
+          <div class="rb-stack">
+            <button data-cmd="error-log" class="rb-small"><span class="ic" data-ic="errlog"></span>Error log (every failed run)</button>
+            <button data-cmd="error-log-reveal" class="rb-small"><span class="ic" data-ic="reveal"></span>Show the error log file</button>
+          </div></div><div class="rb-cap">Errors</div></div>
       </div>
     </div>
   </nav>
@@ -100,7 +156,11 @@
     <span class="active-tool" id="active-tool"></span>
     <button id="btn-creds" class="btn ghost small"><span id="creds-dot" class="dot"></span>Credentials</button>
   </div>
+  <button id="rb-pin" class="rb-pin" data-cmd="toggle-ribbon" title="Hide the ribbon (Ctrl+F1)" aria-label="Hide the ribbon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
 </header>
+<div id="ribbon-space" class="ribbon-space"></div>
+<!-- the maps (Insert ▸ 2D / 3D): one tab each; each has its own Contents -->
+<div class="map-tabs" id="map-tabs" role="tablist" aria-label="Maps"></div>
 
 <main class="gis" id="gis">
   <!-- ================= Contents (layers) ================= -->
@@ -147,6 +207,13 @@
   <div class="center" id="center">
     <div class="mapwrap">
       <div id="map"></div>
+      <!-- 3D map: the scene, the viewport controls (top left), the ViewCube (top right) and the UCS icon (bottom left) -->
+      <div id="map3d" class="map3d hidden">
+        <div class="v3-vpc"><button type="button" id="v3-menu" title="3D view options: zoom, heights, help">[–]</button><button type="button" id="v3-view" title="Look from a standard view">[SW Isometric]</button><button type="button" id="v3-style" title="Visual style">[Realistic]</button></div>
+        <div class="v3-cube" id="v3-cube"><button type="button" class="v3-home" title="Home: SW Isometric, everything in view" aria-label="Home view"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg></button></div>
+        <svg class="v3-ucs" id="v3-ucs" viewBox="-44 -44 88 88" aria-label="UCS icon: the X, Y and Z axes"></svg>
+        <div class="v3-msg" id="v3-msg"></div>
+      </div>
       <div id="map-hint" class="map-hint hidden"></div>
       <div id="drop-overlay" class="drop-overlay hidden"><div>Drop files to add them<small>GeoTIFF · JPG / PNG (+ world file) · Shapefile (.zip or .shp + .shx + .dbf + .prj) · GeoJSON · KML / KMZ<br>Tables: CSV · TSV · Excel (.xlsx) · Parquet<br>Sentinel-1 / Sentinel-2 products: .SAFE folder or .SAFE.zip</small></div></div>
     </div>
@@ -1436,6 +1503,14 @@
 <dialog id="dlg-table" class="modal wide">
   <div class="modal-head"><h3 id="tbl-title">Table</h3><button class="x" data-close>×</button></div>
   <div class="modal-body"><div class="load-wrap" id="tbl-body"></div></div>
+</dialog>
+
+<!-- About (click the logo, or Help ▸ About): version, how it runs, the computer, libraries, add-ons, folders -->
+<dialog id="dlg-about" class="modal about-dlg">
+  <div class="modal-head"><h3>About LULC Fetch</h3><button class="x" data-close>×</button></div>
+  <div class="modal-body" id="about-body"><p class="hint">Loading…</p></div>
+  <div class="modal-foot"><span class="hint" id="about-update" style="margin:0 auto 0 0"></span>
+    <button class="btn small" id="about-check">Check for updates</button><button class="btn small primary" id="about-copy">Copy details</button></div>
 </dialog>
 
 <!-- Help -->

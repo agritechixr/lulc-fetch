@@ -74,6 +74,7 @@
   }
 
   function restack() {
+    map3dChanged();
     for (let i = layers.length - 1; i >= 0; i--) {
       const l = layers[i];
       if (l.visible && l.leaflet && map.hasLayer(l.leaflet)) l.leaflet.bringToFront();
@@ -87,6 +88,7 @@
   }
   function setOpacity(l, o) {
     l.opacity = o;
+    map3dChanged();
     if (l.type === "vector") l.leaflet?.setStyle((f) => vecStyle(l, f));
     else l.leaflet?.setOpacity(o);
     saveLayers();
@@ -99,13 +101,13 @@
   function zoomTo(l) {
     if (!l) return;
     const b = layerBounds(l);
-    if (b?.isValid()) { map.fitBounds(b, { padding: [30, 30], maxZoom: 17 }); status(`Zoomed to ${l.name}`); }
+    if (b?.isValid()) { map.fitBounds(b, { padding: [30, 30], maxZoom: 17 }); zoom3dTo(b); status(`Zoomed to ${l.name}`); }
     else toast(`${l.name} has no extent to zoom to yet`, true);
   }
   function zoomAll() {
     let b = null;
     layers.filter((l) => l.visible).forEach((l) => { const lb = layerBounds(l); if (lb?.isValid()) b = b ? b.extend(lb) : L.latLngBounds(lb.getSouthWest(), lb.getNorthEast()); });
-    if (b) map.fitBounds(b, { padding: [30, 30] }); else toast("No visible layers to zoom to");
+    if (b) { map.fitBounds(b, { padding: [30, 30] }); zoom3dTo(b); } else toast("No visible layers to zoom to");
   }
   function selectLayer(id) {
     selectedId = id;
@@ -269,6 +271,7 @@
       };
     });
     updateSectionCounts();
+    map3dChanged();
     refreshAnalyzeInputs();
     if (pcaState.schema) refreshPcaInputs();
     if (currentTool === "raster2table") refreshRtInputs();
@@ -296,10 +299,9 @@
   function saveLayers() {
     try {
       if (!inProject()) {
-        const keep = layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, _original, ...rest }) =>
-          _original !== undefined ? { ...rest, geojson: { ...rest.geojson, features: JSON.parse(_original) } } : rest);
-        const text = JSON.stringify(keep);
+        const text = JSON.stringify(layers.filter((l) => l.type !== "image").map(layerState));
         if (text.length < 4e6) localStorage.setItem("lulc-layers", text);
+        saveMaps();
       }
     } catch {}
     scheduleProjectSave();

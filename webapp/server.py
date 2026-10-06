@@ -96,6 +96,83 @@ def config():
             "label_products": {k: v["title"] for k, v in LABEL_PRODUCTS.items()}}
 
 
+@app.get("/api/about")
+def about(request: Request):
+    """The About box (click the logo): version, how the app runs, the computer, library versions, add-ons and folders.
+    Nothing heavy is imported: versions come from the installed packages' metadata."""
+    import importlib.metadata as md
+    import importlib.util
+    import os
+    import platform
+    import subprocess
+    import sys
+
+    from lulc_fetch import __version__
+
+    from .core import _dl_status_cache
+    from .routes.deep_learning import _yolo_status
+
+    def ver(dist):
+        try:
+            return md.version(dist)
+        except md.PackageNotFoundError:
+            return None
+
+    def memory_gb():
+        try:
+            if sys.platform == "win32":
+                import ctypes
+
+                class MS(ctypes.Structure):
+                    _fields_ = [("len", ctypes.c_ulong), ("load", ctypes.c_ulong)] + [(n, ctypes.c_ulonglong) for n in
+                               ("total", "avail", "ptotal", "pavail", "vtotal", "vavail", "xavail")]
+                m = MS(); m.len = ctypes.sizeof(MS)
+                ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+                return round(m.total / 2**30, 1)
+            return round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30, 1)
+        except (OSError, ValueError, AttributeError):
+            return None
+
+    frozen = bool(getattr(sys, "frozen", False))
+    git = None
+    repo = Path(__file__).resolve().parent.parent
+    if not frozen and (repo / ".git").exists():   # running from source: which branch and commit
+        def g(*a):
+            return subprocess.run(["git", *a], cwd=repo, capture_output=True, text=True, timeout=3).stdout.strip()
+        try:
+            git = {"branch": g("rev-parse", "--abbrev-ref", "HEAD"), "commit": g("rev-parse", "--short", "HEAD"),
+                   "date": g("log", "-1", "--format=%cs"), "changed": bool(g("status", "--porcelain", "--untracked-files=no"))}
+        except (OSError, subprocess.SubprocessError):
+            git = None
+    os_name = {"darwin": "macOS " + platform.mac_ver()[0], "win32": f"Windows {platform.release()} ({platform.version()})"}.get(sys.platform,
+                                                                                                    f"{platform.system()} {platform.release()}")
+    import rasterio
+
+    try:
+        from . import credentials
+        accounts = {k: {"title": v["title"], "connected": v["complete"]} for k, v in credentials.status().items()}
+    except Exception:  # noqa: BLE001 — the keychain may be unavailable; the About box still opens
+        accounts = {}
+    dl = dict(_dl_status_cache) if _dl_status_cache else None
+    return {
+        "name": "LULC Fetch", "version": __version__,
+        "run": {"mode": "desktop app" if frozen else "from source", "frozen": frozen, "git": git,
+                "server": f"{request.url.scheme}://{request.url.netloc}", "pid": os.getpid()},
+        "system": {"os": os_name, "arch": platform.machine(), "cpus": os.cpu_count(), "memory_gb": memory_gb(),
+                   "python": f"{platform.python_version()} ({platform.python_implementation()})", "executable": sys.executable},
+        "libraries": {"GDAL": rasterio.__gdal_version__, **{k: ver(d) for k, d in (
+            ("rasterio", "rasterio"), ("NumPy", "numpy"), ("Shapely", "shapely"), ("pandas", "pandas"), ("PyArrow", "pyarrow"),
+            ("scikit-learn", "scikit-learn"), ("XGBoost", "xgboost"), ("LightGBM", "lightgbm"), ("FastAPI", "fastapi"), ("Uvicorn", "uvicorn"))}},
+        "addons": {
+            "deep_learning": {"installed": importlib.util.find_spec("torch") is not None, "torch": ver("torch"),
+                              "smp": ver("segmentation-models-pytorch"), "device": (dl or {}).get("device"), "devices": (dl or {}).get("devices")},
+            "yolo": _yolo_status(),
+        },
+        "accounts": accounts,
+        "folders": {"workspace": str(ws.root()), "data": str(ws.APP_DIR), "settings": str(ws.CONFIG_DIR), "logs": str(ws.root() / "logs")},
+    }
+
+
 @app.get("/api/credentials")
 def get_credentials():
     return {"backend": credentials.backend_name(), "providers": credentials.status()}

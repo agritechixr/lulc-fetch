@@ -12,6 +12,11 @@
       l.type === "raster" && !l.derived ? ["Compute indices on this layer", () => analyzeLayer(l)] : null,
       l.type === "vector" ? ["Open attribute table", () => openAttr(l)] : null,
       isPoly && l.id !== "aoi" ? ["Use as area of interest", () => useAsAoi(l)] : null,
+      is3D() && l.type === "raster" ? [isSurface(l) ? "3D: drape it instead of heights" : "3D: use its values as heights (surface)", () => {
+        l.view3d = isSurface(l) ? "drape" : "surface"; saveLayers(); map3dChanged(); }] : null,
+      "-",
+      l.type !== "image" ? ["Copy (paste into another map)  Ctrl+C", () => copyLayers([l])] : null,
+      docs.clip?.length ? ["Paste into this map  Ctrl+V", () => pasteLayers()] : null,
       "-",
       l.type !== "image" ? ["Save to folder…", () => saveLayerToFolder(l)] : null,
       ["Export / save to computer…", () => openExport(l)],

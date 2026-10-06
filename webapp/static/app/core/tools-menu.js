@@ -34,6 +34,35 @@
     similar: '<rect x="3" y="3" width="12" height="12" rx="1.5" opacity=".45"/><path d="M3 7h12M3 11h12M7 3v12M11 3v12" opacity=".3"/><circle cx="15.5" cy="15.5" r="4"/><path d="M18.5 18.5L21 21"/>',
     leaf: '<path d="M5 19C5 10 10 5 20 4c-1 10-6 15-15 15z"/><path d="M5 19l8-8" opacity=".7"/><circle cx="14" cy="9.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="10.5" cy="13.5" r="1" fill="currentColor" stroke="none"/>',
     book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M12 7.5c-2 .5-3 2-3 4 2 0 3.5-1.5 3-4zM12 7.5c1.5 1 2 2.5 1.5 4.5" opacity=".75"/>',
+    // ribbon commands (File, View, Help, History, Bookmarks)
+    fnew: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v6M9 14h6"/>',
+    fopen: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1"/><path d="M3 7v11a2 2 0 0 0 2 2h12.5l3.5-8H7.5L5 18"/>',
+    fclose: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M10 11l4 4M14 11l-4 4"/>',
+    reveal: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+    adddata: '<path d="M12 3l9 4.5-9 4.5-9-4.5z" opacity=".55"/><path d="M3 12l9 4.5 3-1.5"/><path d="M18.5 14v7M15 17.5h7"/>',
+    safe: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5" opacity=".7"/><circle cx="17" cy="17" r="2.2" fill="currentColor" stroke="none"/>',
+    props: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+    trash: '<path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6" opacity=".7"/>',
+    trashall: '<path d="M3 7h14M8 7V4h4v3M5 7l1 13h8l1-13"/><path d="M19 10v10M21 12v6" opacity=".6"/>',
+    clean: '<path d="M14 3l-4 9"/><path d="M6 12h10l2 9H4z"/><path d="M8 16v5M12 16v5" opacity=".6"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
+    layout: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16" opacity=".6"/><path d="M5.5 12h1.5M17 12h1.5"/>',
+    streets: '<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14" opacity=".55"/>',
+    topo: '<path d="M3 19l6-10 4 6 3-4 5 8z"/><path d="M6 15c2-1 4 1 6 0s3-1 5 0" opacity=".55"/>',
+    nomap: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 2.5"/><path d="M8 8l8 8M16 8l-8 8" opacity=".6"/>',
+    zoomall: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+    guide: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21a2 2 0 0 1 2-2h13v2z"/><path d="M9 8h6M9 11.5h4" opacity=".7"/>',
+    keys: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+    errlog: '<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".9" fill="currentColor" stroke="none"/>',
+    bookmark: '<path d="M6 3h12v18l-6-4.5L6 21z"/><path d="M12 7v6M9 10h6" opacity=".75"/>',
+    history: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor" stroke="none"/>',
+    map2d: '<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14" opacity=".55"/>',
+    map3d: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" opacity=".6"/>',
+    rename: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4" opacity=".6"/>',
+    duplicate: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/><path d="M12 14h4" opacity=".6"/>',
+    paste: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 11h6M9 15h4" opacity=".6"/>',
   };
   const svg = (name, w = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
   const TOOLS = [
@@ -73,7 +102,7 @@
     $$("#analysis-menu [data-an-panel]").forEach((p) => p.classList.toggle("hidden", p.dataset.anPanel !== cat));
     prefs.set("analysis-cat", cat);
   }
-  $$("#analysis-menu [data-ic]").forEach((s) => { s.innerHTML = svg(s.dataset.ic); });
+  $$("#menus [data-ic]").forEach((s) => { s.innerHTML = svg(s.dataset.ic); });
   $$("#analysis-menu [data-an]").forEach((b) => {
     b.onmouseenter = () => showAnalysis(b.dataset.an);
     b.onfocus = () => showAnalysis(b.dataset.an);
@@ -99,16 +128,27 @@
       if (eye) eye.onclick = (e) => { e.stopPropagation(); const on = el.classList.toggle("show-desc"); eye.setAttribute("aria-expanded", on); };
     });
   }
+  // the ribbon groups of the Tools category (tools not named here go in "More")
+  const TOOL_GROUPS = [["Imagery", ["search", "analyze", "pca", "stack"]], ["Training data", ["samples", "raster2table", "patches"]],
+    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Output", ["export", "jobs"]]];
+  // one ribbon group: a few tools as big buttons, more as small ones in columns of three
+  function ribbonGroup(caption, tools, big = tools.length <= 3) {
+    if (!tools.length) return "";
+    const cls = big ? "tool-item rb-tool big" : "tool-item rb-tool";
+    return `<div class="rb-group"><div class="rb-items${big ? "" : " rb-tri"}">${tools.map((t) =>
+      toolEntry(cls, `data-tool="${t.id}" title="${esc(t.title)}: ${esc(t.subtitle || "")}"`, t)).join("")}</div><div class="rb-cap">${esc(caption)}</div></div>`;
+  }
   function buildToolsMenu() {
     const tools = [...TOOLS].sort(byTitle);   // Classical ML's own tools are tabs inside it (see renderMlHub)
-    $("#tools-menu").innerHTML = tools.filter((t) => !t.menu).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t)).join("");
+    const plain = TOOLS.filter((t) => !t.menu), grouped = TOOL_GROUPS.flatMap(([, ids]) => ids);
+    $("#tools-menu").innerHTML = TOOL_GROUPS.map(([cap, ids]) => ribbonGroup(cap, ids.map((id) => plain.find((t) => t.id === id)).filter(Boolean), false)).join("") +
+      ribbonGroup("More", plain.filter((t) => !grouped.includes(t.id)).sort(byTitle), false);
     wireEntries($("#tools-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });
     Object.entries(MENUS).forEach(([key, m]) => {
       const el = $(m.el);
-      el.innerHTML = TOOLS.filter((t) => t.menu === key).map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, t)).join("") +
-        (m.shortcuts.length ? `<hr><div class="menu-label">${esc(m.label)}</div>` : "") +
-        m.shortcuts.map((id) => TOOLS.find((t) => t.id === id)).filter(Boolean)
-          .map((t) => toolEntry("tool-item", `data-tool="${t.id}"`, m.subtitles?.[t.id] ? { ...t, subtitle: m.subtitles[t.id] } : t)).join("");
+      el.innerHTML = ribbonGroup({ agri: "Agri", embed: "Embeddings", forecast: "Forecast", library: "Library" }[key] || key, TOOLS.filter((t) => t.menu === key)) +
+        ribbonGroup(m.label, m.shortcuts.map((id) => TOOLS.find((t) => t.id === id)).filter(Boolean)
+          .map((t) => m.subtitles?.[t.id] ? { ...t, subtitle: m.subtitles[t.id] } : t));
       wireEntries(el, "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });
     });
     $("#tool-cards").innerHTML = tools.map((t) => toolEntry("tool-card", `data-tool="${t.id}"`, t)).join("");

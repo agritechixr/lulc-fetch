@@ -20,12 +20,13 @@
   }
   async function refreshHistoryMenu() {
     const box = $("#history-menu");
-    box.innerHTML = `<div class="hist-empty">Loading…</div>`;
+    if (!box.children.length) box.innerHTML = `<div class="hist-empty">Loading…</div>`;
     let h;
     try { h = await api("/api/history?limit=12"); } catch (e) { box.innerHTML = `<div class="hist-empty">${esc(e.message)}</div>`; return; }
-    box.innerHTML = `<div class="menu-label" style="padding-left:10px">Recent tool runs</div>` +
+    box.innerHTML = `<div class="rb-group"><div class="rb-items"><button data-hall class="rb-big"><span class="ic">${svg("history")}</span>Full history…</button></div><div class="rb-cap">History</div></div>
+      <div class="rb-group"><div class="rb-items${h.rows.length ? " rb-tri" : ""}">` +
       (h.rows.length ? h.rows.map(histRow).join("") : `<div class="hist-empty">No runs yet: every tool you run is listed here, with its settings and results.</div>`) +
-      `<div class="menu-foot"><button data-hall>Open full history…</button></div>`;
+      `</div><div class="rb-cap">Recent tool runs</div></div>`;
     $$("[data-hid]", box).forEach((row) => row.onclick = () => { toggleMenu(null); openHistory(row.dataset.hid); });
     $("[data-hall]", box).onclick = () => { toggleMenu(null); openHistory(null); };
   }

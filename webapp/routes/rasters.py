@@ -120,6 +120,17 @@ def raster_info(path: str):
     return info
 
 
+@router.get("/api/rasters/grid")
+def raster_grid(path: str, band: int = 1, scale: float = 1.0, offset: float = 0.0, max_px: int = 300):
+    """A band's values on a Web Mercator grid (3D maps: a DEM's heights)."""
+    from lulc_fetch.analysis import elevation_grid
+
+    try:
+        return elevation_grid(_raster_path(path), band=band, scale=scale, offset=offset, max_px=max(16, min(max_px, 600)))
+    except (*rasterio_errors(), ValueError) as e:
+        raise HTTPException(400, f"Can't read heights from the file: {e}")
+
+
 @router.get("/api/rasters/file")
 def raster_file(path: str):
     p = _raster_path(path)

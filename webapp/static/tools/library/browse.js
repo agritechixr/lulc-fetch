@@ -1,4 +1,4 @@
-/* Library ▸ Data library: GIS data kept as datasets on Hugging Face (every public dataset of the library accounts,
+/* Insert ▸ Library ▸ Data library: GIS data kept as datasets on Hugging Face (every public dataset of the library accounts,
    e.g. ixrbhii/indian-shapefiles). Search a dataset's files, add any of them to the map: downloaded once into the project's
    downloads/library/. Server: /api/library/datasets, files, fetch, geojson · lulc_fetch/library.py. */
 (() => {

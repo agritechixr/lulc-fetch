@@ -208,3 +208,28 @@ def test_filter_by_a_cell_value(client, tmp_path):
     rows = lambda q: ok(client.get("/api/tables/rows", params={"path": path, "q": q}))["filtered"]   # noqa: E731
     assert rows('agency = "KSPCB"') == 2 and rows('agency != "KSPCB"') == 1 and rows("lat > 12.95") == 2
     assert rows('name = "City Railway Station"') == 1
+
+
+def test_raster_grid_for_3d(client, data):
+    import base64
+
+    import numpy as np
+
+    g = ok(client.get("/api/rasters/grid", params={"path": data["s2"], "band": 1, "max_px": 64}))
+    assert 2 <= g["width"] <= 64 and 2 <= g["height"] <= 64
+    values = np.frombuffer(base64.b64decode(g["values"]), "<f4")
+    assert values.size == g["width"] * g["height"]
+    assert g["min"] <= np.nanmax(values) <= g["max"] + 1e-3
+    (s, w), (n, e) = g["bounds"]
+    assert s < n and w < e
+    assert client.get("/api/rasters/grid", params={"path": data["s2"], "band": 99}).status_code == 400
+
+
+def test_about(client):
+    a = ok(client.get("/api/about"))
+    from lulc_fetch import __version__
+    assert a["version"] == __version__
+    assert a["run"]["mode"] in ("desktop app", "from source")
+    assert a["libraries"]["GDAL"] and a["libraries"]["rasterio"]
+    assert {"workspace", "settings", "logs"} <= set(a["folders"])
+    assert "password" not in str(a["accounts"]).lower()

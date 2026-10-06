@@ -2,11 +2,23 @@
 
 ## Unreleased
 
+- **Ribbon, as in Word:** the menu bar is now File · Insert · Analysis · History · View · Help, each tab's commands shown
+  as icon buttons in groups under the tabs; pinned by default (double-click a tab, the ⌃ button or Ctrl+F1 to hide it).
+- **Insert ▸ 2D / 3D: several maps**, each a tab under the ribbon with its own Contents; rename (double-click the tab),
+  duplicate, close; copy layers between maps with Ctrl+C / Ctrl+V.
+- **3D maps** (three.js, bundled): a DEM becomes the land (auto height exaggeration), imagery and vectors are draped on
+  it, the basemap lies under it; AutoCAD's viewport controls (view, visual style: Realistic / Shaded / Wireframe), ViewCube
+  and UCS icon; the mouse as in AutoCAD (wheel zoom, middle-drag pan, Shift + middle-drag orbit, double-click the wheel to
+  zoom extents); the height under the cursor in the status bar. Server: `/api/rasters/grid`.
+- **Insert ▸ Bookmarks:** save the map's view (Ctrl+B), shown as thumbnails; click to go back, rename, remove.
+- **Insert ▸ Library** and **Add data** are in the Insert tab (the Library and Bookmarks tabs are gone).
+- **About** (click the logo): version, desktop app or source (git branch and commit), computer, Python and library
+  versions, add-ons, accounts, folders; Copy details for bug reports; Check for updates.
 - **Tools ▸ Interpolation:** IDW, kriging (with standard error), thin-plate spline, natural neighbour, nearest neighbour, trend
   surface and TIN; cut to any boundary; leave-one-out comparison of the methods; India's AQI colour scale.
 - **Live AQI** from CPCB's public feed (`lulc_fetch.aqi`), e.g. Bengaluru's stations.
 - Downloads & jobs no longer adds a second copy of tools' results to Contents (only Find imagery downloads are added there).
-- **Library menu:** ready-made GIS data from Hugging Face. The first dataset, *Indian shapefiles*, has 307 layers of India
+- **Library (now Insert ▸ Library):** ready-made GIS data from Hugging Face. The first dataset, *Indian shapefiles*, has 307 layers of India
   (states, districts, sub-districts, villages, constituencies, city wards, PIN-code areas, highways, railways…); every
   dataset uploaded to the library account appears too. Search, then add to the map; each file is downloaded once.
 - **+ Add data:** a CSV / Excel / Parquet table with latitude / longitude columns also goes on the map as points; the

@@ -597,6 +597,40 @@ def render(path: str | Path, *, band_map: dict[str, int], scale: float, offset: 
     return {"rgba": merc, "bounds": bounds, **meta}
 
 
+def elevation_grid(path: str | Path, *, band: int = 1, scale: float = 1.0, offset: float = 0.0, max_px: int = 300) -> dict:
+    """One band's values (heights of a DEM) on a Web Mercator grid of at most max_px a side, for 3D maps.
+    Row 0 is the north edge, nodata is NaN. Returns the values (float32, little-endian, base64), the grid's Web Mercator
+    box [left, bottom, right, top], its bounds as [[south, west], [north, east]] and the range of the values."""
+    import base64
+
+    with rasterio.open(path) as src:
+        if not 1 <= band <= src.count:
+            raise ValueError(f"The file has {src.count} band(s); there is no band {band}")
+        if src.crs is None:
+            raise ValueError("The file has no coordinate system, so it can't be placed in 3D")
+        data = _read(src, [band], max_px * 2)[0] * scale + offset
+        h, w = data.shape
+        transform = src.transform * src.transform.scale(src.width / w, src.height / h)
+        left, top = transform * (0, 0)
+        right, bottom = transform * (w, h)
+        dst, dw, dh = calculate_default_transform(src.crs, "EPSG:3857", w, h, left=min(left, right), bottom=min(top, bottom),
+                                                  right=max(left, right), top=max(top, bottom))
+        f = min(1.0, max_px / max(dw, dh))
+        if f < 1:
+            dst = dst * dst.scale(1 / f)
+            dw, dh = max(2, int(dw * f)), max(2, int(dh * f))
+        out = np.full((dh, dw), np.nan, "float32")
+        reproject(data.astype("float32"), out, src_transform=transform, src_crs=src.crs, dst_transform=dst, dst_crs="EPSG:3857",
+                  src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.bilinear)
+    l_, t_ = dst * (0, 0)
+    r_, b_ = dst * (dw, dh)
+    w4, s4, e4, n4 = transform_bounds("EPSG:3857", "EPSG:4326", l_, b_, r_, t_)
+    v = out[np.isfinite(out)]
+    return {"width": int(dw), "height": int(dh), "merc": [l_, b_, r_, t_], "bounds": [[s4, w4], [n4, e4]],
+            "min": float(v.min()) if v.size else None, "max": float(v.max()) if v.size else None,
+            "values": base64.b64encode(out.astype("<f4").tobytes()).decode()}
+
+
 def export_png(path: str | Path, out: str | Path, *, world_file: bool = False, max_px: int = 8192, **spec) -> Path:
     """Write the layer as it is displayed, on the file's own grid. With `world_file`, returns a .zip
     holding the PNG plus .pgw / .prj so GIS software can place it."""
