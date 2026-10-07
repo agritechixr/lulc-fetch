@@ -78,11 +78,11 @@ def raster_path(rel: str, roots=RASTER_ROOTS) -> Path:
     # say what is wrong, so a missing file isn't mistaken for a bug in the tool
     name = Path(rel).name
     if not inside:
-        raise HTTPException(404, f"“{name}” isn't in this project's folders: add it with + Add data (it is copied in)")
+        raise HTTPException(404, f"“{name}” isn't in this project's folders: add it with Insert ▸ Add data (it is copied in)")
     if path.suffix.lower() not in RASTER_EXTS:
         raise HTTPException(404, f"“{name}” isn't a GeoTIFF (.tif / .tiff)")
     raise HTTPException(404, f"The file of this layer is missing: {rel}. It was moved, renamed or deleted (or the project "
-                             "folder changed): add it again with + Add data, or remove the layer")
+                             "folder changed): add it again with Insert ▸ Add data, or remove the layer")
 
 
 def abs_user_folder(folder: str) -> Path:

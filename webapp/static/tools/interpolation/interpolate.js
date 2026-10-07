@@ -13,7 +13,7 @@
     clip: { "ip-area": { what: "area around the points is mapped" } },
     panel: `
       <div class="card">
-        <h2>Points <span class="req">required</span> ${tip("A layer of points with a number to interpolate: add a CSV with latitude / longitude columns (+ Add data puts its rows on the map), a shapefile / GeoJSON of points, or the Library's data.")}</h2>
+        <h2>Points <span class="req">required</span> ${tip("A layer of points with a number to interpolate: add a CSV with latitude / longitude columns (Insert ▸ Add data puts its rows on the map), a shapefile / GeoJSON of points, or the Library's data.")}</h2>
         <select id="ip-layer"></select>
         <label>Value to interpolate<select id="ip-field"></select></label>
         <p class="hint" id="ip-info"></p>
@@ -50,7 +50,7 @@
       // arg (optional): { layer, field } to start from, e.g. a forecast put on the map
       async function open(arg) {
         if (!st.schema) {
-          try { st.schema = await api("/api/interp/schema"); } catch (e) { toast(e.message, true); return; }
+          try { st.schema = await api("/api/interp/schema"); } catch (e) { toast(e, true); return; }
           renderMethods();
         }
         renderLayers(arg);
@@ -58,7 +58,7 @@
       }
       function renderLayers(arg) {
         const l = fillLayers($("#ip-layer"), pointLayers(), { pick: arg?.layer, label: (x) => `${x.name} · ${x.geojson.features.length} points`,
-          empty: "No point layer yet: + Add data (a CSV with lat / lon, or points), or the Library" });
+          empty: "No point layer yet: Insert ▸ Add data (a CSV with lat / lon, or points), or the Library" });
         const f = $("#ip-field"), cur = arg?.field || f.value;
         const feats = l?.geojson.features.filter((x) => x.geometry?.type === "Point") || [];
         const keys = [...new Set(feats.flatMap((x) => Object.keys(x.properties || {})))].filter((k) => !k.startsWith("_") && feats.some((x) => isNum(x.properties?.[k])));
@@ -109,7 +109,7 @@
       // leave-one-out: each point predicted from the others, every method with its default settings
       $("#ip-compare").onclick = async () => {
         let b;
-        try { b = pointsBody(); } catch (e) { return toast(e.message, true); }
+        try { b = pointsBody(); } catch (e) { return toast(e, true); }
         const btn = $("#ip-compare"); btn.disabled = true; $("#ip-compare-box").innerHTML = `<p class="hint">Checking every method…</p>`;
         try {
           const r = await runJob("/api/interp/compare", { points: b.points, field: b.field }, { tool: "interp", title: "Comparing interpolation methods" });
@@ -119,7 +119,7 @@
               : `<td>${fmt(x.rmse, 2)}</td><td>${fmt(x.mae, 2)}</td><td>${fmt(x.bias, 2)}</td><td>${x.n}</td>`}</tr>`).join("")}</tbody></table>
 `;
           $$("#ip-compare-box [data-ipm]").forEach((tr) => tr.onclick = () => { st.method = tr.dataset.ipm; prefs.set("ip-method", st.method); renderMethods(); fieldInfo(); });
-        } catch (e) { $("#ip-compare-box").innerHTML = ""; if (notCancelled(e)) toast(e.message, true); }
+        } catch (e) { $("#ip-compare-box").innerHTML = ""; if (notCancelled(e)) toast(e, true); }
         finally { btn.disabled = false; }
       };
 

@@ -11,7 +11,7 @@
     kinds: ["fcdata"],
     panel: `
       <div class="card">
-        <h2>Places <span class="req">required</span> ${tip("A layer of points: monitoring stations, towns, farms… e.g. + Add data with a CSV of latitude / longitude, or the Library. Up to 500 points.")}</h2>
+        <h2>Places <span class="req">required</span> ${tip("A layer of points: monitoring stations, towns, farms… e.g. Insert ▸ Add data with a CSV of latitude / longitude, or the Library. Up to 500 points.")}</h2>
         <select id="fd-layer"></select>
         <label>Name field<select id="fd-field"></select></label>
         <p class="hint" id="fd-info"></p>
@@ -40,7 +40,7 @@
 
       function render() {
         const l = fillLayers($("#fd-layer"), pointLayers(), { label: (x) => `${x.name} · ${pts(x).length} points`,
-          empty: "No point layer yet: + Add data (a CSV with lat / lon), or the Library" });
+          empty: "No point layer yet: Insert ▸ Add data (a CSV with lat / lon), or the Library" });
         const f = $("#fd-field"), cur = f.value, feats = pts(l);
         const keys = [...new Set(feats.flatMap((x) => Object.keys(x.properties || {})))].filter((k) => !k.startsWith("_"));
         f.innerHTML = opt("", "(numbered)") + keys.map((k) => opt(k, k)).join("");

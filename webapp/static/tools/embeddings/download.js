@@ -33,6 +33,8 @@
         </div>
         <p class="hint" id="em-year-hint"></p>
         <p class="hint" id="em-est"></p>
+        <details><summary class="hint">Resampling onto the UTM grid</summary>${LF.html.resampling("em-method", { auto: "Default (nearest: keeps the real vectors)", only: ["nearest", "bilinear", "cubic", "lanczos", "average"] })}
+          <p class="hint">Nearest keeps each pixel's real embedding. Bilinear, cubic or lanczos blend neighbouring vectors: smoother maps, but the blended vectors are no longer real ones.</p></details>
       </div>
       <div class="card">
         <h2>Download</h2>
@@ -49,7 +51,7 @@
 
       async function open(pending) {
         if (!st.meta) {
-          try { st.meta = await LF.emb.meta(); } catch (e) { toast(e.message, true); return; }
+          try { st.meta = await LF.emb.meta(); } catch (e) { toast(e, true); return; }
           $("#em-other").innerHTML = st.meta.other.map((o) => `<p class="hint"><a href="${esc(o.url)}" target="_blank" rel="noopener"><b>${esc(o.title)}</b></a>: ${esc(o.what)}. Not per-pixel maps, so not downloadable here yet.</p>`).join("");
           $("#em-year").innerHTML = st.meta.years.slice().reverse().map((y) => `<option>${y}</option>`).join("");
           $("#em-year").value = prefs.get("em-year", "2024");
@@ -117,7 +119,7 @@
             `</tbody></table><p class="hint">${r.tessera_tiles > 1 ? `TESSERA: tiles with data out of ${r.tessera_tiles} covering the area${r.tessera_sampled ? " (estimated from a sample)" : ""}. ` : ""}Click a year to use it.</p>`;
           $("#em-avail").classList.remove("hidden");
           $$("[data-em-year]").forEach((a) => a.onclick = (e) => { e.preventDefault(); setYear(a.dataset.emYear); });
-        } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+        } catch (e) { if (notCancelled(e)) toast(e, true); }
         finally { btn.disabled = false; }
       };
 
@@ -129,7 +131,7 @@
         const name = $("#em-name").dataset.touched ? ($("#em-name").value.trim() || "embedding") : `${S.short}_${year}`;
         let r;
         try {
-          r = await runJob("/api/emb/fetch", { clip: g, source: st.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked },
+          r = await runJob("/api/emb/fetch", { clip: g, source: st.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked, resampling: $("#em-method").value || null },
                            { tool: "embed", title: `Downloading ${S.short} ${year}`, save: "embfetch" });
         } catch (e) {
           if (!/has no \d{4} data/.test(e.message)) throw e;

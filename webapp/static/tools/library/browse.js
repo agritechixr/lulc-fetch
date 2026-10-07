@@ -1,4 +1,4 @@
-/* Library ▸ Data library: GIS data kept as datasets on Hugging Face (every public dataset of the library accounts,
+/* Insert ▸ Library ▸ Data library: GIS data kept as datasets on Hugging Face (every public dataset of the library accounts,
    e.g. ixrbhii/indian-shapefiles). Search a dataset's files, add any of them to the map: downloaded once into the project's
    downloads/library/. Server: /api/library/datasets, files, fetch, geojson · lulc_fetch/library.py. */
 (() => {
@@ -150,7 +150,7 @@
         const v = prompt("More Hugging Face accounts or organisations whose public datasets the library lists (comma-separated). ixrbhii is always included.", cur);
         if (v === null) return;
         try { await api("/api/library/accounts", { method: "POST", json: { accounts: v.split(",").map((x) => x.trim()).filter(Boolean) } }); await loadDatasets(true); }
-        catch (e) { toast(e.message, true); }
+        catch (e) { toast(e, true); }
       };
 
       return { open };

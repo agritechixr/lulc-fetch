@@ -99,6 +99,60 @@ def project_state(req: ProjectStateRequest):
         raise HTTPException(409, str(e))
 
 
+class ProjectSaveAsRequest(BaseModel):
+    name: str = Field(max_length=200)
+    folder: str = Field(max_length=1000)
+    state: dict
+
+
+def _state_paths(node) -> set[str]:
+    """Every workspace file a saved state uses: the "path" of its layers and tables, in every map."""
+    out: set[str] = set()
+    if isinstance(node, dict):
+        p = node.get("path")
+        if isinstance(p, str) and p and not Path(p).is_absolute():
+            out.add(p)
+        for v in node.values():
+            out |= _state_paths(v)
+    elif isinstance(node, list):
+        for v in node:
+            out |= _state_paths(v)
+    return out
+
+
+@router.post("/api/project/save-as")
+def project_save_as(req: ProjectSaveAsRequest):
+    """File ▸ Save as: a new project folder with the maps and layers open now. The files they use (downloads, results,
+    uploads, tables) are copied in at the same places, with their side files (.aux.xml, world files…), then it is opened."""
+    import shutil
+
+    _switch_guard()
+    old = ws.root().resolve()
+    try:
+        folder = ws.create(req.name, _abs_folder(req.folder))
+    except (ValueError, OSError) as e:
+        raise HTTPException(400, str(e))
+    copied, missing = 0, []
+    for rel in sorted(_state_paths(req.state)):
+        src = (old / rel).resolve()
+        if not src.is_relative_to(old) or not src.is_file():
+            missing.append(rel)
+            continue
+        dst = (folder / rel).resolve()
+        if not dst.is_relative_to(folder.resolve()):
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        for f in src.parent.iterdir():   # the file and its side files: x.tif, x.tif.aux.xml, x.tfw…
+            if f.is_file() and (f.name == src.name or f.name.startswith(src.name + ".") or f.stem == src.stem):
+                shutil.copy2(f, dst.parent / f.name)
+                copied += 1
+    ws.open_project(folder)
+    ws.save_state(req.state)
+    jobs.clear_finished()
+    log.info("Saved as project %s in %s (%d files copied)", req.name, folder, copied)
+    return {**_project_info(with_state=True), "copied": copied, "missing": missing}
+
+
 @router.delete("/api/project/recent")
 def project_forget(folder: str):
     ws.forget(folder)

@@ -97,11 +97,39 @@
         ["CRS", l.info.crs], ["Pixel size", `${fmt(l.info.res[0], 2)} × ${fmt(l.info.res[1], 2)}`], ["Data type", l.info.dtype]);
     } else if (l.type === "vector") {
       $("#lp-color").value = l.color || "#2563eb";
+      const keys = [...new Set(l.geojson.features.slice(0, 500).flatMap((f) => Object.keys(f.properties || {})))];
+      $("#lp-field").innerHTML = keys.map((k) => `<option>${esc(k)}</option>`).join("") || `<option value="">(no fields)</option>`;
+      $("#lp-sym").value = l.symbology?.mode || "single";
+      if (l.symbology?.field && keys.includes(l.symbology.field)) $("#lp-field").value = l.symbology.field;
+      else {   // a sensible first field: a class / type text field, else the first number
+        const sample = l.geojson.features.slice(0, 200).map((f) => f.properties || {});
+        $("#lp-field").value = keys.find((k) => /^(class|type|landuse|building|highway|crop|name|majority_class)$/i.test(k)) || keys.find((k) => sample.some((p) => typeof p[k] === "number")) || keys[0] || "";
+      }
+      $("#lp-classes").value = l.symbology?.classes || 5;
+      $("#lp-method").value = l.symbology?.method || "quantile";
+      syncSymUi(l.symbology?.ramp);
       info.push(["Features", l.geojson.features.length], ["CRS", "EPSG:4326 (WGS 84)"]);
     } else info.push(["Type", "Preview image (PNG)"]);
     $("#lp-info").innerHTML = info.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
     $("#dlg-lprops").showModal();
   }
+  function syncSymUi(ramp) {
+    const l = state.propsLayer, mode = $("#lp-sym").value;
+    $("#lp-color-row").classList.toggle("hidden", mode !== "single");
+    $("#lp-sym-opts").classList.toggle("hidden", mode === "single");
+    $("#lp-classes-row").classList.toggle("hidden", mode !== "graduated");
+    $("#lp-method-row").classList.toggle("hidden", mode !== "graduated");
+    const cur = ramp ?? $("#lp-ramp").value;
+    $("#lp-ramp").innerHTML = (mode === "categories" ? `<option value="">Distinct colours</option>` : "") + Object.keys(RAMPS).map((k) => `<option>${k}</option>`).join("");
+    if ([...$("#lp-ramp").options].some((o) => o.value === cur)) $("#lp-ramp").value = cur;
+    if (mode === "single" || !l?.geojson || !$("#lp-field").value) { $("#lp-sym-preview").innerHTML = ""; return null; }
+    try {
+      const sym = makeSymbology(l, mode, $("#lp-field").value, { ramp: $("#lp-ramp").value, classes: +$("#lp-classes").value, method: $("#lp-method").value });
+      $("#lp-sym-preview").innerHTML = sym.legend.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.label)}</span><span>${c.n}</span></div>`).join("");
+      return sym;
+    } catch (e) { $("#lp-sym-preview").innerHTML = `<p class="hint" style="color:var(--warn)">${esc(e.message)}</p>`; return null; }
+  }
+  ["#lp-sym", "#lp-field", "#lp-ramp", "#lp-classes", "#lp-method"].forEach((s) => $(s).addEventListener("change", () => syncSymUi()));
   function syncPropsUi() {
     const v = $("#lp-display").value;
     const rgbLike = v.startsWith("c:") || v.startsWith("r:") || v === "p:";
@@ -115,7 +143,13 @@
     if (!l) return;
     l.name = $("#lp-name").value.trim() || l.name;
     setOpacity(l, $("#lp-opacity").value / 100);
-    if (l.type === "vector") { l.color = $("#lp-color").value; l.leaflet?.setStyle((f) => vecStyle(l, f)); }
+    if (l.type === "vector") {
+      l.color = $("#lp-color").value;
+      if ($("#lp-sym").value === "single") delete l.symbology;
+      else { const sym = syncSymUi(); if (sym) l.symbology = sym; }
+      l.leaflet?.setStyle((f) => vecStyle(l, f));
+      l.leaflet?.eachLayer((m) => m.setStyle && m.feature && m.setStyle(vecStyle(l, m.feature)));
+    }
     $("#dlg-lprops").close();
     if (l.type === "raster") {
       const v = $("#lp-display").value, style = { stretch: $("#lp-stretch").value, cmap: $("#lp-cmap").value || null };
@@ -125,7 +159,7 @@
       else if (v.startsWith("r:")) l.render = { rgb: v.slice(2).split(",").map(Number) };
       else if (v.startsWith("b:")) l.render = { band: +v.slice(2), ...style };
       else l.render = { index: l.render.index, formula: l.render.formula, ...style };
-      try { await renderRaster(l); } catch (e) { toast(e.message, true); }
+      try { await renderRaster(l); } catch (e) { toast(e, true); }
       if (an.resultId === l.id && l.legend?.kind === "continuous") showResult(l.legend);
     }
     renderContents();

@@ -30,6 +30,8 @@
     const n = layers.filter((l) => l.type === "raster" && stSel[l.id]?.on).reduce((a, l) => a + ((l.derived || l.render?.index || l.render?.formula) ? 1 : stSel[l.id].bands.size), 0);
     $("#st-est").textContent = n ? `${n} band${n === 1 ? "" : "s"} in the stacked image${ref?.info ? ` · grid of ${ref.info.width.toLocaleString()} × ${ref.info.height.toLocaleString()} px before area / pixel-size options` : ""}` : "Tick at least one layer.";
   }
+  ($("#st-factor").closest("label") || $("#st-factor")).insertAdjacentHTML("afterend",
+    LF.html.resampling("st-method", { auto: "Default (bilinear; class maps nearest)", only: ["bilinear", "cubic", "cubic_spline", "lanczos", "average", "med", "nearest"] }));
   $("#st-ref").onchange = updateStackEst;
   $("#st-run").onclick = async () => {
     const err = $("#st-error"); err.classList.add("hidden");
@@ -44,7 +46,7 @@
     const btn = $("#st-run"); btn.disabled = true;
     $("#st-result").classList.add("hidden");
     try {
-      const job = await api("/api/stack", { method: "POST", json: { items, ref: ref.path, clip: getClip("st-area"), factor: +$("#st-factor").value || 1, name: $("#st-name").value || "stack" } });
+      const job = await api("/api/stack", { method: "POST", json: { items, ref: ref.path, clip: getClip("st-area"), factor: +$("#st-factor").value || 1, resampling: $("#st-method").value || null, name: $("#st-name").value || "stack" } });
       const done = await trackJob(job, { tool: "stack", save: "stack", title: "Stacking layers" });
       const r = done.result;
       const out = await addRasterFromPath(r.path, { name: $("#st-name").value || "stack" });

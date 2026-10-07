@@ -1,4 +1,4 @@
-  // + Add data: rasters, vectors, tables and pictures from the computer.
+  // Add data (Insert ▸ Add data, File ▸ Add data, or drop files): rasters, vectors, tables and pictures from the computer.
   // (part of app.js: the server joins webapp/static/app/parts.json in order, inside one closure)
 
   // ------------------------------------------------------------------ add data
@@ -69,9 +69,7 @@
     }
     status(`Added ${files.length} file${files.length > 1 ? "s" : ""}`);
   }
-  $("#btn-add-data").onclick = () => $("#add-file").click();
   $("#add-file").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
-  $("#btn-add-ws").onclick = () => openWorkspace();
 
   // drop files anywhere on the window
   let dragDepth = 0;
@@ -87,6 +85,6 @@
     if (e.target.closest("#drop, #an-drop, #ad-drop")) return;  // these upload boxes handle their own drops
     // entries must be read during the event; folders (e.g. a .SAFE product) only show up this way
     const entries = [...(e.dataTransfer.items || [])].map((i) => i.kind === "file" && i.webkitGetAsEntry ? i.webkitGetAsEntry() : null);
-    if (entries.some((x) => x?.isDirectory)) addDropped(entries.filter(Boolean)).catch((err) => toast(err.message, true));
+    if (entries.some((x) => x?.isDirectory)) addDropped(entries.filter(Boolean)).catch((err) => toast(err, true));
     else addFiles(e.dataTransfer.files);
   });

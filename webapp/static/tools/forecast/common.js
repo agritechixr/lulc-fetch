@@ -15,7 +15,7 @@
       const list = await LF.api("/api/tables").catch(() => []);
       const cur = want || sel.value;
       sel.innerHTML = list.length ? list.map((t) => `<option value="${LF.esc(t.path)}">${LF.esc(t.name)}${t.rows != null ? ` · ${t.rows.toLocaleString()} rows` : ""}</option>`).join("")
-        : `<option value="">No tables yet: Forecast ▸ Get AQI & weather data, or + Add data (CSV / Excel)</option>`;
+        : `<option value="">No tables yet: Forecast ▸ Get AQI & weather data, or Insert ▸ Add data (CSV / Excel)</option>`;
       if (cur && list.some((t) => t.path === cur)) sel.value = cur;
       return sel.value;
     },

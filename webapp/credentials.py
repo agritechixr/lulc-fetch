@@ -38,6 +38,25 @@ PROVIDERS = {
         "fields": {"username": "ERS username", "token": "M2M application token"},
         "secret": {"token"},
     },
+    "anthropic": {
+        "title": "Anthropic (Claude) — optional, for the Assistant",
+        "help": "Not required: the Assistant works with a free local model. With your own Anthropic API key it can plan with "
+                "Claude instead (paid per use by you, to Anthropic).",
+        "signup": "https://console.anthropic.com/",
+        "fields": {"api_key": "API key"},
+        "secret": {"api_key"},
+    },
+    "llm_api": {
+        "title": "Online models for the Assistant (optional, free tiers)",
+        "help": "Not required. A key for one of these lets the Assistant plan with a large online model instead of one on this "
+                "computer. Each has a free tier (a limited number of requests per minute / day); you only need the one you use.",
+        "signup": "https://huggingface.co/settings/tokens",
+        "fields": {"huggingface": "Hugging Face token (hf_…)", "groq": "Groq API key", "openrouter": "OpenRouter API key",
+                   "gemini": "Google Gemini API key", "mistral": "Mistral API key", "cerebras": "Cerebras API key",
+                   "custom": "Key for the custom address (if it needs one)"},
+        "secret": {"huggingface", "groq", "openrouter", "gemini", "mistral", "cerebras", "custom"},
+        "optional": True,
+    },
     "planetary_computer": {
         "title": "Microsoft Planetary Computer (optional)",
         "help": "Not required. A subscription key only raises rate limits.",
@@ -133,7 +152,7 @@ def status() -> dict:
             "fields": [{"name": f, "label": label, "secret": f in spec["secret"], "set": bool(values[f]),
                         "display": None if f in spec["secret"] or not values[f] else values[f]}
                        for f, label in spec["fields"].items()],
-            "complete": all(values.values()),
+            "complete": any(values.values()) if spec.get("optional") else all(values.values()),   # optional: any one key is enough
         }
     return out
 

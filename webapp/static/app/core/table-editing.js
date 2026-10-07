@@ -10,7 +10,7 @@
       if (!t.edit) return await startEdit(t);
       if (isDirty(t)) return await askSaveEdits(t);
       await finishEdit(t, "discard");
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   }
   async function startEdit(t) {
     t.sel = new Set(); t.pending = new Map(); t.hist = [];
@@ -78,7 +78,7 @@
       const name = $("#se-name").value.trim();
       if (mode === "new" && !name) return toast("Give the new one a name", true);
       $("#dlg-save-edits").close();
-      try { await finishEdit(t, mode, name); } catch (e) { toast(e.message, true); }
+      try { await finishEdit(t, mode, name); } catch (e) { toast(e, true); }
     };
     $("#se-overwrite").onclick = go("overwrite");
     $("#se-new").onclick = go("new");
@@ -115,7 +115,7 @@
       if (act === "save") return askSaveEdits(t);
       if (act === "discard") { if (confirm("Throw away all changes since you started editing? The original stays as it was.")) await finishEdit(t, "discard"); return; }
       if (act === "python") return openPython(t);
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   }
 
   // ---- tables on the server
@@ -280,7 +280,7 @@
             t.pending.set(key, raw.trim() === "" ? null : raw);
             td.classList.add("dirty");
           }
-        } catch (e) { toast(e.message, true); }
+        } catch (e) { toast(e, true); }
       }
       const shown = t.pending?.has(key) ? t.pending.get(key) : d.rows[k][i];
       td.innerHTML = fmtCell(shown, type);
@@ -305,7 +305,7 @@
       if (t.kind === "attr") { attrFieldOp(t, { op: "rename_field", old: col, new: nw.trim() }); toast(`Renamed to ${nw.trim()}`); }
       else await tableOps(t, [{ op: "rename_field", old: col, new: nw.trim() }], `Renamed field ${col} → ${nw.trim()}`);
       if (t.sort === col) t.sort = null;
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   }
   async function deleteField(t, col) {
     if (!confirm(`Delete the field “${col}”? (Undo is available.)`)) return;
@@ -313,13 +313,13 @@
       if (t.kind === "attr") { attrFieldOp(t, { op: "delete_field", name: col }); toast(`Deleted ${col}`); }
       else await tableOps(t, [{ op: "delete_field", name: col }], `Deleted field ${col}`);
       if (t.sort === col) t.sort = null;
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   }
   async function castField(t, col, type) {
     try {
       if (t.kind === "attr") { attrFieldOp(t, { op: "cast", column: col, type }); toast(`${col} converted`); }
       else await tableOps(t, [{ op: "cast", column: col, type }], `Converted ${col} to ${type}`);
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   }
 
   async function restoreTable(it) {
@@ -330,7 +330,7 @@
       const t = vw.tabs.find((x) => x.path === it.path);
       if (t) { t.data = null; t.stats = null; if (vw.active === t.key) loadTab(t); }
       toast("Previous version restored");
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   }
 
   // ---- Python editor: change the table / attributes with pandas, in a separate process
@@ -410,7 +410,7 @@
       try {
         const job = await api("/api/python/run", { method: "POST", json: body });
         r = (await trackJob(job, { title: apply ? "Running Python" : "Testing Python" })).result;
-      } catch (e) { if (notCancelled(e)) toast(e.message, true); return; }
+      } catch (e) { if (notCancelled(e)) toast(e, true); return; }
       const out = $("#py-out");
       out.textContent = r.ok ? (r.output || "(no printed output)") : r.error;
       out.classList.toggle("err", !r.ok);

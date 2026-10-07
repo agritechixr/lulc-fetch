@@ -39,6 +39,7 @@ class JobRequest(BaseModel):
     year: int = 2021
     product_names: list[str] = Field(default_factory=list)
     entity_ids: list[str] = Field(default_factory=list)  # Landsat scene ids for EarthExplorer
+    resampling: str | None = Field(None, pattern=r"^(nearest|bilinear|cubic|bicubic|cubic_spline|lanczos|average|mode|min|max|med|q1|q3)$")  # 20/60 m bands onto the grid (default bilinear)
 
 
 @router.post("/api/jobs")
@@ -127,7 +128,11 @@ def create_job(req: JobRequest):
 
     log.info("Output grid: %dx%d px at %g m", grid.width, grid.height, grid.res)
     params = req.model_dump(exclude={"aoi"}) | {"grid": f"{grid.width}x{grid.height} px @ {grid.res:g} m"}
-    return jobs.submit(req.kind, title, params, run).to_dict()
+    def run_with_resampling(job):   # the chosen resampling for this job's band reads (quality codes stay nearest)
+        from lulc_fetch import resample
+        with resample.using(req.resampling):
+            return run(job)
+    return jobs.submit(req.kind, title, params, run_with_resampling if req.resampling else run).to_dict()
 
 
 @router.get("/api/jobs")

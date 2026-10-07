@@ -10,10 +10,76 @@
   const selectedLayer = () => layers.find((l) => l.id === selectedId) || null;
   const getLayer = (id) => layers.find((l) => l.id === id) || null;
 
+  // ---- style by attribute: a colour per value of a field (categories), or classes of a number field (graduated)
+  const RAMPS = {
+    Viridis: ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"], Greens: ["#edf8e9", "#a1d99b", "#41ab5d", "#006d2c", "#00441b"],
+    "Red–yellow–green": ["#d7191c", "#fdae61", "#ffffbf", "#a6d96a", "#1a9641"], Blues: ["#eff3ff", "#9ecae1", "#4292c6", "#08519c", "#08306b"],
+    Reds: ["#fee5d9", "#fcae91", "#fb6a4a", "#cb181d", "#67000d"], Magma: ["#000004", "#51127c", "#b73779", "#fc8961", "#fcfdbf"],
+    "Blue–red": ["#2166ac", "#92c5de", "#f7f7f7", "#f4a582", "#b2182b"],
+  };
+  const CAT_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+    "#393b79", "#637939", "#8c6d31", "#843c39", "#7b4173", "#3182bd", "#e6550d", "#31a354", "#756bb1", "#636363"];
+  function rampColor(ramp, x) {   // x in 0…1
+    const c = RAMPS[ramp] || RAMPS.Viridis, p = Math.min(Math.max(x, 0), 1) * (c.length - 1), i = Math.min(Math.floor(p), c.length - 2), f = p - i;
+    const h = (s) => [1, 3, 5].map((k) => parseInt(s.slice(k, k + 2), 16));
+    const a = h(c[i]), b = h(c[i + 1]);
+    return "#" + a.map((v, k) => Math.round(v + (b[k] - v) * f).toString(16).padStart(2, "0")).join("");
+  }
+  function jenks(vals, n) {   // natural breaks (Fisher–Jenks) on up to 1,000 values
+    const v = vals.length > 1000 ? vals.filter((_, i) => i % Math.ceil(vals.length / 1000) === 0) : vals, m = v.length;
+    if (m <= n) return [...new Set(v)];
+    const lower = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0)), varc = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(Infinity));
+    for (let j = 1; j <= n; j++) { lower[1][j] = 1; varc[1][j] = 0; }
+    for (let l = 2; l <= m; l++) {
+      let s1 = 0, s2 = 0, w = 0;
+      for (let k = 1; k <= l; k++) {
+        const i3 = l - k + 1, val = v[i3 - 1]; s2 += val * val; s1 += val; w++;
+        const va = s2 - (s1 * s1) / w;
+        if (i3 > 1) for (let j = 2; j <= n; j++) if (varc[l][j] >= va + varc[i3 - 1][j - 1]) { lower[l][j] = i3; varc[l][j] = va + varc[i3 - 1][j - 1]; }
+      }
+      lower[l][1] = 1; varc[l][1] = s2 - (s1 * s1) / w;
+    }
+    const br = []; let k = m;
+    for (let j = n; j >= 2; j--) { const id = lower[k][j] - 2; br.unshift(v[id]); k = lower[k][j] - 1; }
+    return br;
+  }
+  /** a symbology from a field: categories (a colour per value) or graduated (n classes of a number field) */
+  function makeSymbology(l, mode, field, opts = {}) {
+    const vals = l.geojson.features.map((f) => f.properties?.[field]);
+    if (mode === "categories") {
+      const counts = new Map();
+      vals.forEach((v) => { const k = v == null || v === "" ? "(empty)" : String(v); counts.set(k, (counts.get(k) || 0) + 1); });
+      const keys = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+      const top = keys.slice(0, 19), map = {};
+      top.forEach((k, i) => { map[k] = opts.ramp && RAMPS[opts.ramp] ? rampColor(opts.ramp, top.length > 1 ? i / (top.length - 1) : 0.5) : CAT_COLORS[i % CAT_COLORS.length]; });
+      return { mode, field, ramp: opts.ramp || "", map, other: keys.length > top.length ? "#bdbdbd" : null,
+               legend: [...top.map((k) => ({ label: k, color: map[k], n: counts.get(k) })), ...(keys.length > top.length ? [{ label: `Other (${keys.length - top.length} values)`, color: "#bdbdbd", n: keys.slice(19).reduce((a, k) => a + counts.get(k), 0) }] : [])] };
+    }
+    const nums = vals.map(Number).filter((v, i) => vals[i] !== null && vals[i] !== "" && Number.isFinite(v)).sort((a, b) => a - b);
+    if (!nums.length) throw new Error(`“${field}” has no numbers: use Categories`);
+    const n = Math.max(2, Math.min(opts.classes || 5, 9)), lo = nums[0], hi = nums[nums.length - 1];
+    let breaks = opts.method === "equal" ? Array.from({ length: n - 1 }, (_, i) => lo + (hi - lo) * (i + 1) / n)
+      : opts.method === "jenks" ? jenks(nums, n) : Array.from({ length: n - 1 }, (_, i) => nums[Math.floor(nums.length * (i + 1) / n)]);
+    breaks = [...new Set(breaks)].sort((a, b) => a - b);
+    const colors = Array.from({ length: breaks.length + 1 }, (_, i) => rampColor(opts.ramp || "Viridis", breaks.length ? i / breaks.length : 0.5));
+    const edges = [lo, ...breaks, hi];
+    return { mode: "graduated", field, ramp: opts.ramp || "Viridis", method: opts.method || "quantile", classes: n, breaks, colors,
+             legend: colors.map((c, i) => ({ label: `${fmtv(edges[i])} – ${fmtv(edges[i + 1])}`, color: c, n: nums.filter((v) => (i === 0 || v >= edges[i]) && (i === colors.length - 1 || v < edges[i + 1])).length })) };
+  }
+  function symColor(sym, f) {
+    const v = f?.properties?.[sym.field];
+    if (sym.mode === "categories") return sym.map[v == null || v === "" ? "(empty)" : String(v)] || sym.other || "#bdbdbd";
+    const x = Number(v);
+    if (v == null || v === "" || !Number.isFinite(x)) return "#bdbdbd";
+    let i = 0;
+    while (i < sym.breaks.length && x >= sym.breaks[i]) i++;
+    return sym.colors[i];
+  }
+
   function vecStyle(l, f) {
-    const color = (f && l.classColors?.[f.properties?.class]) || l.color || "#2563eb";
+    const color = (f && l.symbology?.field && symColor(l.symbology, f)) || (f && l.classColors?.[f.properties?.class]) || l.color || "#2563eb";
     return { color, fillColor: color, weight: l.weight ?? 2, opacity: l.opacity,
-             fillOpacity: (l.fillOpacity ?? 0.12) * l.opacity, dashArray: l.dash || null };
+             fillOpacity: (l.symbology?.field ? (l.fillOpacity ?? 0.6) : (l.fillOpacity ?? 0.12)) * l.opacity, dashArray: l.dash || null };
   }
 
   function featurePopup(f, l) {
@@ -25,16 +91,19 @@
   function buildLeaflet(l) {
     l.leaflet?.remove();
     l.leaflet = null;
+    const pane = l._pane ? { pane: l._pane } : {};   // Swipe puts the two compared layers in panes of their own
     if (l.type === "vector") {
       l.leaflet = L.geoJSON(l.geojson, {
+        ...pane,
         bubblingMouseEvents: false,
         style: (f) => vecStyle(l, f),
-        pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 6, ...vecStyle(l, f), fillOpacity: 0.85 * l.opacity, bubblingMouseEvents: false }),
+        pointToLayer: (f, ll) => L.circleMarker(ll, { ...pane, radius: 6, ...vecStyle(l, f), fillOpacity: 0.85 * l.opacity, bubblingMouseEvents: false }),
         // A selected raster wins: clicking on top of a polygon still reads the raster's pixel values.
         onEachFeature: (f, lyr) => lyr.on("contextmenu", (e) => {   // the map's right-click menu also on shapes
-          L.DomEvent.stop(e); if (picking || activeDraw) return;
+          L.DomEvent.stop(e); if (picking || activeDraw || measure.on) return;
           e.originalEvent?.preventDefault(); showMapMenu(e.latlng, e.originalEvent.clientX, e.originalEvent.clientY);
         }).on("click", (e) => {
+          if (measure.on) return;   // the map's click adds the point
           if (picking || activeDraw) return;
           const sel = selectedLayer();
           if (sel?.type === "raster" && sel.visible) identify(e.latlng);
@@ -42,7 +111,7 @@
         }),
       });
     } else if ((l.type === "image" && l.url) || (l.type === "raster" && l.image)) {
-      l.leaflet = L.imageOverlay(l.url || l.image, l.bounds, { opacity: l.opacity, interactive: false });
+      l.leaflet = L.imageOverlay(l.url || l.image, l.bounds, { ...pane, opacity: l.opacity, interactive: false });
     }
     if (l.leaflet && l.visible) l.leaflet.addTo(map);
   }
@@ -74,6 +143,7 @@
   }
 
   function restack() {
+    map3dChanged();
     for (let i = layers.length - 1; i >= 0; i--) {
       const l = layers[i];
       if (l.visible && l.leaflet && map.hasLayer(l.leaflet)) l.leaflet.bringToFront();
@@ -87,6 +157,7 @@
   }
   function setOpacity(l, o) {
     l.opacity = o;
+    map3dChanged();
     if (l.type === "vector") l.leaflet?.setStyle((f) => vecStyle(l, f));
     else l.leaflet?.setOpacity(o);
     saveLayers();
@@ -99,17 +170,18 @@
   function zoomTo(l) {
     if (!l) return;
     const b = layerBounds(l);
-    if (b?.isValid()) { map.fitBounds(b, { padding: [30, 30], maxZoom: 17 }); status(`Zoomed to ${l.name}`); }
+    if (b?.isValid()) { map.fitBounds(b, { padding: [30, 30], maxZoom: 17 }); zoom3dTo(b); status(`Zoomed to ${l.name}`); }
     else toast(`${l.name} has no extent to zoom to yet`, true);
   }
   function zoomAll() {
     let b = null;
     layers.filter((l) => l.visible).forEach((l) => { const lb = layerBounds(l); if (lb?.isValid()) b = b ? b.extend(lb) : L.latLngBounds(lb.getSouthWest(), lb.getNorthEast()); });
-    if (b) map.fitBounds(b, { padding: [30, 30] }); else toast("No visible layers to zoom to");
+    if (b) { map.fitBounds(b, { padding: [30, 30] }); zoom3dTo(b); } else toast("No visible layers to zoom to");
   }
   function selectLayer(id) {
     selectedId = id;
-    $$("#layer-list .layer").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
+    refreshRibbon();
+    $$(".layer-list .layer").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
   }
   function moveLayer(id, toIndex) {
     const i = layers.findIndex((l) => l.id === id);
@@ -123,6 +195,7 @@
 
   // raster layers are rendered by the server into a map-ready PNG (display style lives in l.render)
   async function renderRaster(l, { signal } = {}) {
+    saveLayers();   // a new style is an Undo step (the picture that follows belongs to it)
     l.busy = true; l.error = null;
     mapBusy.start(l);
     renderContents();
@@ -142,7 +215,7 @@
       l.busy = false;
       mapBusy.end(l);
       renderContents();
-      saveLayers();
+      saveLayers({ amend: true });
     }
   }
 
@@ -196,6 +269,9 @@
 
   function legendHtml(l) {
     const g = l.legend;
+    if (l.type === "vector" && l.symbology?.legend?.length) {
+      return `<div class="lyr-meta">${esc(l.symbology.field)}</div><div class="lyr-classes">${l.symbology.legend.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.label)}</span><span>${c.n}</span></div>`).join("")}</div>`;
+    }
     if (l.type === "vector" && l.classes?.length) {
       return `<div class="lyr-classes">${l.classes.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span><span>${l.geojson.features.filter((f) => f.properties.class === c.name).length}</span></div>`).join("")}</div>`;
     }
@@ -214,6 +290,7 @@
   }
 
   function layerIcon(l) {
+    if (l.type === "vector" && l.symbology?.legend?.length) return `<span class="lyr-ic" style="background:conic-gradient(${l.symbology.legend.slice(0, 6).map((c, i, a) => `${c.color} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(",")})"></span>`;
     if (l.type === "vector") return `<span class="lyr-ic" style="border-color:${l.color};color:${l.color};background:${l.color}22">${svg("vector", 2.2)}</span>`;
     const g = l.legend;
     if (g?.kind === "continuous") return `<span class="lyr-ic" style="background:linear-gradient(135deg, ${g.colors.join(",")})"></span>`;
@@ -222,14 +299,17 @@
   }
 
   function renderContents() {
-    $("#layer-list").innerHTML = [...pendingLoads.values()].map((n) => `<div class="layer pending"><div class="lyr-row"><span class="spinner"></span>
-        <span class="lyr-name">${esc(n)}<small>Opening the file…</small></span></div></div>`).join("") + layers.map((l) => `
+    // in a 3D map height layers (DEMs) are listed under 3D data, the others under 2D data (one drawing order for both);
+    // a 2D map has no 3D data: a DEM there is a flat raster, marked ⚠
+    const in3d = (l) => is3D() && isSurface(l);
+    const row = (l) => `
       <div class="layer ${l.id === selectedId ? "selected" : ""} ${l.open ? "open" : ""}" data-id="${esc(l.id)}" draggable="true">
         <div class="lyr-row">
           <button class="lyr-caret" title="Show legend & opacity">▶</button>
           <input type="checkbox" ${l.visible ? "checked" : ""} title="Show / hide">
           ${layerIcon(l)}
           <span class="lyr-name" title="${esc(l.name)}${l.path ? "\n" + esc(l.path) : ""}">${esc(l.name)}<small>${esc(displayLabel(l))}</small></span>
+          ${!is3D() && isSurface(l) ? `<span class="lyr-warn" title="${esc(WARN_3D_IN_2D)}" aria-label="3D data in a 2D map">⚠</span>` : ""}
           ${l.busy ? '<span class="spinner"></span>' : ""}
           <button class="lyr-zoom" title="Zoom to layer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M11 8v6M8 11h6"/></svg></button>
           <button class="lyr-more" title="Layer options">⋯</button>
@@ -241,8 +321,12 @@
           <label>Opacity <input type="range" min="0" max="100" value="${Math.round(l.opacity * 100)}" data-op></label>
           ${l.path ? `<div class="lyr-meta">${esc(l.path)}${l.info ? ` · ${esc(l.info.crs)} · ${l.info.width}×${l.info.height}` : ""}</div>` : ""}
         </div>
-      </div>`).join("");
-    $$("#layer-list .layer[data-id]").forEach((el) => {
+      </div>`;
+    $("#layer-list").innerHTML = [...pendingLoads.values()].map((n) => `<div class="layer pending"><div class="lyr-row"><span class="spinner"></span>
+        <span class="lyr-name">${esc(n)}<small>Opening the file…</small></span></div></div>`).join("") + layers.filter((l) => !in3d(l)).map(row).join("");
+    $("#layer-list-3d").innerHTML = layers.filter(in3d).map(row).join("");
+    $("#sect-3d").classList.toggle("hidden", !is3D());
+    $$(".layer-list .layer[data-id]").forEach((el) => {
       const l = getLayer(el.dataset.id);
       el.onclick = (e) => { if (!e.target.closest("input, button")) selectLayer(l.id); };
       el.ondblclick = (e) => { if (!e.target.closest("input, button")) zoomTo(l); };
@@ -265,10 +349,14 @@
         if (!id || id === l.id) return;
         e.preventDefault(); e.stopPropagation();
         const target = layers.findIndex((x) => x.id === l.id), from = layers.findIndex((x) => x.id === id);
+        if (is3D()) setLayer3d(getLayer(id), isSurface(l));   // dropped among the other section's layers: it moves to that section
         moveLayer(id, from < target ? target : target);
       };
     });
     updateSectionCounts();
+    map3dChanged();
+    swipeLayersChanged();
+    refreshRibbon();
     refreshAnalyzeInputs();
     if (pcaState.schema) refreshPcaInputs();
     if (currentTool === "raster2table") refreshRtInputs();
@@ -285,6 +373,31 @@
     if (currentTool === "export") { refreshExportLayers(); if (!exportLayer()) renderExportForm(); }
   }
 
+  // a raster in 3D data (its values are heights: the land in a 3D map) or in 2D data (draped)
+  const WARN_3D_IN_2D = "3D data (heights) in a 2D map: it is shown flat here. Open or paste it into a 3D map (Insert ▸ 3D) to see the land in 3D.";
+  function setLayer3d(l, on) {
+    if (on && !is3D()) return toast("⚠ A 2D map has no 3D data: open a 3D map (Insert ▸ 3D) to use a raster's values as heights", true);
+    if (!l || l.type !== "raster" || isSurface(l) === on) return;
+    l.view3d = on ? "surface" : "drape";
+    renderContents(); saveLayers();
+    status(on ? `${l.name} is in 3D data: in a 3D map its values are the heights` : `${l.name} is in 2D data: in a 3D map it is draped`);
+  }
+  // drop a layer on a section's empty space (or its header) to move it there
+  [["#sect-2d", false], ["#sect-3d", true]].forEach(([sel, on]) => {
+    const sect = $(sel);
+    sect.addEventListener("dragover", (e) => { if ([...e.dataTransfer.types].includes("text/layer")) { e.preventDefault(); sect.classList.add("drag-over"); } });
+    sect.addEventListener("dragleave", (e) => { if (!sect.contains(e.relatedTarget)) sect.classList.remove("drag-over"); });
+    sect.addEventListener("drop", (e) => {
+      sect.classList.remove("drag-over");
+      const id = e.dataTransfer.getData("text/layer");
+      if (!id) return;
+      e.preventDefault();
+      const l = getLayer(id);
+      if (l?.type === "raster") setLayer3d(l, on);
+      else if (l && on) toast("Only rasters can be 3D data (their values become heights)", true);
+    });
+  });
+
   function onLayerRemoved(l) {
     if (vw.tabs.some((t) => t.key === "attr:" + l.id)) closeTab("attr:" + l.id);
     if (l.id === "aoi") { state.aoi = null; $("#aoi-summary").classList.add("hidden"); $("#aoi-warn").classList.add("hidden"); $("#aoi-emb").classList.add("hidden"); }
@@ -293,16 +406,17 @@
   }
 
   // persistence: layer list survives reloads (preview images are not kept)
-  function saveLayers() {
+  function saveLayers(opts) {
     try {
       if (!inProject()) {
-        const keep = layers.filter((l) => l.type !== "image").map(({ leaflet, image, busy, error, legend, _original, ...rest }) =>
-          _original !== undefined ? { ...rest, geojson: { ...rest.geojson, features: JSON.parse(_original) } } : rest);
-        const text = JSON.stringify(keep);
+        const text = JSON.stringify(layers.filter((l) => l.type !== "image").map(layerState));
         if (text.length < 4e6) localStorage.setItem("lulc-layers", text);
+        localStorage.setItem("lulc-saved-at", Date.now());
+        saveMaps();
       }
     } catch {}
     scheduleProjectSave();
+    historyNote(opts);   // Undo / Redo
   }
   function restoreLayers(list) {
     let saved = [];

@@ -20,7 +20,7 @@
         await dlStatus(true);
         toast("YOLO & SAM add-on installed");
         onReady?.();
-      } catch (err) { if (notCancelled(err)) toast(err.message, true); }
+      } catch (err) { if (notCancelled(err)) toast(err, true); }
       finally { btn.disabled = false; }
     };
     return false;

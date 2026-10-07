@@ -175,7 +175,7 @@
       showResult(res);
       status(`${out.name} computed. It's in Contents.`);
     } catch (e) {
-      if (id === an.reqId && notCancelled(e)) toast(e.message, true);
+      if (id === an.reqId && notCancelled(e)) toast(e, true);
     } finally {
       if (id === an.reqId) $("#an-busy").classList.add("hidden");
     }
@@ -256,7 +256,7 @@
       const r = done.result;
       download(r.url, r.name);
       toast(`Saved ${r.name} (${r.layers.length} band${r.layers.length > 1 ? "s" : ""})`);
-    } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+    } catch (e) { if (notCancelled(e)) toast(e, true); }
   }
   $("#an-export-many").onclick = () => {
     if (!an.info) return toast("Choose an image first", true);

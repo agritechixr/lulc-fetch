@@ -9,10 +9,10 @@
     if (!rm.ready) { rm.ready = true; renderRmModels(); renderRmSettings(true); }
   }
   async function refreshRm() {
-    try { await initRasterMl(); } catch (e) { return toast(e.message, true); }
+    try { await initRasterMl(); } catch (e) { return toast(e, true); }
     const rasters = layers.filter((l) => l.type === "raster" && !l.derived);
     const sel = $("#rm-input"), cur = rm.layer?.id || sel.value;
-    sel.innerHTML = `<option value="">${rasters.length ? "Choose a raster layer…" : "No raster layers yet: add one with + Add data"}</option>` +
+    sel.innerHTML = `<option value="">${rasters.length ? "Choose a raster layer…" : "No raster layers yet: add one with Insert ▸ Add data"}</option>` +
       rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info?.count ?? "?"} bands</option>`).join("");
     if (cur && rasters.some((l) => l.id === cur)) sel.value = cur;
     else if (!rm.layer && rasters.length === 1) sel.value = rasters[0].id;

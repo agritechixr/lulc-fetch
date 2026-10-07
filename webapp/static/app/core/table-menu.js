@@ -19,7 +19,7 @@
   // start editing if needed (tables are edited on a working copy; nothing is saved until Save)
   async function ensureEdit(t) {
     if (t.edit) return true;
-    try { await startEdit(t); } catch (e) { toast(e.message, true); return false; }
+    try { await startEdit(t); } catch (e) { toast(e, true); return false; }
     toast("Editing started: Save keeps the changes (as they are or as a new copy), Undo takes one back");
     return true;
   }
@@ -73,7 +73,7 @@
       try {
         if (t.kind === "attr") attrDeleteRows(t, picked);
         else await tableOps(t, [{ op: "delete_rows", rows: picked }], `Deleted ${picked.length} row(s)`);
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toast(e, true); }
     };
     const editCell = async () => {
       if (!(await ensureEdit(t))) return;

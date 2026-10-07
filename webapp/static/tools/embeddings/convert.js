@@ -33,7 +33,7 @@
       const setName = (l) => l && autoName($("#ec-name"), LF.emb.name(l.name, st.to.replace("-", "_")));
 
       async function open() {
-        try { st.meta ||= await LF.emb.meta(); } catch (e) { toast(e.message, true); return; }
+        try { st.meta ||= await LF.emb.meta(); } catch (e) { toast(e, true); return; }
         renderLayers();
       }
       function renderLayers() {

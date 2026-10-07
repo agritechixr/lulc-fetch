@@ -61,7 +61,7 @@
 
       async function open() {
         if (!(await renderAddon($("#tab-agridisease")))) return;
-        try { st.schema = await LF.agri.schema(true); } catch (e) { toast(e.message, true); return; }
+        try { st.schema = await LF.agri.schema(true); } catch (e) { toast(e, true); return; }
         limitDevices($("#ad-device"));
         renderModels();
         renderCrops();
@@ -92,7 +92,7 @@
         }
         const setModels = async (json, msg) => {
           try { st.schema.models = await api("/api/agri/models", { method: "POST", json }); renderModels(); renderCrops(); toast(msg); }
-          catch (err) { toast(err.message, true); }
+          catch (err) { toast(err, true); }
         };
         $$("[data-ad-pick]", box).forEach((b) => b.onclick = async (e) => {
           e.preventDefault();
@@ -168,7 +168,7 @@
           const fd = new FormData();
           files.slice(i, i + 20).forEach((f) => fd.append("files", f));
           try { added += addPhotos((await api("/api/agri/photos/upload", { method: "POST", body: fd })).photos); }
-          catch (e) { toast(e.message, true); break; }
+          catch (e) { toast(e, true); break; }
         }
         status(`Added ${added} photo${added === 1 ? "" : "s"}`);
       }
@@ -183,7 +183,7 @@
           if (!r.photos.length) return toast(`No photos in ${r.folder}${$("#ad-recursive").checked ? "" : " (tick “with sub-folders” to look deeper)"}`, true);
           const n = addPhotos(r.photos);
           toast(`Added ${n} photo${n === 1 ? "" : "s"}${r.truncated ? " (the first 5,000)" : ""}`);
-        } catch (e) { toast(e.message, true); }
+        } catch (e) { toast(e, true); }
       };
       $("#ad-clear").onclick = () => { st.photos = []; savePhotos(); renderPhotos(); };
       const drop = $("#ad-drop");
@@ -235,7 +235,7 @@
           st.result.photos[i] = { ...r.photos[0], rechecked: true };
           recount();
           renderResult(i);
-        } catch (e) { btn.disabled = false; btn.textContent = "Diagnose again"; if (LF.notCancelled(e)) toast(e.message, true); }
+        } catch (e) { btn.disabled = false; btn.textContent = "Diagnose again"; if (LF.notCancelled(e)) toast(e, true); }
       }
 
       function renderResult(focus = null) {
@@ -260,7 +260,7 @@
           ${!st.showAll && n > LIMIT ? `<button class="btn" style="width:100%" data-ad-all>Show all ${n.toLocaleString()} photos</button>` : ""}`);
         $("[data-ad-table]", box).onclick = () => { const it = dataItems.find((d) => d.path === r.csv); it ? openItem(it) : addItem({ kind: "table", name: `${r.name}.csv`, path: r.csv }, { open: true }); };
         $("[data-ad-zoom]", box)?.addEventListener("click", () => { const l = layers.find((x) => x.path === r.geojson_path); if (l?.leaflet) map.fitBounds(l.leaflet.getBounds(), { maxZoom: 17, padding: [30, 30] }); });
-        $("[data-ad-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: (r.outputs?.[0] || r.csv).replace(/[\\/][^\\/]+$/, "") } }).catch((e) => toast(e.message, true));
+        $("[data-ad-reveal]", box).onclick = () => api("/api/project/reveal", { method: "POST", json: { path: (r.outputs?.[0] || r.csv).replace(/[\\/][^\\/]+$/, "") } }).catch((e) => toast(e, true));
         $("[data-ad-all]", box)?.addEventListener("click", () => { st.showAll = true; renderResult(); });
         $$("[data-ad-guide]", box).forEach((a) => a.onclick = (e) => { e.preventDefault(); openTool("agriguide", { crop: a.dataset.crop, disease: a.dataset.adGuide }); });
         $$("[data-ad-big]", box).forEach((im) => im.onclick = () => window.open(thumb(im.dataset.adBig, 0), "_blank", "noopener"));

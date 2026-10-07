@@ -25,7 +25,7 @@
     if (!id) { refreshTables(); refreshModels(); }
     if (id === "train" && mlx.schema) refreshTrainTables();
     if (id === "predict") refreshPredict();
-    if (id === "cluster" || id === "tsne") refreshUnsup(id === "cluster" ? "uc" : "ut").catch((e) => toast(e.message, true));
+    if (id === "cluster" || id === "tsne") refreshUnsup(id === "cluster" ? "uc" : "ut").catch((e) => toast(e, true));
     document.querySelector(".tool-body").scrollTop = 0;
   }
   function renderMlHub() {

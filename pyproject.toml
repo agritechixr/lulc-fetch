@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lulc-fetch"
-version = "0.0.2b0"
+version = "0.0.3b0"
 description = "Fetch Sentinel-2 imagery, LULC reference maps and high-res imagery for an AOI"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = ["fastapi", "uvicorn[standard]", "python-multipart", "keyring", "scikit-learn", "pyarrow", "joblib", "xgboost", "lightgbm", "openpyxl", "pandas"]
+web = ["fastapi", "uvicorn[standard]", "python-multipart", "keyring", "anthropic", "scikit-learn", "pyarrow", "joblib", "xgboost", "lightgbm", "openpyxl", "pandas"]
 # deep-learning tools (optional; the app can also install these itself)
 dl = ["torch", "torchvision", "segmentation-models-pytorch"]
 yolo = ["torch", "torchvision", "ultralytics"]   # AGPL-3.0: optional, never bundled

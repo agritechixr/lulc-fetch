@@ -55,7 +55,7 @@
     $("#bc-presets [data-pca]")?.addEventListener("click", () => {
       l.render = { pca: true, stretch: "auto" };
       bcMarkPreset();
-      renderRaster(l).catch((e) => toast(e.message, true));
+      renderRaster(l).catch((e) => toast(e, true));
     });
     $$("#bc-presets .bc-preset[data-k]").forEach((btn) => btn.onclick = () => {
       const bands = avail[+btn.dataset.k][1].map((x) => bm[x]);
@@ -79,7 +79,7 @@
     l.render = { rgb: [+$("#bc-r").value, +$("#bc-g").value, +$("#bc-b").value], stretch: $("#bc-stretch").value };
     bcMarkPreset();
     clearTimeout(bc.timer);
-    bc.timer = setTimeout(() => renderRaster(l).catch((e) => toast(e.message, true)), 150);
+    bc.timer = setTimeout(() => renderRaster(l).catch((e) => toast(e, true)), 150);
   }
   ["#bc-r", "#bc-g", "#bc-b", "#bc-stretch"].forEach((id) => $(id).onchange = bcApply);
   $("#bc-reset").onclick = () => {
@@ -89,7 +89,7 @@
     $("#bc-r").value = r; $("#bc-g").value = g; $("#bc-b").value = b;
     $("#bc-stretch").value = l.render.stretch === "none" ? "none" : "auto";
     bcMarkPreset();
-    renderRaster(l).catch((e) => toast(e.message, true));
+    renderRaster(l).catch((e) => toast(e, true));
   };
   $("#bc-ok").onclick = () => { bc.before = null; $("#dlg-bands").close(); };
   $("#bc-cancel").onclick = () => $("#dlg-bands").close();

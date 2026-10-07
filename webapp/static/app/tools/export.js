@@ -87,7 +87,7 @@
           const note = $('[data-save="export"] .save-note');
           note.innerHTML = `✓ Saved ${esc(r.saved.map((p) => p.split(/[\\/]/).pop()).join(", "))} in <code>${esc(r.saved_to)}</code> · <a href="#" data-reveal>Show in folder</a>`;
           note.classList.remove("hidden");
-          $("[data-reveal]", note).onclick = (ev) => { ev.preventDefault(); api("/api/project/reveal", { method: "POST", json: { path: r.saved[0] } }).catch((x) => toast(x.message, true)); };
+          $("[data-reveal]", note).onclick = (ev) => { ev.preventDefault(); api("/api/project/reveal", { method: "POST", json: { path: r.saved[0] } }).catch((x) => toast(x, true)); };
           toast(`Saved in ${r.saved_to}`);
           return;
         }

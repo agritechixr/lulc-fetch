@@ -17,7 +17,7 @@
       $(`#${p}-result`)?.classList.add("hidden");
       btn.disabled = true;
       try { await fn(); }
-      catch (e) { if (notCancelled(e)) { if (err) { err.textContent = e.message; err.classList.remove("hidden"); } else toast(e.message, true); } }
+      catch (e) { if (notCancelled(e)) { if (err) { err.textContent = e.message; err.classList.remove("hidden"); } else toast(e, true); } }
       finally { btn.disabled = false; }
     };
   }

@@ -94,7 +94,7 @@
       : `${esc(spec.desc)}${spec.backbone ? ` ${esc(spec.backbone)} backbone.` : ""} The model looks at tiles of ${spec.size} px.`;
     $("[data-od-forget]", $("#od-model-info"))?.addEventListener("click", async (e) => {
       e.preventDefault();
-      await api(`/api/det/models?folder=${encodeURIComponent(m.folder)}`, { method: "DELETE" }).catch((x) => toast(x.message, true));
+      await api(`/api/det/models?folder=${encodeURIComponent(m.folder)}`, { method: "DELETE" }).catch((x) => toast(x, true));
       od.model = "yolo_obb"; prefs.set("od-model", od.model); refreshOd();
     });
     // SAM outlines: only for box models
@@ -118,12 +118,12 @@
     const f = await pickFolder({ title: "Choose a detection model folder (made with Train detection model)", start: prefs.get("od-last", ""), okLabel: "Use this model" });
     if (!f) return;
     try { const r = await api("/api/det/models/add", { method: "POST", json: { folder: f } }); prefs.set("od-last", f); od.model = "custom:" + r.folder; prefs.set("od-model", od.model); refreshOd(); }
-    catch (e) { toast(e.message, true); }
+    catch (e) { toast(e, true); }
   };
   function renderOdLayers() {
     const rasters = odRasters(), sel = $("#od-layer"), cur = sel.value || od.layerId;
     sel.innerHTML = rasters.length ? rasters.slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)} · ${l.info?.count ?? "?"} bands</option>`).join("")
-      : `<option value="">Add a high-resolution image to Contents first (+ Add data)</option>`;
+      : `<option value="">Add a high-resolution image to Contents first (Insert ▸ Add data)</option>`;
     if (rasters.some((l) => l.id === cur)) sel.value = cur;
     odLayerChanged();
   }

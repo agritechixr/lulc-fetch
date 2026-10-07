@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import warnings
 from collections import defaultdict
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
@@ -14,7 +15,7 @@ from rasterio.errors import RasterioIOError
 from pystac import Item
 from rasterio.enums import Resampling
 
-from . import progress
+from . import progress, resample
 from .aoi import Grid
 from .raster import read_to_grid
 from .sources import Source
@@ -96,8 +97,8 @@ def read_band(source: Source, scene: Scene, band: str, grid: Grid, env: dict) ->
             href = source.href(item, band)
         except KeyError:
             continue
-        data = read_to_grid(href, grid, env, src_nodata=None if band == "QA" else 0,
-                            resampling=Resampling.nearest if is_scl else Resampling.bilinear)
+        data = read_to_grid(href, grid, env, src_nodata=None if band == "QA" else 0,   # the quality codes keep their values
+                            resampling=Resampling.nearest if is_scl else resample.pick(Resampling.bilinear))
         if not is_scl:
             data = source.to_reflectance(item, data)
         fill = np.isnan(out) & ~np.isnan(data)
@@ -152,7 +153,7 @@ def _run_all(tasks, label: str) -> list:
     from concurrent.futures import as_completed
 
     with ThreadPoolExecutor(MAX_WORKERS) as ex:
-        futures = {ex.submit(t): i for i, t in enumerate(tasks)}
+        futures = {ex.submit(contextvars.copy_context().run, t): i for i, t in enumerate(tasks)}   # the job's settings (resampling) go along
         out = [None] * len(tasks)
         for done, fut in enumerate(as_completed(futures), start=1):
             out[futures[fut]] = fut.result()
@@ -191,7 +192,7 @@ def composite(source: Source, scenes: list[Scene], grid: Grid, bands: list[str],
         for i in range(0, len(bands), group):
             batch = bands[i:i + group]
             log.info("Compositing %s...", ", ".join(batch))
-            futures = {b: [ex.submit(read_band, source, s, b, grid, env) for s in scenes] for b in batch}
+            futures = {b: [ex.submit(contextvars.copy_context().run, read_band, source, s, b, grid, env) for s in scenes] for b in batch}
             for band, futs in futures.items():
                 cube = np.stack([_or_empty(f, grid, scenes[k], band, failed) for k, f in enumerate(futs)])
                 if len(failed) > len(scenes) // 2:

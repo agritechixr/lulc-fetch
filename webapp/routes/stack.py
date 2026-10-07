@@ -32,6 +32,7 @@ class StackRequest(BaseModel):
     clip: dict | None = None
     factor: int = Field(1, ge=1, le=64)
     name: str = Field("stack", max_length=80)
+    resampling: str | None = Field(None, pattern=r"^(nearest|bilinear|cubic|bicubic|cubic_spline|lanczos|average|mode|min|max|med|q1|q3)$")   # continuous layers onto the grid (classes stay nearest)
 
 
 @router.post("/api/stack")
@@ -48,7 +49,7 @@ def stack_job(req: StackRequest):
     stem = re.sub(r"[^A-Za-z0-9_-]+", "_", req.name).strip("_")[:80] or "stack"
 
     def run(job):
-        rep = stack(items, ref, job.dir / f"{stem}.tif", clip=clip, factor=req.factor)
+        rep = stack(items, ref, job.dir / f"{stem}.tif", clip=clip, factor=req.factor, resampling=req.resampling)
         rep["path"] = ws.rel(job.dir / f"{stem}.tif")
         return rep
 

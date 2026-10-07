@@ -58,6 +58,7 @@ class EmbFetchRequest(EmbArea):
     year: int = Field(2024, ge=2017, le=2030)
     name: str = Field("embedding", max_length=80)
     colour: bool = True
+    resampling: str | None = Field(None, pattern=r"^(nearest|bilinear|cubic|bicubic|cubic_spline|lanczos|average|mode|min|max|med|q1|q3)$")   # onto the output grid (default nearest: real vectors)
 
 
 @router.post("/api/emb/fetch")
@@ -73,7 +74,9 @@ def emb_fetch(req: EmbFetchRequest):
     stem = core.safe_stem(req.name, "embedding")
 
     def run(job):
-        res = em.fetch(g, req.source, req.year, str(job.dir / f"{stem}.tif"), EMB_CACHE, req.res)
+        from lulc_fetch import resample
+        with resample.using(req.resampling):
+            res = em.fetch(g, req.source, req.year, str(job.dir / f"{stem}.tif"), EMB_CACHE, req.res)
         outs = [res["path"]]
         if req.colour:
             core.log.info("Colour view: the three main directions of variation (PCA) as red, green and blue")

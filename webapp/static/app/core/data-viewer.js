@@ -6,6 +6,7 @@
   let vwSeq = 0, rowMarker = null;
   const viewerOpen = () => document.body.classList.contains("viewer-open");
   function setViewer(show) {
+    refreshRibbon();
     document.body.classList.toggle("viewer-open", show);
     if (show) renderViewer();
     syncMenuChecks();
@@ -66,7 +67,7 @@
           <select class="vt-limit" title="Rows per page">${[50, 100, 250, 1000].map((n) => `<option ${n === t.limit ? "selected" : ""}>${n}</option>`).join("")}</select></span>
         <span class="grow"></span>
         <button class="btn small vt-edit-btn ${t.edit ? "on" : ""}" data-act="edit" title="Edit: add / calculate / rename / delete fields, edit cells, delete rows">✎ Edit</button>
-        ${isAttr ? `<button class="btn small" data-act="zoomlayer">Zoom to layer</button>`
+        ${isAttr ? `<button class="btn small" data-act="query" title="Select by attribute: a condition with and / or (e.g. crop == &quot;rice&quot; and area_ha > 2), the result as a new layer">Query…</button><button class="btn small" data-act="zoomlayer">Zoom to layer</button>`
           : `<button class="btn small hidden" data-act="points" title="Add the rows as points on the map (uses the current search)">Show on map</button>
              <button class="btn small" data-act="train" title="Open Train a model with this table">Train a model</button>
              <a class="btn small" href="/api/tables/file?path=${encodeURIComponent(t.path)}" download title="Download the file">⬇</a>`}
@@ -102,6 +103,7 @@
     $(".vt-limit", body).onchange = (e) => { t.limit = +e.target.value; prefs.set("vw-limit", t.limit); t.offset = 0; loadTab(t); };
     $('[data-act="train"]', body)?.addEventListener("click", () => { switchTool("ml"); openMlSub("train"); refreshTrainTables(t.path); });
     $('[data-act="points"]', body)?.addEventListener("click", () => tablePoints(t.item || { name: t.title, path: t.path }, t.q));
+    $('[data-act="query"]', body)?.addEventListener("click", () => openTool("vquery", { layer: t.layerId }));
     $('[data-act="zoomlayer"]', body)?.addEventListener("click", () => zoomTo(getLayer(t.layerId)));
     body.classList.toggle("stats-mode", t.mode === "stats");
     if ((t.mode === "rows" && t.data) || (t.mode === "stats" && t.stats)) drawTable(t); else loadTab(t);

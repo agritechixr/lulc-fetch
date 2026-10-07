@@ -3,7 +3,7 @@
 
   // ------------------------------------------------------------------ identify (click map on selected raster)
   let suppressClickUntil = 0;
-  map.on("click", (e) => { if (!picking && !activeDraw && Date.now() > suppressClickUntil) identify(e.latlng); });
+  map.on("click", (e) => { if (!picking && !activeDraw && !measure.on && Date.now() > suppressClickUntil) identify(e.latlng); });
   // the values of one raster layer at a point: every band (scrollable), copy buttons, and for an embedding "similar places"
   async function pixelValues(l, latlng) {
     const r = await api("/api/analyze/pixel", { method: "POST", json: {
@@ -39,7 +39,7 @@
       $("[data-px-copy]", el).onclick = () => copyText(rows.map(([k, v]) => `${k}\t${v ?? ""}`).join("\n"), `${rows.length} values copied (name ⇥ value per line)`);
       $("[data-px-xy]", el).onclick = () => copyText(`${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`, "Coordinates copied (lat, lon)");
       $("[data-px-similar]", el)?.addEventListener("click", () => { map.closePopup(); LF.openTool("embexplore", { layer: l.id, point: [latlng.lng, latlng.lat] }); });
-    } catch (err) { toast(err.message, true); }
+    } catch (err) { toast(err, true); }
   }
   /** copy text to the clipboard, with a message (and a fallback for browsers that refuse) */
   async function copyText(text, msg = "Copied") {

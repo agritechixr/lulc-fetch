@@ -31,7 +31,7 @@
         } }), { tool: "search", title: "Searching the catalog", message: `${$("#mission").selectedOptions[0]?.text || ""}, ${start} → ${end}` });
         state.results = res;
         renderResults();
-      } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+      } catch (e) { if (notCancelled(e)) toast(e, true); }
     });
   };
 
@@ -136,7 +136,7 @@
         pv.textContent = `Inside your area: ${fmt(s.clear_pct)}% clear · ${fmt(s.cloud_pct)}% cloud · ${fmt(s.shadow_pct)}% shadow · ${res.resolution_m} m preview`;
         pv.classList.remove("hidden");
         status(`Preview ${sc.date}: ${fmt(s.clear_pct)}% clear inside the area`);
-      } catch (e) { if (notCancelled(e)) toast(e.message, true); }
+      } catch (e) { if (notCancelled(e)) toast(e, true); }
     });
   }
 

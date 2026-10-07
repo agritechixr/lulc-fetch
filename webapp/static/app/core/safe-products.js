@@ -171,9 +171,9 @@
             trackJob(r.job, { tool: "jobs" }).then(async (done) => {
               for (const f of done.files.filter((x) => /\.tiff?$/i.test(x))) await addRasterFromPath(`downloads/${done.id}/${f}`, { name: done.title });
               toast(`Added “${done.title}” to Contents`);
-            }).catch((e2) => { if (notCancelled(e2)) toast(e2.message, true); });
+            }).catch((e2) => { if (notCancelled(e2)) toast(e2, true); });
           }
-        } catch (err) { toast(err.message, true); }
+        } catch (err) { toast(err, true); }
       });
     });
   }
@@ -185,7 +185,7 @@
     wireSafeCards($("#safe-list"), r.products);
     $$("#safe-list [data-unlink]").forEach((b) => b.onclick = async (e) => {
       e.preventDefault();
-      await api(`/api/products/link?path=${encodeURIComponent(b.dataset.unlink)}`, { method: "DELETE" }).catch((e) => toast(e.message, true));
+      await api(`/api/products/link?path=${encodeURIComponent(b.dataset.unlink)}`, { method: "DELETE" }).catch((e) => toast(e, true));
       openSafeDialog(); refreshHomeProducts();
     });
     if (!$("#dlg-safe").open) $("#dlg-safe").showModal();
@@ -203,7 +203,7 @@
       refreshHomeProducts();
       if (r.products.length === 1 && r.products[0].kind !== "S1_GRD") { $("#dlg-safe").close(); await openAddedProduct(r.products[0]); }
       else openSafeDialog(r.products[0]?.path);
-    } catch (e) { toast(e.message, true); }
+    } catch (e) { toast(e, true); }
   };
   async function refreshHomeProducts() {
     try {

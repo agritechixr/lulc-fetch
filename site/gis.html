@@ -6,7 +6,7 @@
 <title>GIS tools &amp; Assistant · LULC Fetch</title>
 <meta name="description" content="What's new in LULC Fetch: a ribbon like a desktop GIS, 2D and 3D maps, an AI Assistant that plans workflows, vector and spatial analysis, terrain, conversion between raster and vector, image enhancement and resampling.">
 <meta property="og:title" content="GIS tools &amp; Assistant · LULC Fetch">
-<meta property="og:description" content="3D maps, an AI Assistant that builds workflows from a sentence, 25 new GIS tools: vector, spatial analysis, terrain, raster ↔ vector conversion, enhancement and resampling.">
+<meta property="og:description" content="3D maps, an AI Assistant that builds workflows from a sentence (local, free online or Claude), 30 new GIS tools: vector, terrain, conversion, accuracy assessment, time series, georeferencing, enhancement.">
 <meta property="og:image" content="assets/map3d.jpg">
 <meta property="og:type" content="website">
 <link rel="icon" href="assets/favicon.png">
@@ -29,12 +29,12 @@
 <section id="tour">
   <div class="wrap">
     <div class="center">
-      <span class="eyebrow">What's new · coming in the next version</span>
+      <span class="eyebrow">What's new in 0.0.3 beta</span>
       <h1 class="ptitle">A full GIS, and an Assistant that runs it for you</h1>
-      <p class="lead">A ribbon like a desktop GIS, 2D and 3D maps, an AI Assistant that turns a sentence into a workflow, and 25 new tools for vectors, terrain, conversion and image enhancement. Every screenshot is the real app on real data: Sentinel-2 and the Copernicus 30 m DEM over Nandi Hills, and a land-cover map of north Bengaluru.</p>
-      <p class="cta-note">These features are in the next release. Until it is out, <a href="https://github.com/agritechixr/lulc-fetch#run-from-source-for-development">run from source</a> (the <a href="https://github.com/agritechixr/lulc-fetch/tree/dev">dev branch</a>) to try them.</p>
+      <p class="lead">A ribbon like a desktop GIS, 2D and 3D maps, an AI Assistant that turns a sentence into a workflow, and 30 new tools: vectors, terrain, conversion, accuracy assessment, time series, georeferencing and image enhancement. Every screenshot is the real app on real data: Sentinel-2 and the Copernicus 30 m DEM over Nandi Hills, and a land-cover map of north Bengaluru.</p>
+      <p class="cta-note">All of it is in <a href="index.html#download">version 0.0.3 beta</a> for Mac and Windows, free. Test it on <a href="#testdata">free sample data</a> for six sites.</p>
       <figure style="margin:28px auto 0;max-width:1080px"><img width="1855" height="132" src="assets/ribbon-gis.jpg" alt="The Analysis ribbon's new groups: Vector, Spatial analysis, Raster & terrain and Conversion" style="border:1px solid var(--border);border-radius:10px;width:100%;height:auto"><figcaption class="cta-note">The new groups on the Analysis ribbon</figcaption></figure>
-      <div class="jump"><a href="#maps">Ribbon, 2D &amp; 3D maps</a><a href="#assistant">Assistant</a><a href="#gis-tools">Vector &amp; spatial analysis</a><a href="#terrain">Terrain</a><a href="#conversion">Conversion</a><a href="#enhance">Enhancement &amp; resampling</a><a href="#everyday">Everyday tools</a></div>
+      <div class="jump"><a href="#maps">Ribbon, 2D &amp; 3D maps</a><a href="#assistant">Assistant</a><a href="#gis-tools">Vector &amp; spatial analysis</a><a href="#terrain">Terrain</a><a href="#conversion">Conversion</a><a href="#enhance">Enhancement &amp; resampling</a><a href="#accuracy">Accuracy &amp; area</a><a href="#timeseries">Time series</a><a href="#georef">Georeference</a><a href="#style">Style by attribute</a><a href="#schedule">Schedules</a><a href="#everyday">Everyday tools</a></div>
     </div>
 
     <div class="show" id="maps">
@@ -57,7 +57,8 @@
         <h3>Say what you want; it plans the workflow</h3>
         <p>Type a request such as <i>“a hillshade and contours every 50 m of the DEM, and the land cover as polygons”</i>. The Assistant looks at your layers, plans the steps with the app's own tools, checks the plan, and shows it to you before anything runs.</p>
         <ul>
-          <li>Free and private: a local model through Ollama (qwen2.5 7B, one-click download), or Claude with your own key</li>
+          <li>Free: a local model through Ollama (qwen2.5 7B, one-click download), a free online model with your own key (Hugging Face, Groq, Gemini, OpenRouter, Mistral, Cerebras, or LM Studio), or Claude</li>
+          <li><b>Explain the results</b>: after a run, a few sentences on what came out, from the results' own numbers</li>
           <li>Runs step by step, checks each result, fixes failed steps or re-plans, and remembers pitfalls</li>
           <li>Plans become Workflows you can run again on new data, also for every layer or polygon</li>
           <li>Built after the GISclaw and OpenClaw research on GIS agents</li>
@@ -122,6 +123,64 @@
       </div>
       <img width="1800" height="1100" class="shot" src="assets/enhance.jpg" alt="Swipe comparison of a Sentinel-2 image of Nandi Hills: original on the left, enhanced with CLAHE and sharpening on the right" loading="lazy">
     </div>
+
+    <div class="show" id="accuracy">
+      <div class="txt">
+        <span class="tag">Accuracy assessment · Area statistics</span>
+        <h3>How good is the map, and how big is each class really?</h3>
+        <p>Random points per class, labelled one by one on the map with keys 1–9 (the map's own class hidden so it doesn't sway you), then the confusion matrix, overall, user's and producer's accuracy and kappa.</p>
+        <ul>
+          <li>The area of each class <b>estimated from the sample</b> with a 95 % confidence interval (Olofsson et al. 2014), not just counted on a map that has errors</li>
+          <li>A one-file HTML report and tables</li>
+          <li>Area statistics: hectares, km² and % of each class, for the whole map or inside an area</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/accuracy.jpg" alt="Accuracy assessment of a WorldCover map near Mandya: 151 check points, confusion matrix, 89 % area-weighted accuracy and estimated class areas" loading="lazy">
+    </div>
+
+    <div class="show rev" id="timeseries">
+      <div class="txt">
+        <span class="tag">Index time series · Raster calculator</span>
+        <h3>A field's whole season in one click</h3>
+        <p>Click a field: NDVI (or EVI, NDWI, NDMI, NDRE, SAVI) from every Sentinel-2 scene of the period, straight from the free catalogue. Only the field's pixels are read, clouds are masked, and the curve shows sowing, growth and harvest.</p>
+        <ul>
+          <li>A chart and a table, one row per clear date</li>
+          <li><b>Raster calculator</b>: map algebra over bands of several rasters, e.g. NDVI 2018 − NDVI 2025 &gt; 0.2 for lost vegetation</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/timeseries.jpg" alt="NDVI time series of a farm field north of Mandya from October 2024 to March 2025: 44 clear Sentinel-2 dates" loading="lazy">
+    </div>
+
+    <div class="show" id="georef">
+      <div class="txt">
+        <span class="tag">Georeference</span>
+        <h3>Old maps and plans, on the map</h3>
+        <p>Load a scanned map, a plan or a screenshot, click a place on it and the same place on the map, a few times. Each point's residual shows a wrong click at once.</p>
+        <ul>
+          <li>Affine (3+ points), 2nd-order polynomial (6+) or thin-plate spline (10+)</li>
+          <li>The result is a GeoTIFF in the right UTM zone, ready for every tool</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/georef.jpg" alt="Georeferencing a map picture of Hebbal: four control points on the picture and the map, residuals of 0.1 to 1.9 m, RMSE 1.1 m" loading="lazy">
+    </div>
+
+    <div class="show rev" id="style">
+      <div class="txt">
+        <span class="tag">Style by attribute</span>
+        <h3>Colour a layer by what it holds</h3>
+        <p>A colour per value of a field (building type, crop, class), or classes of a number (area, NDVI, % cropland) by quantiles, equal intervals or natural breaks, with colour ramps and a legend in Contents.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/style.jpg" alt="OpenStreetMap buildings of Hebbal coloured by building type, with the style dialog listing the types and their counts" loading="lazy">
+    </div>
+
+    <div class="show" id="schedule">
+      <div class="txt">
+        <span class="tag">Scheduled workflows</span>
+        <h3>Let it watch for you</h3>
+        <p>Any workflow can run by itself every few hours, daily or weekly while the app is open, with dates that move with the run day. An alert tells you when a result crosses a limit, e.g. a field's NDVI dropping below 0.3.</p>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/schedule.jpg" alt="A workflow's schedule: every hour, an alert when the total area is above 100 ha, and the last run's alert" loading="lazy">
+    </div>
   </div>
 </section>
 
@@ -137,6 +196,7 @@
       <div class="card"><h3>Export &amp; print</h3><p>The map view as an image or a print layout with a title, legend, scale and north arrow.</p></div>
       <div class="card"><h3>Workflows</h3><p>Turn runs from the History into a chain of tools, then run it again on other data, once or for each layer or polygon.</p></div>
       <div class="card"><h3>Safe work</h3><p>Autosave with crash recovery, notifications for finished jobs, clear error messages, and a short tour the first time.</p></div>
+      <div class="card" id="testdata"><h3>Free test data</h3><p>One script downloads free data for six 2 × 2 km sites (Sentinel-2, Sentinel-1, NAIP, Copernicus DEM, WorldCover, AlphaEarth, OpenStreetMap, air quality), each with a list of the tools to try on it: <code>scripts/make_test_data.py</code>.</p></div>
       <div class="card"><h3>Still private</h3><p>Everything runs on your computer. The Assistant's local model needs no account; Claude is optional, with your own key.</p></div>
     </div>
   </div>

@@ -46,7 +46,7 @@
       async function open(arg) {
         if (!(await renderAddon($("#tab-embpredict")))) return;
         limitDevices($("#ep-device"));
-        try { st.models = (await api("/api/dl/models")).filter((m) => (m.arch_key || "").startsWith("light_")); } catch (e) { toast(e.message, true); return; }
+        try { st.models = (await api("/api/dl/models")).filter((m) => (m.arch_key || "").startsWith("light_")); } catch (e) { toast(e, true); return; }
         st.ready = true;
         const sel = $("#ep-model"), cur = arg?.model || sel.value;
         sel.innerHTML = st.models.length ? st.models.map((m) => `<option value="${esc(m.folder)}">${esc(m.name)} · ${esc(m.arch)} · ${m.in_channels} bands${m.miou != null ? ` · mIoU ${fmt(100 * m.miou, 0)} %` : ""}</option>`).join("")
@@ -73,7 +73,7 @@
       $("#ep-add").onclick = async () => {
         const f = await pickFolder({ title: "Choose a model folder (made with Train embedding model)", okLabel: "Use this model" });
         if (!f) return;
-        try { await api("/api/dl/models/add", { method: "POST", json: { folder: f } }); open({ model: f }); } catch (e) { toast(e.message, true); }
+        try { await api("/api/dl/models/add", { method: "POST", json: { folder: f } }); open({ model: f }); } catch (e) { toast(e, true); }
       };
 
       runButton("ep", async () => {
