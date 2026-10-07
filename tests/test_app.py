@@ -113,7 +113,7 @@ def test_tool_files_register_themselves(client):
         ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
         if "LF.tool(" in js.text:
             assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
-    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve", "vzonal", "vlocation", "vsjoin", "vgeometry", "vcount", "vtjoin", "rterrain", "rcontours", "rreclass", "rchange", "rclip", "vhelpers"])
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve", "vzonal", "vlocation", "vsjoin", "vgeometry", "vcount", "vtjoin", "rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "r2poly", "r2line", "r2point", "rasterize", "vconvert", "vhelpers"])
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200
@@ -549,6 +549,104 @@ def test_raster_tools_terrain_contours_reclassify_change_clip(client, home):
     cl = run(client, "/api/raster/clip", {"raster": "uploads/plane.tif", "area": area})
     with rasterio.open(home / cl["path"]) as s:
         assert 19 <= s.width <= 22 and 19 <= s.height <= 22                                 # 200 m / 10 m
+    # resampling: to 20 m (half the pixels each way), ×2 with cubic, a class map keeps its classes, a bad method → 400
+    r20 = run(client, "/api/raster/resample", {"raster": "uploads/plane.tif", "res": 20, "method": "average"})
+    with rasterio.open(home / r20["path"]) as s:
+        assert s.width == 25 and abs(s.res[0] - 20) < 1e-9
+    up = run(client, "/api/raster/resample", {"raster": "uploads/plane.tif", "scale": 2, "method": "bicubic"})
+    assert up["size"] == [100, 100] and up["method"] == "bicubic"
+    lc = run(client, "/api/raster/resample", {"raster": "uploads/lc_b.tif", "res": 30})
+    with rasterio.open(home / lc["path"]) as s:
+        assert lc["method"] == "mode" and set(np.unique(s.read(1))) <= {1, 2}
+    utm = run(client, "/api/raster/resample", {"raster": "uploads/plane.tif", "crs": "EPSG:4326", "method": "lanczos"})
+    with rasterio.open(home / utm["path"]) as s:
+        assert s.crs.to_epsg() == 4326
+    assert client.post("/api/raster/resample", json={"raster": "uploads/plane.tif", "res": 20, "method": "magic"}).status_code == 422
+    assert client.post("/api/raster/resample", json={"raster": "uploads/plane.tif"}).status_code == 400
+    assert client.post("/api/raster/change", json={"before": "uploads/plane.tif", "after": "uploads/plane2.tif", "resampling": "nope"}).status_code == 422
+    ch2 = run(client, "/api/raster/change", {"before": "uploads/plane.tif", "after": "uploads/plane2.tif", "resampling": "cubic"})
+    assert abs(ch2["summary"]["mean_change"] - 5) < 1e-3
+    # enhancement: stretch to 0–1, CLAHE, sharpen, edges; ×2 upscale; majority keeps a class map's classes
+    en = run(client, "/api/raster/enhance", {"raster": "uploads/plane.tif", "steps": [{"op": "stretch"}, {"op": "clahe"}, {"op": "sharpen"}]})
+    with rasterio.open(home / en["path"]) as s:
+        a = s.read(1)
+        assert s.dtypes[0] == "float32" and a.min() >= -0.6 and a.max() <= 1.6 and a.std() > 0.1
+    ed = run(client, "/api/raster/enhance", {"raster": "uploads/plane.tif", "steps": [{"op": "sobel"}], "upscale": 2, "upscale_method": "lanczos"})
+    with rasterio.open(home / ed["path"]) as s:
+        assert s.width == 100 and abs(s.res[0] - 5) < 1e-9
+    noisy = np.ones((n, n), "uint8"); noisy[10, 10] = 2; noisy[30:, :] = 2
+    with rasterio.open(home / "uploads/lc_noisy.tif", "w", **p2) as d:
+        d.write(noisy, 1); d.write_colormap(1, {1: (0, 128, 0, 255), 2: (200, 200, 0, 255)})
+    mj = run(client, "/api/raster/enhance", {"raster": "uploads/lc_noisy.tif", "steps": [{"op": "majority", "size": 3}]})
+    with rasterio.open(home / mj["path"]) as s:
+        m = s.read(1)
+        assert s.dtypes[0] == "uint8" and m[10, 10] == 1 and m[40, 5] == 2 and s.colormap(1)[2][:3] == (200, 200, 0)
+    assert client.post("/api/raster/enhance", json={"raster": "uploads/plane.tif", "steps": [{"op": "blur_magic"}]}).status_code == 422
+    assert client.post("/api/raster/enhance", json={"raster": "uploads/plane.tif", "steps": []}).status_code == 400
+    assert len(ok(client.get("/api/raster/resampling-methods"))["methods"]) >= 10
+
+
+def test_conversion_tools(client, home):
+    """Raster → polygons (classes, sieve, dissolve), boundaries, centrelines of a thin line, points; rasterize a text
+    field, a count and a grid like a raster; polygons ↔ lines, vertices, points → line, points along, segments, boxes."""
+    import json
+
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from tests.helpers import run
+    (home / "uploads").mkdir(exist_ok=True)
+    n = 40
+    a = np.ones((n, n), "uint8"); a[:, 20:] = 2; a[5, 5] = 2               # two halves, and one stray pixel
+    prof = dict(driver="GTiff", width=n, height=n, count=1, dtype="uint8", crs="EPSG:32643", transform=from_origin(700000, 1500000, 10, 10), nodata=0)
+    with rasterio.open(home / "uploads/cls.tif", "w", **prof) as d:
+        d.write(a, 1); d.update_tags(classes=json.dumps({"1": "crop", "2": "forest"}))
+    rd = lambda r: ok(client.get("/api/vector/read", params={"path": r["path"]}))
+    poly = rd(run(client, "/api/convert/raster-to-polygon", {"raster": "uploads/cls.tif", "dissolve": True}))
+    by = {f["properties"]["value"]: f["properties"] for f in poly["features"]}
+    assert set(by) == {1, 2} and by[2]["class"] == "forest" and abs(by[1]["area_ha"] + by[2]["area_ha"] - 16) < 0.01   # 400 m × 400 m
+    sieved = rd(run(client, "/api/convert/raster-to-polygon", {"raster": "uploads/cls.tif", "min_area": 300}))
+    assert len(sieved["features"]) == 2                                      # the stray pixel merged away
+    edges = run(client, "/api/convert/raster-to-polyline", {"raster": "uploads/cls.tif", "min_length": 1})
+    assert edges["features"] >= 1
+    road = np.zeros((n, n), "uint8"); road[18:23, 3:37] = 1                   # a 5-pixel-wide road, 34 pixels long
+    with rasterio.open(home / "uploads/road.tif", "w", **prof) as d:
+        d.write(road, 1)
+    cl = rd(run(client, "/api/convert/raster-to-polyline", {"raster": "uploads/road.tif", "mode": "centrelines", "min_length": 50}))
+    assert len(cl["features"]) == 1 and 250 < cl["features"][0]["properties"]["length_m"] < 360
+    pts = rd(run(client, "/api/convert/raster-to-point", {"raster": "uploads/cls.tif", "step": 4}))
+    assert len(pts["features"]) == 100 and {f["properties"]["class"] for f in pts["features"]} == {"crop", "forest"}
+    from lulc_fetch import convert
+    with rasterio.open(home / "uploads/ndvi.tif", "w", **{**prof, "dtype": "float32", "nodata": None}) as d:
+        d.write(np.random.default_rng(0).random((n, n), dtype="float32"), 1)
+    with pytest.raises(ValueError, match="Reclassify"):
+        convert.raster_to_polygons(home / "uploads/ndvi.tif")                # continuous values: classes first
+    sq = lambda x, y, d, **p: {"type": "Feature", "properties": p, "geometry": {"type": "Polygon", "coordinates": [[[x, y], [x + d, y], [x + d, y + d], [x, y + d], [x, y]]]}}
+    fields = {"type": "FeatureCollection", "features": [sq(77.50, 13.0, 0.01, crop="rice", yld=4.2), sq(77.52, 13.0, 0.01, crop="maize", yld=3.1)]}
+    r = run(client, "/api/convert/rasterize", {"layer": fields, "field": "crop", "res": 20})
+    with rasterio.open(home / r["path"]) as s:
+        v = s.read(1)
+        assert set(np.unique(v)) == {0, 1, 2} and json.loads(s.tags()["classes"]) == {"1": "maize", "2": "rice"} and s.colormap(1)[1]
+    r2 = run(client, "/api/convert/rasterize", {"layer": fields, "field": "yld", "res": 50})
+    with rasterio.open(home / r2["path"]) as s:
+        assert s.dtypes[0] == "float32" and abs(s.read(1).max() - 4.2) < 1e-5
+    dots = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"t": i, "car": "A" if i < 3 else "B"}, "geometry": {"type": "Point", "coordinates": [77.5 + 0.001 * i, 13.0]}} for i in range(6)]}
+    cnt = run(client, "/api/convert/rasterize", {"layer": dots, "mode": "count", "like": "uploads/cls.tif"})
+    assert cnt["size"] == [40, 40]
+    assert client.post("/api/convert/rasterize", json={"layer": fields, "mode": "value", "res": 10}).status_code == 400
+    conv = lambda op, lay, **kw: rd(run(client, "/api/convert/features", {"op": op, "layer": lay, **kw}))
+    lines = conv("polygons_to_lines", fields)
+    assert lines["features"][0]["geometry"]["type"] in ("LineString", "MultiLineString")
+    back = conv("lines_to_polygons", lines)
+    assert len(back["features"]) == 2 and back["features"][0]["properties"]["area_ha"] > 100
+    assert len(conv("vertices_to_points", fields)["features"]) == 8
+    tracks = conv("points_to_lines", dots, group_by="car", order_by="t")
+    assert len(tracks["features"]) == 2 and all(f["properties"]["points"] == 3 for f in tracks["features"])
+    along = conv("points_along_lines", lines, distance=500)
+    assert 18 <= len(along["features"]) <= 22                                # 2 × ~4.4 km of outlines / 500 m, + the ends
+    assert len(conv("split_lines", fields)["features"]) == 8
+    assert len(conv("bounding_boxes", fields, whole=True)["features"]) == 1
 
 
 def test_vector_geometry_helpers(client):

@@ -68,13 +68,32 @@ CATALOG = {
     "/api/vector/join-table": "Join a table (`table`: a path of a CSV / Excel / Parquet) to `layer` where the layer's `layer_field` "
                               "equals the table's `table_field`. Output: .geojson",
     "/api/raster/terrain": "From a DEM (`dem`: a path): products ['slope', 'aspect', 'hillshade'] (slope in degrees, aspect in degrees "
-                           "from north). Output: .tif files",
+                           "from north); leave azimuth, altitude and z_factor out (z_factor stays 1: pixel sizes are "
+                           "converted to metres automatically, also for DEMs in degrees). Output: .tif files",
     "/api/raster/contours": "Contour lines of a DEM every `interval` metres. Output: .geojson lines with their `value`",
     "/api/raster/reclassify": "Ranges of values of `raster` become classes: rules [{min, max, value (1-255), label}] (min inclusive, max "
                               "exclusive; null = no limit). Output: .tif with class names",
     "/api/raster/change": "Change between two dates of the same thing: `before` and `after` (paths): the difference and % change, or "
                           "categorical=true for class maps (land cover): from→to map and a table of the area of every change. Output: .tif (+ .csv)",
     "/api/raster/clip": "Cut `raster` to polygons `area` (a GeoJSON area; invert=true keeps the outside). Output: .tif",
+    "/api/convert/raster-to-polygon": "Class areas of `raster` (whole-number classes; reclassify continuous data first) as polygons with "
+                                      "value, class, area_ha: values [only these], min_area (m², merges smaller patches), simplify (m), "
+                                      "dissolve=true (one per value). Output: .geojson",
+    "/api/convert/raster-to-polyline": "Lines from `raster`: mode 'boundaries' (edges between classes) or 'centrelines' (thin shapes such "
+                                       "as roads / rivers: values = their classes), simplify (m), min_length (m). Output: .geojson",
+    "/api/convert/raster-to-point": "A point per pixel of `raster` (every `step`-th) with each band's value. Output: .geojson",
+    "/api/convert/rasterize": "Vector `layer` → raster: mode 'value' (`field`: numbers, or text → classes), 'presence' or 'count'; "
+                              "`res` metres, or `like` (a raster path) for the same grid; all_touched. Output: .tif",
+    "/api/convert/features": "Change geometry type of `layer`: op = 'polygons_to_lines', 'lines_to_polygons', 'vertices_to_points', "
+                             "'points_to_lines' (order_by, group_by, close), 'points_along_lines' (distance m), 'split_lines', "
+                             "'bounding_boxes' (whole). Output: .geojson",
+    "/api/raster/resample":"A new pixel size `res` (metres in UTM) or factor `scale` (2 = pixels twice as small) and / or `crs` "
+                            "('EPSG:32643') for `raster`; `method` nearest, bilinear, cubic (= bicubic), cubic_spline, lanczos, average, "
+                            "mode, med, min, max (default: nearest / mode for class maps, bilinear / average for values). Output: .tif",
+    "/api/raster/enhance": "Enhance `raster` for viewing, computer vision or embeddings: steps [{op, …}] in order, op = stretch {low, "
+                           "high}, equalize, clahe {tiles, clip}, gamma {gamma}, median {size}, gaussian {sigma}, sharpen {sigma, amount}, "
+                           "sobel, laplacian, focal_mean / focal_std / focal_min / focal_max {size}, majority {size} (clean a class map); "
+                           "upscale 2 or 4 with upscale_method (cubic, lanczos). Output: .tif",
     "/api/vector/geom-op": "Geometry helpers, op = 'centroids' (inside=true: a point surely inside), 'convex_hull' (whole=true: one for "
                            "the layer), 'simplify' (tolerance m), 'explode' (multipart to single), 'merge' (`layers`: two or more paths), "
                            "'fishnet' (a grid of `cell` m over `layer`), 'random_points' (`count` points inside the polygons of `layer`, "
@@ -201,6 +220,14 @@ RULES = """How to choose tools:
 - Slope, aspect or a shaded relief of a DEM → /api/raster/terrain; contour lines → /api/raster/contours; ranges of
   values to classes (e.g. NDVI → low / medium / high) → /api/raster/reclassify; what changed between two dates →
   /api/raster/change (categorical for land-cover maps); a raster cut to an area → /api/raster/clip.
+- A different pixel size or coordinate system → /api/raster/resample (cubic or lanczos when enlarging imagery,
+  average when shrinking values, nearest / mode for class maps). Better contrast, denoising, sharpening, edges,
+  texture or a speckle-free class map → /api/raster/enhance. Downloads, Stack, Make training data, embeddings and
+  change detection also take an optional `resampling` method.
+- A class raster as polygons → /api/convert/raster-to-polygon (continuous data: /api/raster/reclassify first); its
+  class edges or the centrelines of roads / rivers → /api/convert/raster-to-polyline; pixels as points →
+  /api/convert/raster-to-point; polygons or points into a raster (labels on an image's grid: like = that image) →
+  /api/convert/rasterize; polygons ↔ lines, points → a track, points every n m, boxes → /api/convert/features.
 - Centroids, convex hulls, simplifying, merging layers, splitting multipart shapes, a grid of cells, random sample
   points in polygons → /api/vector/geom-op with its op."""
 

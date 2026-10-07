@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Conversion tools** (Analysis ▸ Tools ▸ Conversion): Raster to polygon (class, area in ha; minimum area merges
+  small patches first, smoothing, dissolve), Raster to polyline (class boundaries, or centrelines of roads / rivers),
+  Raster to point (each band's value), Vector to raster (a field's numbers, text as named classes, presence or a count
+  per cell; a pixel size or another raster's grid), Convert features (polygons ↔ lines, vertices → points, points →
+  lines, points along lines, lines → segments, bounding boxes). Server: `/api/convert/*`.
+- **Resampling methods** (nearest, bilinear, cubic / bicubic, cubic spline, lanczos, average, mode, median, min, max,
+  quartiles) as an optional setting in Find imagery downloads, Download embeddings, Stack layers, Make training data
+  and Change detection; new **Resample / reproject** tool (pixel size, factor or CRS).
+- **Enhance image**: contrast stretch, histogram equalisation, CLAHE, gamma, median / gaussian denoise, unsharp
+  sharpening, Sobel / Laplacian edges, focal statistics, majority filter for class maps, enlarge ×2 / ×4 with cubic
+  or lanczos; presets for computer vision, denoising, edges, texture and cleaning class maps.
+- Website: a "What's new" page with screenshots of 3D maps, the Assistant and the GIS tools.
 - **Spatial analysis tools:** Zonal statistics (mean / min / max… of a raster per polygon, or % of each class), Select
   by location (intersect, inside, contain, apart, within a distance), Spatial join (overlapping most, inside, nearest
   with the distance), Calculate geometry (area m² / ha, perimeter, length, centroid), Count points in polygons (and a
