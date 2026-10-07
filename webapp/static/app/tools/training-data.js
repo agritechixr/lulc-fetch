@@ -64,6 +64,9 @@
   }
   ["#pt-sx", "#pt-sy", "#pt-ox", "#pt-oy"].forEach((id) => $(id).addEventListener("input", ptChanged));
   $("#pt-edge").onchange = ptChanged;
+  // other input images are put on the first one's grid with this (labels always keep nearest)
+  ($("#pt-edge").closest("label") || $("#pt-edge")).insertAdjacentHTML("afterend",
+    LF.html.resampling("pt-method", { label: "Resampling of other images", auto: "Default (bilinear)", only: ["bilinear", "cubic", "cubic_spline", "lanczos", "average", "nearest"] }));
   $("#pt-ov0").onclick = () => { $("#pt-ox").value = 0; $("#pt-oy").value = 0; ptChanged(); };
   $("#pt-ovhalf").onclick = () => { const { patch_m } = ptSizes(); $("#pt-ox").value = +(patch_m[0] / 2).toPrecision(6); $("#pt-oy").value = +(patch_m[1] / 2).toPrecision(6); ptChanged(); };
   async function ptPlan(show) {
@@ -140,7 +143,7 @@
     const body = {
       path: ref.path, inputs, ground_truth, clip: getClip("pt-area"), patch_m, overlap_m, edge: $("#pt-edge").value,
       min_valid: (+$("#pt-minvalid").value || 0) / 100, require_labels: !!gl && $("#pt-req-labels").checked, min_labelled: (+$("#pt-minlab").value || 0) / 100,
-      remap: $("#pt-remap").checked,
+      remap: $("#pt-remap").checked, resampling: $("#pt-method").value || null,
       name: $("#pt-name").value.trim() || "training_patches", folder: $("#pt-folder").value.trim() || null,
       class_colors: gl?.classColors || null,
     };

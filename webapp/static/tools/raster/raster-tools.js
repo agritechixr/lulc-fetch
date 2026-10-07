@@ -1,6 +1,7 @@
-/* Analysis ▸ Tools ▸ Raster & terrain: Terrain (slope, aspect, hillshade), Contours, Reclassify, Change detection and
-   Clip raster. Jobs (progress, History, Workflows, the Assistant); results are added to Contents.
-   Server: /api/raster/terrain, contours, reclassify, change, clip · lulc_fetch/raster_ops.py. */
+/* Analysis ▸ Tools ▸ Raster & terrain: Terrain (slope, aspect, hillshade), Contours, Reclassify, Change detection,
+   Clip raster, Resample / reproject and Enhance image. Jobs (progress, History, Workflows, the Assistant); results are
+   added to Contents. Server: /api/raster/terrain, contours, reclassify, change, clip, resample, enhance ·
+   lulc_fetch/raster_ops.py, enhance.py, resample.py. */
 (() => {
   "use strict";
   const { tip } = LF.html;
@@ -90,10 +91,11 @@
     panel: `<div class="card"><h2>Change detection ${tip("The after raster is put on the before raster's grid. For class maps, the result codes each pixel as from × 100 + to, and a table lists the area of every change.")}</h2>
       ${rasterSel("rx-a", "Before")}${rasterSel("rx-b", "After")}
       <label class="check"><input type="checkbox" id="rx-cat"> Class maps (land cover): from → to</label>
+      <details><summary class="hint">If the grids differ</summary>${LF.html.resampling("rx-method", { auto: "Default (bilinear; classes nearest)", only: ["bilinear", "cubic", "cubic_spline", "lanczos", "average", "nearest"] })}</details>
       ${runRow("rx", "Compare")}</div>`,
     setup: (LF) => wire(LF, "rx", "/api/raster/change", (v) => {
       if (LF.$("#rx-a").value === LF.$("#rx-b").value) throw new Error("Choose two different rasters");
-      return { before: v.raster("rx-a"), after: v.raster("rx-b"), categorical: LF.$("#rx-cat").checked };
+      return { before: v.raster("rx-a"), after: v.raster("rx-b"), categorical: LF.$("#rx-cat").checked, resampling: LF.$("#rx-method").value || null };
     }, ["rx-a", "rx-b"], (r) => r.summary.changed_pct != null ? `<b>${r.summary.changed_pct}% changed</b> (${r.summary.changed_ha.toLocaleString()} ha); the table lists every change.`
       : `<b>Mean change ${LF.fmt(r.summary.mean_change, 3)}</b>; ${r.summary.increased_pct}% of the pixels went up.`),
   });
@@ -114,6 +116,104 @@
         return { raster: v.raster("rp-raster"), area: l.geojson, invert: LF.$("#rp-invert").checked, name: LF.$("#rp-name").value.trim() || "clipped" };
       }, ["rp-raster"]);
       return { open(arg) { hooks.open(arg); fillP(); }, layersChanged() { hooks.layersChanged(); fillP(); } };
+    },
+  });
+
+  LF.tool({ id: "rresample", title: "Resample / reproject", icon: "rresample", kinds: ["resample"],
+    subtitle: "Change a raster's pixel size or coordinate system with nearest, bilinear, cubic (bicubic), lanczos, average, mode and more",
+    panel: `<div class="card"><h2>Resample / reproject ${tip("Pixel size is in the units of the coordinate system (metres for UTM, degrees for EPSG:4326). A factor of 2 makes pixels twice as small (more of them), 0.5 twice as big.")}</h2>
+      ${rasterSel("rs-raster", "Raster")}
+      <label>New size by <select id="rs-by"><option value="res">Pixel size</option><option value="scale">Factor</option><option value="none">Keep (only reproject)</option></select></label>
+      <label id="rs-res-l">Pixel size <input type="number" id="rs-res" value="10" min="0" step="any"></label>
+      <label id="rs-scale-l" class="hidden">Factor <select id="rs-scale"><option value="0.25">× 0.25 (4× bigger pixels)</option><option value="0.5">× 0.5 (2× bigger pixels)</option><option value="2" selected>× 2 (2× smaller pixels)</option><option value="4">× 4 (4× smaller pixels)</option></select></label>
+      <label>Coordinate system <input type="text" id="rs-crs" placeholder="Keep, or e.g. EPSG:32643" pattern="EPSG:[0-9]+"></label>
+      ${LF.html.resampling("rs-method", { label: "Method", auto: "Auto (classes: nearest / mode; values: bilinear / average)" })}
+      <p class="hint" id="rs-about"></p>
+      <label>Name of the result <input type="text" id="rs-name" value="resampled" maxlength="80"></label>
+      ${runRow("rs", "Resample")}</div>`,
+    setup(LF) {
+      const { $ } = LF;
+      const by = () => { const b = $("#rs-by").value; $("#rs-res-l").classList.toggle("hidden", b !== "res"); $("#rs-scale-l").classList.toggle("hidden", b !== "scale"); };
+      $("#rs-by").onchange = by;
+      $("#rs-method").onchange = () => { $("#rs-about").textContent = LF.html.RESAMPLING.find(([n]) => n === $("#rs-method").value)?.[2] || ""; };
+      return wire(LF, "rs", "/api/raster/resample", (v) => {
+        const b = $("#rs-by").value, crs = $("#rs-crs").value.trim().toUpperCase();
+        if (crs && !/^EPSG:\d{4,6}$/.test(crs)) throw new Error("Coordinate system: an EPSG code, e.g. EPSG:32643");
+        if (b === "none" && !crs) throw new Error("Give a coordinate system, or choose a new pixel size or factor");
+        return { raster: v.raster("rs-raster"), res: b === "res" ? +$("#rs-res").value || null : null, scale: b === "scale" ? +$("#rs-scale").value : null,
+          crs: crs || null, method: $("#rs-method").value || null, name: $("#rs-name").value.trim() || "resampled" };
+      }, ["rs-raster"], (r) => `<b>${r.size[0].toLocaleString()} × ${r.size[1].toLocaleString()} pixels</b> of ${+r.res[0].toPrecision(6)} (${LF.esc(r.method)}).`);
+    },
+  });
+
+  // the enhancement steps: [op, label, params [[key, label, default, min, max, step]]]
+  const STEPS = [
+    ["stretch", "Contrast stretch (percent clip)", [["low", "Low %", 2, 0, 50, 0.5], ["high", "High %", 98, 50, 100, 0.5]]],
+    ["equalize", "Histogram equalisation", []],
+    ["clahe", "CLAHE (adaptive equalisation)", [["tiles", "Tiles", 8, 1, 64, 1], ["clip", "Clip limit", 0.01, 0.001, 1, 0.001]]],
+    ["gamma", "Gamma", [["gamma", "Gamma", 1.2, 0.1, 10, 0.1]]],
+    ["median", "Denoise: median filter", [["size", "Window", 3, 1, 31, 2]]],
+    ["gaussian", "Denoise: gaussian blur", [["sigma", "Sigma", 1, 0.1, 20, 0.1]]],
+    ["sharpen", "Sharpen (unsharp mask)", [["sigma", "Sigma", 1.5, 0.1, 20, 0.1], ["amount", "Amount", 1, 0, 10, 0.1]]],
+    ["sobel", "Edges: Sobel", []],
+    ["laplacian", "Edges: Laplacian", []],
+    ["focal_mean", "Focal mean", [["size", "Window", 3, 1, 31, 2]]],
+    ["focal_std", "Focal std (texture)", [["size", "Window", 3, 1, 31, 2]]],
+    ["focal_min", "Focal minimum", [["size", "Window", 3, 1, 31, 2]]],
+    ["focal_max", "Focal maximum", [["size", "Window", 3, 1, 31, 2]]],
+    ["majority", "Majority filter (clean class maps)", [["size", "Window", 3, 1, 31, 2]]],
+  ];
+  const PRESETS = {
+    cv: [{ op: "stretch" }, { op: "clahe" }, { op: "sharpen" }],
+    denoise: [{ op: "median", size: 3 }, { op: "stretch" }],
+    edges: [{ op: "gaussian", sigma: 1 }, { op: "sobel" }],
+    texture: [{ op: "focal_std", size: 5 }],
+    classes: [{ op: "majority", size: 3 }],
+  };
+
+  LF.tool({ id: "renhance", title: "Enhance image", icon: "renhance", kinds: ["enhance"],
+    subtitle: "Improve an image for viewing, computer vision or embeddings: contrast stretch, equalisation, CLAHE, gamma, denoise, sharpen, edges, texture, upscale ×2 / ×4 (cubic, lanczos), majority filter for class maps",
+    panel: `<div class="card"><h2>Enhance image ${tip("The steps run in order on every band (or the bands you list). Results are float32, except a class map with only majority / median / min / max steps, which keeps its classes and colours.")}</h2>
+      ${rasterSel("re-raster", "Image")}
+      <label>Bands <input type="text" id="re-bands" placeholder="All, or e.g. 4,3,2"></label>
+      <div class="row tight" style="gap:6px;flex-wrap:wrap;margin:4px 0 8px"><span class="hint">Presets:</span>
+        <button class="btn small ghost" data-preset="cv" title="Stretch, CLAHE, sharpen: crisp, even contrast for detection, segmentation and embeddings">Computer vision</button>
+        <button class="btn small ghost" data-preset="denoise">Denoise</button><button class="btn small ghost" data-preset="edges">Edges</button>
+        <button class="btn small ghost" data-preset="texture">Texture</button><button class="btn small ghost" data-preset="classes" title="Removes speckle from a classified map">Clean class map</button></div>
+      <div id="re-steps"></div>
+      <div class="row tight" style="gap:6px;margin:4px 0 8px"><select id="re-add">${STEPS.map(([op, label]) => `<option value="${op}">${label}</option>`).join("")}</select><button class="btn small" id="re-add-btn">+ Step</button></div>
+      <label>Enlarge first <select id="re-up"><option value="1">No</option><option value="2">× 2</option><option value="4">× 4</option></select></label>
+      ${LF.html.resampling("re-up-method", { label: "Enlarge with", auto: "Cubic (bicubic)", only: ["nearest", "bilinear", "cubic", "cubic_spline", "lanczos"] })}
+      <label>Name of the result <input type="text" id="re-name" value="enhanced" maxlength="80"></label>
+      ${runRow("re", "Enhance")}</div>`,
+    setup(LF) {
+      const { $, $$, esc } = LF;
+      let steps = [...PRESETS.cv];
+      const render = () => {
+        $("#re-steps").innerHTML = steps.length ? steps.map((s, i) => {
+          const [, label, params] = STEPS.find(([op]) => op === s.op);
+          return `<div class="card re-step" data-i="${i}" style="padding:6px 8px;margin:4px 0"><div class="row tight" style="justify-content:space-between"><b>${i + 1}. ${esc(label)}</b>
+            <span><button class="np-copy" data-up title="Earlier">↑</button><button class="np-copy" data-del title="Remove">×</button></span></div>
+            ${params.map(([k, pl, d, min, max, st]) => `<label>${pl} <input type="number" data-k="${k}" value="${s[k] ?? d}" min="${min}" max="${max}" step="${st}"></label>`).join("")}</div>`;
+        }).join("") : `<p class="hint">No steps: add one, or choose a preset.</p>`;
+        $$("#re-steps .re-step").forEach((el) => {
+          const i = +el.dataset.i;
+          el.querySelector("[data-del]").onclick = () => { steps.splice(i, 1); render(); };
+          el.querySelector("[data-up]").onclick = () => { if (i) { [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]]; render(); } };
+          el.querySelectorAll("[data-k]").forEach((inp) => inp.onchange = () => { steps[i][inp.dataset.k] = +inp.value; });
+        });
+      };
+      $$("#tab-renhance [data-preset]").forEach((b) => b.onclick = () => { steps = PRESETS[b.dataset.preset].map((s) => ({ ...s })); render(); });
+      $("#re-add-btn").onclick = () => { steps.push({ op: $("#re-add").value }); render(); };
+      render();
+      return wire(LF, "re", "/api/raster/enhance", (v) => {
+        const up = +$("#re-up").value, bt = $("#re-bands").value.trim();
+        if (!steps.length && up === 1) throw new Error("Add a step, or enlarge the image");
+        const bands = bt ? bt.split(/[\s,]+/).filter(Boolean).map(Number) : null;
+        if (bands?.some((b) => !Number.isInteger(b) || b < 1)) throw new Error("Bands: numbers from 1, e.g. 4,3,2");
+        return { raster: v.raster("re-raster"), steps: steps.map((s) => ({ ...s })), bands, upscale: up,
+          upscale_method: $("#re-up-method").value || "cubic", name: $("#re-name").value.trim() || "enhanced" };
+      }, ["re-raster"], (r) => `<b>${r.steps.length} step${r.steps.length === 1 ? "" : "s"} on ${r.bands} band${r.bands === 1 ? "" : "s"}</b>${r.upscale > 1 ? `, enlarged × ${r.upscale}` : ""}.`);
     },
   });
 })();

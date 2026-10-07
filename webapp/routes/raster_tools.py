@@ -98,6 +98,7 @@ class ChangeRequest(BaseModel):
     after: str
     band: int = Field(1, ge=1)
     categorical: bool = False
+    resampling: str | None = Field(None, pattern=r"^(nearest|bilinear|cubic|bicubic|cubic_spline|lanczos|average|mode|min|max|med|q1|q3)$")  # the after raster onto the before's grid (classes: nearest)
 
 
 @router.post("/api/raster/change")
@@ -108,7 +109,7 @@ def raster_change(req: ChangeRequest):
     a, b = _raster_path(req.before), _raster_path(req.after)
 
     def work(job):
-        r = raster_ops.change(a, b, _out_dir(), band=req.band, categorical=req.categorical)
+        r = raster_ops.change(a, b, _out_dir(), band=req.band, categorical=req.categorical, resampling=req.resampling)
         out = {"outputs": [ws.rel(x) for x in r["paths"]], "summary": r["summary"]}
         if r.get("transitions"):
             import csv
@@ -120,6 +121,76 @@ def raster_change(req: ChangeRequest):
             out.update(csv=ws.rel(t), transitions=r["transitions"][:30])
         return out
     return jobs.submit("change", f"Change {a.name} → {b.name}", {"categorical": req.categorical}, work).to_dict()
+
+
+_METHOD = r"^(nearest|bilinear|cubic|bicubic|cubic_spline|lanczos|average|mode|min|max|med|q1|q3)$"
+
+
+@router.get("/api/raster/resampling-methods")
+def resampling_methods():
+    """The resampling methods tools accept, with what each is for."""
+    from lulc_fetch import resample
+    return {"methods": resample.describe()}
+
+
+class ResampleRequest(BaseModel):
+    raster: str
+    res: float | None = Field(None, gt=0)          # pixel size in the target CRS's units (metres for UTM)
+    scale: float | None = Field(None, gt=0, le=16)  # 2 = pixels twice as small, 0.5 = twice as big
+    crs: str | None = Field(None, pattern=r"^EPSG:\d{4,6}$")
+    method: str | None = Field(None, pattern=_METHOD)
+    name: str = Field("resampled", max_length=80)
+
+
+@router.post("/api/raster/resample")
+def raster_resample(req: ResampleRequest):
+    """A raster on a new pixel size, scale or CRS, with a chosen method (nearest, bilinear, cubic, lanczos, average,
+    mode…; by default nearest / mode for class maps, bilinear / average for values)."""
+    from lulc_fetch import enhance
+    p = _raster_path(req.raster)
+    if not (req.res or req.scale or req.crs):
+        raise HTTPException(400, "Give a pixel size, a scale factor or a coordinate system")
+    return jobs.submit("resample", f"Resample {p.name}", {"method": req.method or "auto"}, lambda job: {
+        **(r := enhance.resample_raster(p, _out_dir() / f"{_safe(req.name)}.tif", res=req.res, scale=req.scale, crs=req.crs, method=req.method)),
+        "path": ws.rel(r["path"])}).to_dict()
+
+
+class EnhanceStep(BaseModel):
+    op: str = Field(pattern=r"^(stretch|equalize|clahe|gamma|median|gaussian|sharpen|sobel|laplacian|focal_mean|focal_std|focal_min|focal_max|majority)$")
+    size: int = Field(3, ge=1, le=31)
+    sigma: float = Field(1.0, gt=0, le=20)
+    amount: float = Field(1.0, ge=0, le=10)
+    gamma: float = Field(1.2, gt=0, le=10)
+    low: float = Field(2, ge=0, le=50)
+    high: float = Field(98, ge=50, le=100)
+    tiles: int = Field(8, ge=1, le=64)
+    clip: float = Field(0.01, gt=0, le=1)
+
+
+class EnhanceRequest(BaseModel):
+    raster: str
+    steps: list[EnhanceStep] = Field(default_factory=list, max_length=12)
+    bands: list[int] | None = None
+    upscale: int = Field(1, ge=1, le=4)
+    upscale_method: str = Field("cubic", pattern=_METHOD)
+    name: str = Field("enhanced", max_length=80)
+
+
+@router.post("/api/raster/enhance")
+def raster_enhance(req: EnhanceRequest):
+    """Image enhancement for computer vision and embeddings: contrast stretch, histogram equalisation, CLAHE, gamma,
+    denoise (median, gaussian), sharpen, edges (sobel, laplacian), focal statistics, majority filter for class maps,
+    and upscaling ×2 / ×4 with cubic or lanczos."""
+    from lulc_fetch import enhance
+    p = _raster_path(req.raster)
+    if not req.steps and req.upscale == 1:
+        raise HTTPException(400, "Choose at least one step")
+    if req.upscale not in (1, 2, 4):
+        raise HTTPException(400, "upscale: 1, 2 or 4")
+    return jobs.submit("enhance", f"Enhance {p.name}", {"steps": [s.op for s in req.steps], "upscale": req.upscale}, lambda job: {
+        **(r := enhance.enhance(p, _out_dir() / f"{_safe(req.name)}.tif", [s.model_dump() for s in req.steps], bands=req.bands,
+                                upscale=req.upscale, upscale_method=req.upscale_method)),
+        "path": ws.rel(r["path"])}).to_dict()
 
 
 class ClipRasterRequest(BaseModel):

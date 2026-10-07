@@ -28,6 +28,8 @@ from pathlib import Path
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
+
+from . import resample
 from rasterio.vrt import WarpedVRT
 from rasterio.windows import Window
 
@@ -114,7 +116,7 @@ def open_inputs(inputs: list[dict], ref) -> tuple[list[dict], list[str], list, l
                 rd = s
             else:
                 rd = WarpedVRT(s, crs=ref.crs, transform=ref.transform, width=ref.width, height=ref.height,
-                               resampling=Resampling.nearest if classes else Resampling.bilinear, src_nodata=s.nodata, nodata=s.nodata)
+                               resampling=Resampling.nearest if classes else resample.pick(Resampling.bilinear), src_nodata=s.nodata, nodata=s.nodata)
                 vrts.append(rd)
             layer = re.sub(r"[^A-Za-z0-9]+", "_", it.get("name") or Path(it["path"]).stem).strip("_")[:24] or f"layer{k + 1}"
             for b in bands:

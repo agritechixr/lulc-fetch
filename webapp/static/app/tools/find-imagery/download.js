@@ -26,6 +26,9 @@
     $("#dl-error").classList.add("hidden");
     updateEstimate();
   }
+  // 20 m / 60 m bands are put on the chosen pixel size with this (the cloud mask always keeps nearest)
+  $("#dl-s2").insertAdjacentHTML("beforeend", `<details class="dl-resampling"><summary class="hint">Resampling of bands</summary>${LF.html.resampling("dl-method",
+    { auto: "Default (bilinear)", only: ["bilinear", "cubic", "cubic_spline", "lanczos", "average", "nearest"] })}</details>`);
   $$('input[name="kind"]').forEach((r) => r.onchange = updateDialog);
   $("#dl-res").onchange = updateEstimate;
   $("#dl-indices").onchange = updateEstimate;
@@ -85,6 +88,7 @@
       indices: $("#dl-indices").checked, mask_clouds: $("#dl-mask").checked,
       stat: $("#dl-stat").value, max_scenes: +$("#dl-maxscenes").value,
       product: $("#dl-product").value, year: +$("#dl-year").value,
+      ...(["scene", "composite"].includes(k) && $("#dl-method").value ? { resampling: $("#dl-method").value } : {}),
     };
     if (k === "scene") {
       body.date = sc.date;

@@ -12,7 +12,7 @@ import rasterio
 from rasterio.warp import Resampling, reproject
 from rasterio.warp import transform as warp_transform
 
-from . import progress
+from . import progress, resample
 
 MAX_PIXELS = 40_000_000   # bigger rasters: clip them first
 
@@ -209,7 +209,7 @@ def reclassify(raster, out: Path, rules: list[dict], *, band: int = 1) -> str:
 
 
 # ------------------------------------------------------------------ change detection
-def change(before, after, out_dir: Path, *, band: int = 1, categorical: bool = False) -> dict:
+def change(before, after, out_dir: Path, *, band: int = 1, categorical: bool = False, resampling: str | None = None) -> dict:
     """What changed from `before` to `after` (the after raster is put on the before's grid). Values: the difference
     (after − before) and the % change. Classes (categorical): a from→to map (from × 100 + to) and a table of the
     area (ha) of every change."""
@@ -218,7 +218,7 @@ def change(before, after, out_dir: Path, *, band: int = 1, categorical: bool = F
         b = np.full(a.shape, np.nan)
         reproject(sa.read(band, masked=True).astype("float64").filled(np.nan), b, src_transform=sa.transform, src_crs=sa.crs,
                   dst_transform=sb.transform, dst_crs=sb.crs, src_nodata=np.nan, dst_nodata=np.nan,
-                  resampling=Resampling.nearest if categorical else Resampling.bilinear)
+                  resampling=Resampling.nearest if categorical else resample.get(resampling, Resampling.bilinear))
         stem = f"{Path(before).stem}_to_{Path(after).stem}"[:80]
         if not categorical:
             d = b - a

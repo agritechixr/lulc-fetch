@@ -141,9 +141,11 @@ def fetch(geom: dict, source: str, year: int, out_path: str, cache_dir: str | Pa
     if not parts:
         raise RuntimeError("No embeddings were found inside the area")
     progress.update(0.92, "Putting the pieces together")
-    for data, tf, src_crs in parts:   # each piece onto the output grid (nearest: keeps real vectors)
+    from .. import resample
+    method = resample.pick(Resampling.nearest)   # nearest by default: keeps real vectors (bilinear / cubic blend them)
+    for data, tf, src_crs in parts:   # each piece onto the output grid
         tmp = np.full_like(out, np.nan)
-        reproject(data, tmp, src_transform=tf, src_crs=src_crs, dst_transform=transform, dst_crs=crs, resampling=Resampling.nearest,
+        reproject(data, tmp, src_transform=tf, src_crs=src_crs, dst_transform=transform, dst_crs=crs, resampling=method,
                   src_nodata=np.nan, dst_nodata=np.nan)
         fill = np.isnan(out[0]) & ~np.isnan(tmp[0])
         out[:, fill] = tmp[:, fill]

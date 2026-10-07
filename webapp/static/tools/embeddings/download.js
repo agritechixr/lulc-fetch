@@ -33,6 +33,8 @@
         </div>
         <p class="hint" id="em-year-hint"></p>
         <p class="hint" id="em-est"></p>
+        <details><summary class="hint">Resampling onto the UTM grid</summary>${LF.html.resampling("em-method", { auto: "Default (nearest: keeps the real vectors)", only: ["nearest", "bilinear", "cubic", "lanczos", "average"] })}
+          <p class="hint">Nearest keeps each pixel's real embedding. Bilinear, cubic or lanczos blend neighbouring vectors: smoother maps, but the blended vectors are no longer real ones.</p></details>
       </div>
       <div class="card">
         <h2>Download</h2>
@@ -129,7 +131,7 @@
         const name = $("#em-name").dataset.touched ? ($("#em-name").value.trim() || "embedding") : `${S.short}_${year}`;
         let r;
         try {
-          r = await runJob("/api/emb/fetch", { clip: g, source: st.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked },
+          r = await runJob("/api/emb/fetch", { clip: g, source: st.source, year, res: +$("#em-res").value, name, colour: $("#em-colour").checked, resampling: $("#em-method").value || null },
                            { tool: "embed", title: `Downloading ${S.short} ${year}`, save: "embfetch" });
         } catch (e) {
           if (!/has no \d{4} data/.test(e.message)) throw e;

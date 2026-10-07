@@ -16,6 +16,8 @@ from pathlib import Path
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
+
+from . import resample
 from rasterio.vrt import WarpedVRT
 from rasterio.windows import Window
 
@@ -27,7 +29,7 @@ log = logging.getLogger(__name__)
 
 
 def stack(items: list[dict], ref_path: str | Path, out_path: str | Path, *, clip: dict | None = None,
-          factor: int = 1, rows_per_strip: int = 256) -> dict:
+          factor: int = 1, rows_per_strip: int = 256, resampling: str | None = None) -> dict:
     """items: [{"path", "name", "bands": [ints] | None, "index"/"formula" (+ "band_map", "scale", "offset")}].
 
     Index / formula items contribute one band each (values computed per pixel). Class maps (paletted bands)
@@ -58,7 +60,7 @@ def stack(items: list[dict], ref_path: str | Path, out_path: str | Path, *, clip
                     raise ValueError(f"{it['name']}: band(s) {', '.join(missing)} not assigned")
                 plan.append({"kind": "formula", "path": it["path"], "expr": expr, "need": need,
                              "idx": [int(bmap[b]) for b in need], "scale": float(it.get("scale", 1)),
-                             "offset": float(it.get("offset", 0)), "resampling": Resampling.bilinear})
+                             "offset": float(it.get("offset", 0)), "resampling": resample.get(resampling, Resampling.bilinear)})
                 names.append([name if it.get("index") else re.sub(r"[^A-Za-z0-9_]+", "_", it["name"])[:30]])
             else:
                 bands = it.get("bands") or list(range(1, src.count + 1))
@@ -67,7 +69,7 @@ def stack(items: list[dict], ref_path: str | Path, out_path: str | Path, *, clip
                         raise ValueError(f"{it['name']} has no band {b}")
                 classes = all(_palette(src, b) for b in bands)
                 plan.append({"kind": "bands", "path": it["path"], "idx": bands,
-                             "resampling": Resampling.nearest if classes else Resampling.bilinear})
+                             "resampling": Resampling.nearest if classes else resample.get(resampling, Resampling.bilinear)})
                 layer = re.sub(r"[^A-Za-z0-9]+", "_", it["name"]).strip("_")[:24] or "layer"
                 generic = lambda d: not d or re.fullmatch(r"(band_?\d*|data|image_?\d*)", d, re.I)
                 names.append([(layer if len(bands) == 1 else f"{layer}_{b}") if generic(src.descriptions[b - 1])

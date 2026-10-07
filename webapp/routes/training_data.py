@@ -31,6 +31,7 @@ class PatchPlanRequest(BaseModel):
 
 
 class PatchRequest(PatchPlanRequest):
+    resampling: str | None = Field(None, pattern=r"^(nearest|bilinear|cubic|bicubic|cubic_spline|lanczos|average|mode|min|max|med|q1|q3)$")   # images onto the patch grid (labels stay nearest)
     inputs: list[PatchInput] = Field(..., min_length=1, max_length=20)
     ground_truth: dict | None = None
     name: str = Field("training_patches", max_length=80)
@@ -86,4 +87,8 @@ def patches_make(req: PatchRequest):
         return res
 
     title = f"Make training data · {req.name}"
-    return jobs.submit("patches", title, {"source": Path(inputs[0]["path"]).name}, run).to_dict()
+    def run_with_resampling(job):
+        from lulc_fetch import resample
+        with resample.using(req.resampling):
+            return run(job)
+    return jobs.submit("patches", title, {"source": Path(inputs[0]["path"]).name}, run_with_resampling).to_dict()
