@@ -77,11 +77,13 @@ def _utm(fc_items) -> str:
 
 def _project(geom, src: str, dst: str):
     from rasterio.warp import transform_geom
+    if geom.is_empty:   # e.g. a polygon shrunk to nothing: nothing to transform
+        return geom
     return shape(transform_geom(src, dst, mapping(geom)))
 
 
 # ------------------------------------------------------------------ buffer
-def buffer(fc: dict, distance: float, *, segments: int = 16, dissolve: bool = False) -> dict:
+def buffer(fc: dict, distance: float, *, segments: int = 64, dissolve: bool = False) -> dict:
     """Each feature grown (or, with a negative distance, shrunk) by `distance` metres; dissolve: one shape."""
     if not math.isfinite(distance) or distance == 0:
         raise ValueError("Give a distance in metres (not 0)")
@@ -95,6 +97,9 @@ def buffer(fc: dict, distance: float, *, segments: int = 16, dissolve: bool = Fa
         out.append(({**props, "buffer_m": distance}, b))
         if n % 200 == 0:
             progress.update(n / len(items), f"Buffering {n:,} of {len(items):,}")
+    out = [(p, g) for p, g in out if not g.is_empty]   # shapes narrower than twice a negative distance vanish
+    if not out:
+        raise ValueError(f"Nothing is left: a negative distance only shrinks polygons, and every shape is narrower than {2 * -distance:g} m")
     if dissolve:
         out = [({"buffer_m": distance, "features": len(out)}, shapely.union_all([g for _, g in out]))]
     return _fc(out)

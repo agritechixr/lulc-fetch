@@ -261,8 +261,8 @@ def raster_to_points(path, *, bands: list[int] | None = None, step: int = 1, max
 def rasterize(fc: dict, out: Path, *, field: str | None = None, mode: str = "value", res: float | None = None,
               like: str | Path | None = None, all_touched: bool = False) -> dict:
     """A layer burnt into a raster. mode 'value': a field's numbers (or, for text, one class per distinct text, with
-    names and colours); 'presence': 1 where there is a shape; 'count': how many shapes (e.g. points) fall in each
-    cell. The grid: like a raster (same CRS, pixels and extent), or `res` metres over the layer in its UTM zone."""
+    names and colours); 'presence': 1 where there is a shape; 'count': how many shapes fall in each cell (lines and
+    polygons counted once, at a point inside them). The grid: like a raster (same CRS, pixels and extent), or `res` metres over the layer in its UTM zone."""
     if mode not in ("value", "presence", "count"):
         raise ValueError("mode: value, presence or count")
     items = _geoms(fc)
@@ -286,8 +286,9 @@ def rasterize(fc: dict, out: Path, *, field: str | None = None, mode: str = "val
     geoms = _reproject_all([g for _, g in items], "EPSG:4326", crs)
     progress.update(0.3, f"Burning {len(geoms):,} shapes into {w:,} × {h:,} pixels")
     cmap = names = None
-    if mode == "count":
-        a = features.rasterize(((g, 1) for g in geoms), out_shape=(h, w), transform=transform, fill=0, all_touched=all_touched,
+    if mode == "count":   # each line or polygon counts once, at a point inside it (else small ones miss every cell centre)
+        pts = (g if g.geom_type in ("Point", "MultiPoint") else g.representative_point() for g in geoms)
+        a = features.rasterize(((g, 1) for g in pts), out_shape=(h, w), transform=transform, fill=0, all_touched=all_touched,
                                merge_alg=features.MergeAlg.add, dtype="int32")
         dtype, nodata = "int32", None
     elif mode == "presence" or not field:

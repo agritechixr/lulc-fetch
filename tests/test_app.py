@@ -525,6 +525,15 @@ def test_vector_buffer_query_overlay_dissolve(client):
     assert abs(ia / aa - 0.5) < 0.01                                                                  # half of A overlaps B
     union = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/overlay", {"a": a, "b": b, "how": "union"})["path"]}))
     assert len(union["features"]) == 3 and abs(sum(_area_m2(f["geometry"]) for f in union["features"]) / aa - 1.5) < 0.01
+    dflt = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/buffer", {"layer": pt, "distance": 50})["path"]}))
+    assert abs(_area_m2(dflt["features"][0]["geometry"]) / (math.pi * 50 ** 2) - 1) < 0.005                # the default circle is round enough
+    tiny_and_big = {"type": "FeatureCollection", "features": [_sq(77.50, 13.0, 0.00001, n=1), _sq(77.52, 13.0, 0.001, n=2)]}   # ~1 m and ~110 m
+    shrunk = run(client, "/api/vector/buffer", {"layer": tiny_and_big, "distance": -2})
+    assert shrunk["features"] == 1                                                                    # the 1 m square vanishes, no crash
+    j = ok(client.post("/api/vector/buffer", json={"layer": pt, "distance": -5}))
+    from tests.helpers import wait as _w
+    with pytest.raises(BaseException, match="only shrinks polygons"):
+        _w(client, j)
     diff = run(client, "/api/vector/overlay", {"a": a, "b": b, "how": "difference"})
     assert diff["features"] == 1
     one = run(client, "/api/vector/dissolve", {"layer": fields})
@@ -722,6 +731,8 @@ def test_conversion_tools(client, home):
     dots = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"t": i, "car": "A" if i < 3 else "B"}, "geometry": {"type": "Point", "coordinates": [77.5 + 0.001 * i, 13.0]}} for i in range(6)]}
     cnt = run(client, "/api/convert/rasterize", {"layer": dots, "mode": "count", "like": "uploads/cls.tif"})
     assert cnt["size"] == [40, 40]
+    with rasterio.open(home / run(client, "/api/convert/rasterize", {"layer": fields, "mode": "count", "res": 5000})["path"]) as s:
+        assert s.read(1).sum() == 2                                                              # polygons smaller than a cell count once each
     assert client.post("/api/convert/rasterize", json={"layer": fields, "mode": "value", "res": 10}).status_code == 400
     conv = lambda op, lay, **kw: rd(run(client, "/api/convert/features", {"op": op, "layer": lay, **kw}))
     lines = conv("polygons_to_lines", fields)

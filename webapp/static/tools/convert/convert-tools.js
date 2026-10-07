@@ -81,7 +81,7 @@
     subtitle: "Burn a layer into a GeoTIFF (rasterize): a field's values (text becomes classes with names), presence, or how many points fall in each cell",
     panel: `<div class="card"><h2>Vector to raster ${tip("Numbers give a float raster; text gives one class per value, with its name and a colour (e.g. crop type for training labels). Presence: 1 where there is a shape. Count: shapes per cell (e.g. points per 100 m). Match a raster to get the very same grid, e.g. labels for an image.")}</h2>
       ${sel("cz-layer", "Layer")}
-      <label>Values <select id="cz-mode"><option value="value">A field's values</option><option value="presence">Presence (1 inside the shapes)</option><option value="count">Count of shapes per cell</option></select></label>
+      <label>Values <select id="cz-mode"><option value="value">A field's values</option><option value="presence">Presence (1 inside the shapes)</option><option value="count">Count of shapes per cell (lines and polygons once, at their centre)</option></select></label>
       <label id="cz-field-row">Field <select id="cz-field"></select></label>
       <label>Grid <select id="cz-grid"><option value="res">Pixel size</option><option value="like">Same as a raster</option></select></label>
       <label id="cz-res-row">Pixel size (m) <input type="number" id="cz-res" value="10" min="0.01" step="any"></label>

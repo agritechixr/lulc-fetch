@@ -37,7 +37,7 @@ def _layer(src):
 class BufferRequest(BaseModel):
     layer: Layer
     distance: float = Field(description="metres; negative shrinks polygons")
-    segments: int = Field(16, ge=4, le=128)
+    segments: int = Field(64, ge=4, le=128)   # sides of a full circle: 64 is within 0.2 % of its area
     dissolve: bool = False
     name: str = Field("buffer", max_length=80)
 

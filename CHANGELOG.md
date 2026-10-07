@@ -26,6 +26,10 @@ tools. Everything below is new since 0.0.2.
 - **Scheduled workflows**: a workflow runs by itself every few hours, daily or weekly while the app is open (a missed
   run runs once when it opens); dates can move with the run day; an alert when a result value crosses a limit.
 - **Zonal statistics** of class maps names its fields after the classes (pct_tree_cover, majority_class).
+- Checked on the test data kit's real layers: **Buffer** circles are round to within 0.2 % of their area (64 sides
+  instead of 16), a negative buffer no longer stops with "not a valid geometry" when a small polygon shrinks to
+  nothing (it is dropped), and **Vector to raster ▸ count** counts each line or polygon once (at a point inside it), so
+  buildings per cell add up to the number of buildings.
 - **Test data kit**: `scripts/make_test_data.py` downloads free data for six 2 × 2 km sites (Sentinel-2, Sentinel-1,
   NAIP, Copernicus DEM, WorldCover, AlphaEarth, OpenStreetMap, air quality) with a README per site listing the tools to
   try on it.
