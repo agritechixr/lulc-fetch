@@ -765,7 +765,7 @@ input[type="range"]:not(:disabled) { cursor: ew-resize; }
 button:disabled, select:disabled, input:disabled, .btn:disabled { cursor: not-allowed; }
 .btn.primary:disabled { cursor: progress; }   /* run buttons are disabled while their job runs */
 input[type="text"], input[type="search"], input[type="number"], input:not([type]), textarea { cursor: text; }
-.lyr-row { cursor: grab; }
+.lyr-row { cursor: default; }   /* rows still drag to reorder; the hand would look like map panning */
 .layer.dragging, .layer.dragging .lyr-row { cursor: grabbing; }
 .lyr-name { cursor: inherit; }
 .leaflet-container.leaflet-grab { cursor: grab; }

@@ -25,6 +25,7 @@ tools. Everything below is new since 0.0.2.
   (quantiles, equal intervals, natural breaks) with colour ramps, and a legend in Contents.
 - **Single colour…** in a vector layer's right-click menu (one colour for every point, line or polygon). Style by
   attribute no longer suggests id fields such as osm_id, and warns when every feature would get its own colour.
+- Contents shows the normal arrow over layers (not the map's pan hand); the closed hand only while a layer is dragged.
 - **Scheduled workflows**: a workflow runs by itself every few hours, daily or weekly while the app is open (a missed
   run runs once when it opens); dates can move with the run day; an alert when a result value crosses a limit.
 - **Zonal statistics** of class maps names its fields after the classes (pct_tree_cover, majority_class).
