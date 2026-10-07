@@ -194,3 +194,126 @@ def from_history(job_ids: list[str], name: str = "") -> dict:
         made.append([str(Path(p).resolve()) for p in entry.get("outputs") or []])
     titles = [s["title"].split(" · ")[0] for s in steps]
     return {"name": name or " → ".join(dict.fromkeys(titles))[:120], "description": "", "inputs": inputs, "steps": steps}
+
+
+# ------------------------------------------------------------------ schedules
+# A workflow can run by itself while the app is open: every few hours, daily or weekly at a time. Runs missed while the
+# app was closed run once when it opens. Date inputs can move with the run day ("30 days before"). Kept beside the
+# workflows (schedules/schedules.json), so saving a workflow doesn't touch its schedule.
+def _sched_file() -> Path:
+    return folder() / "schedules" / "schedules.json"
+
+
+def _sched_all() -> dict:
+    try:
+        return json.loads(_sched_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _sched_write(data: dict) -> None:
+    f = _sched_file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(f)
+
+
+def next_run(s: dict, after: float) -> float:
+    """The next time (epoch seconds, local time) the schedule runs after `after`."""
+    import datetime as dt
+    if s["every"] == "hours":
+        return after + 3600 * max(1, int(s.get("hours") or 24))
+    hh, mm = (int(x) for x in (s.get("at") or "07:00").split(":"))
+    t = dt.datetime.fromtimestamp(after).replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if s["every"] == "day":
+        if t.timestamp() <= after:
+            t += dt.timedelta(days=1)
+        return t.timestamp()
+    wd = int(s.get("weekday", 0))   # 0 = Monday
+    t += dt.timedelta(days=(wd - t.weekday()) % 7)
+    if t.timestamp() <= after:
+        t += dt.timedelta(days=7)
+    return t.timestamp()
+
+
+def check_schedule(s: dict) -> dict:
+    every = s.get("every")
+    if every not in ("hours", "day", "week"):
+        raise ValueError("every: hours, day or week")
+    out = {"every": every, "enabled": bool(s.get("enabled", True)), "notify": s.get("notify") if s.get("notify") in ("always", "fail", "alert") else "always",
+           "add_results": bool(s.get("add_results", True)), "catch_up": bool(s.get("catch_up", True))}
+    if every == "hours":
+        h = int(s.get("hours") or 0)
+        if not 1 <= h <= 24 * 30:
+            raise ValueError("Every 1 to 720 hours")
+        out["hours"] = h
+    else:
+        at = str(s.get("at") or "")
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", at):
+            raise ValueError("The time is HH:MM, e.g. 07:30")
+        out["at"] = at
+        if every == "week":
+            wd = int(s.get("weekday", -1))
+            if not 0 <= wd <= 6:
+                raise ValueError("The weekday is 0 (Monday) to 6 (Sunday)")
+            out["weekday"] = wd
+    days = {}   # date inputs that move with the run day: input id → days before it
+    for k, v in (s.get("relative_dates") or {}).items():
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(k)) and str(v).lstrip("-").isdigit() and 0 <= int(v) <= 3650:
+            days[str(k)] = int(v)
+    out["relative_dates"] = days
+    out["inputs"] = {str(k): v for k, v in (s.get("inputs") or {}).items() if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(k)) and isinstance(v, str) and len(v) < 500}
+    a = s.get("alert") or None   # alert when a value of the last step's result crosses a limit
+    if a:
+        if not re.fullmatch(r"[A-Za-z0-9_.\[\]-]{1,120}", str(a.get("field") or "")) or a.get("op") not in (">", "<", ">=", "<=") or not isinstance(a.get("value"), (int, float)):
+            raise ValueError("The alert needs a result field (e.g. summary.mean_change), > or <, and a number")
+        out["alert"] = {"field": a["field"], "op": a["op"], "value": float(a["value"])}
+    return out
+
+
+def set_schedule(wid: str, s: dict) -> dict:
+    get(wid)   # the workflow exists
+    data, now = _sched_all(), time.time()
+    old = data.get(wid, {})
+    sch = check_schedule(s)
+    sch.update(last_run=old.get("last_run"), runs=old.get("runs", []), next_run=next_run(sch, now))
+    data[wid] = sch
+    _sched_write(data)
+    return {"id": wid, **sch}
+
+
+def delete_schedule(wid: str) -> None:
+    data = _sched_all()
+    if data.pop(wid, None) is not None:
+        _sched_write(data)
+
+
+def schedules() -> list[dict]:
+    """Every schedule, with its workflow's name and whether it is due now (a missed run is due once)."""
+    data, now, out, changed = _sched_all(), time.time(), [], False
+    names = {w["id"]: w["name"] for w in listing()}
+    for wid, s in list(data.items()):
+        if wid not in names:   # the workflow was deleted
+            data.pop(wid); changed = True
+            continue
+        due = s.get("enabled") and (s.get("next_run") or 0) <= now
+        if due and not s.get("catch_up", True) and now - s["next_run"] > 3600:   # missed long ago, not caught up: skip to the next one
+            s["next_run"] = next_run(s, now); changed = True; due = False
+        out.append({"id": wid, "name": names[wid], **s, "due": bool(due)})
+    if changed:
+        _sched_write(data)
+    return sorted(out, key=lambda s: s.get("next_run") or 0)
+
+
+def mark_ran(wid: str, ok: bool, message: str = "", alert: bool = False) -> dict:
+    data = _sched_all()
+    s = data.get(wid)
+    if not s:
+        raise FileNotFoundError("No schedule for this workflow")
+    now = time.time()
+    s["last_run"] = now
+    s["next_run"] = next_run(s, now)
+    s["runs"] = ([{"t": now, "ok": bool(ok), "alert": bool(alert), "message": str(message)[:500]}] + s.get("runs", []))[:20]
+    _sched_write(data)
+    return {"id": wid, **s}

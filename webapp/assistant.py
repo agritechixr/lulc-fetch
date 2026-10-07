@@ -1,8 +1,9 @@
 """The Assistant (Analysis ▸ Tools ▸ Assistant): say what you want done; it plans it as a workflow of the app's own
 tools, you check the plan, then the app runs it like any workflow (webapp/workflows.py).
 
-Free first: a local model through Ollama (runs on this computer, offline). Optionally Claude, with the user's own
-Anthropic API key (kept in the keychain like the other accounts, see webapp/credentials.py).
+Free first: a local model through Ollama (runs on this computer, offline); or an online model through any
+OpenAI-compatible API with a free tier (Hugging Face, Groq, OpenRouter, Gemini, Mistral, Cerebras, or a custom address
+such as LM Studio); or Claude. Keys are the user's own, kept in the keychain (see webapp/credentials.py).
 
 The model only writes a plan: the tools it may use come from the app's own API description (their settings and types),
 every step is checked against it, and a plan with problems goes back to the model once or twice to be fixed. Nothing
@@ -24,6 +25,27 @@ from . import workspace as ws
 OLLAMA_URL = "http://127.0.0.1:11434"
 RECOMMENDED_LOCAL = "qwen2.5:7b"   # good at following a JSON schema; about 4.7 GB, runs on 16 GB of memory
 CLAUDE_MODEL = "claude-opus-5-5"
+PROVIDERS = ("ollama", "api", "claude")
+
+# online models with a free tier, all through the OpenAI-compatible chat API; the model can be changed (List models)
+API_PRESETS = {
+    "huggingface": {"title": "Hugging Face", "base": "https://router.huggingface.co/v1", "model": "openai/gpt-oss-120b",
+                    "signup": "https://huggingface.co/settings/tokens",
+                    "about": "Open models (Llama, Qwen, DeepSeek, gpt-oss…) through Hugging Face Inference Providers; a free token "
+                             "with a small monthly allowance"},
+    "groq": {"title": "Groq", "base": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile",
+             "signup": "https://console.groq.com/keys", "about": "Very fast open models; free tier with daily limits"},
+    "openrouter": {"title": "OpenRouter", "base": "https://openrouter.ai/api/v1", "model": "meta-llama/llama-3.3-70b-instruct:free",
+                   "signup": "https://openrouter.ai/keys", "about": "Many models; those ending in :free cost nothing (daily limits)"},
+    "gemini": {"title": "Google Gemini", "base": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-2.5-flash",
+               "signup": "https://aistudio.google.com/apikey", "about": "Gemini Flash models; free tier with daily limits"},
+    "mistral": {"title": "Mistral", "base": "https://api.mistral.ai/v1", "model": "mistral-small-latest",
+                "signup": "https://console.mistral.ai/api-keys", "about": "Mistral's models; free Experiment plan with limits"},
+    "cerebras": {"title": "Cerebras", "base": "https://api.cerebras.ai/v1", "model": "gpt-oss-120b",
+                 "signup": "https://cloud.cerebras.ai/", "about": "Very fast open models; free tier with daily limits"},
+    "custom": {"title": "Custom address", "base": "http://127.0.0.1:1234/v1", "model": "",
+               "signup": "", "about": "Any OpenAI-compatible server: LM Studio, llama.cpp, vLLM on this computer, or another service"},
+}
 
 # the tools the assistant may plan with: what each is for (the settings come from the API description)
 CATALOG = {
@@ -87,7 +109,17 @@ CATALOG = {
     "/api/convert/features": "Change geometry type of `layer`: op = 'polygons_to_lines', 'lines_to_polygons', 'vertices_to_points', "
                              "'points_to_lines' (order_by, group_by, close), 'points_along_lines' (distance m), 'split_lines', "
                              "'bounding_boxes' (whole). Output: .geojson",
-    "/api/raster/resample":"A new pixel size `res` (metres in UTM) or factor `scale` (2 = pixels twice as small) and / or `crs` "
+    "/api/assess/area-stats": "Hectares, km² and % of each class of a class map `raster` (land cover, a classified map), optionally "
+                              "inside `area`. Output: .csv table",
+    "/api/assess/sample": "Stratified random points for accuracy assessment of a classified `raster`: per_class points per class (or "
+                          "`total`). Each has map_class and an empty `reference` for the user to label. Output: .geojson",
+    "/api/assess/accuracy": "Accuracy of a classified `raster` against labelled `points` (ref_field = the true class): confusion "
+                            "matrix, overall / user's / producer's accuracy, kappa, area estimates with 95 % CI. Output: .html report + .csv",
+    "/api/raster/calc": "Raster calculator: `variables` {\"A\": {\"path\": …, \"band\": n}, \"B\": …} and an `expression` such as "
+                        "\"(B - A) / (B + A)\", \"where(A > 0.3, 1, 0)\", \"(A - B) > 0.1\" (and / or / not, abs, sqrt, log, min, max). Output: .tif",
+    "/api/timeseries": "Index time series of a point or field `geometry` (GeoJSON Point / Polygon) from the free Sentinel-2 catalogue: "
+                       "`start`, `end` (YYYY-MM-DD), index NDVI / EVI / NDWI / NDMI / NDRE / SAVI. Output: .csv (date, mean, std…)",
+    "/api/raster/resample": "A new pixel size `res` (metres in UTM) or factor `scale` (2 = pixels twice as small) and / or `crs` "
                             "('EPSG:32643') for `raster`; `method` nearest, bilinear, cubic (= bicubic), cubic_spline, lanczos, average, "
                             "mode, med, min, max (default: nearest / mode for class maps, bilinear / average for values). Output: .tif",
     "/api/raster/enhance": "Enhance `raster` for viewing, computer vision or embeddings: steps [{op, …}] in order, op = stretch {low, "
@@ -111,18 +143,38 @@ def settings() -> dict:
         s = json.loads(_settings_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         s = {}
-    return {"provider": s.get("provider") if s.get("provider") in ("ollama", "claude") else "ollama",
-            "model": s.get("model") or "", "ollama_url": s.get("ollama_url") or OLLAMA_URL}
+    preset = s.get("api_preset") if s.get("api_preset") in API_PRESETS else "huggingface"
+    return {"provider": s.get("provider") if s.get("provider") in PROVIDERS else "ollama",
+            "model": s.get("model") or "", "ollama_url": s.get("ollama_url") or OLLAMA_URL,
+            "api_preset": preset, "api_model": s.get("api_model") or API_PRESETS[preset]["model"],
+            "api_base": s.get("api_base") or API_PRESETS["custom"]["base"]}
 
 
-def save_settings(provider: str, model: str = "", ollama_url: str = "") -> dict:
-    if provider not in ("ollama", "claude"):
+def save_settings(provider: str, model: str = "", ollama_url: str = "", api_preset: str = "", api_model: str = "", api_base: str = "") -> dict:
+    if provider not in PROVIDERS:
         raise ValueError("Unknown provider")
-    s = {**settings(), "provider": provider, "model": model.strip()[:100]}
+    s = {**settings(), "provider": provider}
+    if provider == "ollama":
+        s["model"] = model.strip()[:100]
     if ollama_url:
         if not ollama_url.startswith(("http://127.0.0.1", "http://localhost")):
             raise ValueError("The Ollama address must be on this computer (http://127.0.0.1:11434)")
         s["ollama_url"] = ollama_url.rstrip("/")
+    if provider == "api":
+        if api_preset not in API_PRESETS:
+            raise ValueError("Choose an online service")
+        if api_preset != s.get("api_preset"):
+            s["api_model"] = ""   # another service: its own default model, unless one is given
+        s["api_preset"] = api_preset
+        if api_model.strip():
+            s["api_model"] = api_model.strip()[:200]
+        if api_preset == "custom":
+            base = (api_base or s.get("api_base") or "").strip().rstrip("/")
+            if not base.startswith(("http://", "https://")):
+                raise ValueError("The custom address must start with http:// or https:// (e.g. http://127.0.0.1:1234/v1)")
+            if not s.get("api_model"):
+                raise ValueError("Give the model's name for the custom address (List models shows them)")
+            s["api_base"] = base
     ws.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     _settings_file().write_text(json.dumps(s, indent=1), encoding="utf-8")
     return s
@@ -131,6 +183,43 @@ def save_settings(provider: str, model: str = "", ollama_url: str = "") -> dict:
 def _claude_key() -> str:
     from . import credentials
     return (credentials.get_all("anthropic") or {}).get("api_key") or ""
+
+
+def _api_key(preset: str) -> str:
+    from . import credentials
+    return credentials.get("llm_api", preset) or ""
+
+
+def _api_target(s: dict | None = None) -> tuple[str, str, str]:
+    """The online service's address, model and key."""
+    s = s or settings()
+    p = s["api_preset"]
+    base = s["api_base"] if p == "custom" else API_PRESETS[p]["base"]
+    return base, s["api_model"], _api_key(p)
+
+
+def _api_headers(key: str) -> dict:
+    h = {"Content-Type": "application/json", "User-Agent": "LULC-Fetch"}
+    if key:
+        h["Authorization"] = f"Bearer {key}"
+    return h
+
+
+def api_models(preset: str, base: str = "") -> list[str]:
+    """The models an online service offers (its /models list), so the user can pick one."""
+    if preset not in API_PRESETS:
+        raise ValueError("Unknown service")
+    base = (base.strip().rstrip("/") if preset == "custom" and base else API_PRESETS[preset]["base"] if preset != "custom" else settings()["api_base"])
+    r = requests.get(f"{base}/models", headers=_api_headers(_api_key(preset)), timeout=20)
+    if r.status_code in (401, 403):
+        raise ValueError(f"{API_PRESETS[preset]['title']} refused the key → check it in Credentials (Online models)")
+    r.raise_for_status()
+    js = r.json()
+    items = js.get("data", js) if isinstance(js, dict) else js
+    names = sorted({str(m.get("id") or m.get("name") or "").removeprefix("models/") for m in items if isinstance(m, dict)} - {""})
+    if preset == "openrouter":   # the free ones first
+        names.sort(key=lambda n: (not n.endswith(":free"), n))
+    return names[:400]
 
 
 def status() -> dict:
@@ -149,10 +238,15 @@ def status() -> dict:
     except ImportError:
         sdk = False
     claude = {"key_set": bool(_claude_key()), "sdk": sdk, "model": CLAUDE_MODEL}
+    base, api_model, key = _api_target(s)
+    api = {"preset": s["api_preset"], "model": api_model, "base": base, "key_set": bool(key),
+           "presets": {k: {kk: v[kk] for kk in ("title", "model", "signup", "about")} | {"key_set": bool(_api_key(k))} for k, v in API_PRESETS.items()}}
+    local_base = base.startswith(("http://127.0.0.1", "http://localhost"))
     model = s["model"] or (RECOMMENDED_LOCAL if RECOMMENDED_LOCAL in ollama["models"] else (ollama["models"][0] if ollama["models"] else RECOMMENDED_LOCAL))
-    ready = (s["provider"] == "ollama" and ollama["running"] and model in ollama["models"]) or (s["provider"] == "claude" and claude["key_set"] and sdk)
-    return {"provider": s["provider"], "model": model if s["provider"] == "ollama" else CLAUDE_MODEL, "ready": ready,
-            "ollama": ollama, "claude": claude, "recommended": RECOMMENDED_LOCAL}
+    ready = ((s["provider"] == "ollama" and ollama["running"] and model in ollama["models"]) or (s["provider"] == "claude" and claude["key_set"] and sdk)
+             or (s["provider"] == "api" and bool(api_model) and (bool(key) or (s["api_preset"] == "custom" and local_base))))
+    shown = {"ollama": model, "claude": CLAUDE_MODEL, "api": api_model}[s["provider"]]
+    return {"provider": s["provider"], "model": shown, "ready": ready, "ollama": ollama, "claude": claude, "api": api, "recommended": RECOMMENDED_LOCAL}
 
 
 def pull(model: str, job=None) -> dict:
@@ -205,6 +299,7 @@ RULES = """How to choose tools:
 - One download per /api/jobs step: two things to download = two steps.
 - Tools that work on tables (/api/unsup/cluster: cluster, group) need a table. When the data is a raster, first make a
   table of its pixels with /api/tables/from-raster, then use {"$step": n, "ext": ".csv", "nth": 0} as the table.
+  "Group / cluster into N" always needs that /api/unsup/cluster step at the end: a table alone isn't the answer.
 - Indices (NDVI, NDWI, EVI, SAVI…) of an image: /api/analyze/export. A map of classes from labelled data:
   /api/rasterml/run. Embeddings (AlphaEarth, TESSERA): /api/emb/fetch. Files in the data library: /api/library/fetch.
 - An area of the user's (a polygon layer, the map view) goes into aoi / clip as an input of type "area".
@@ -217,13 +312,20 @@ RULES = """How to choose tools:
   /api/vector/select-location. Attributes of the layer they fall in or are nearest to → /api/vector/spatial-join.
   Area in hectares, length, perimeter → /api/vector/geometry. How many points per polygon → /api/vector/count-points.
   A table's columns added to a layer by a shared key → /api/vector/join-table.
-- Slope, aspect or a shaded relief of a DEM → /api/raster/terrain; contour lines → /api/raster/contours; ranges of
+- Slope, aspect or a shaded relief of a DEM → ONE /api/raster/terrain step with all of them in `products`; contour lines → /api/raster/contours; ranges of
   values to classes (e.g. NDVI → low / medium / high) → /api/raster/reclassify; what changed between two dates →
   /api/raster/change (categorical for land-cover maps); a raster cut to an area → /api/raster/clip.
 - A different pixel size or coordinate system → /api/raster/resample (cubic or lanczos when enlarging imagery,
   average when shrinking values, nearest / mode for class maps). Better contrast, denoising, sharpening, edges,
   texture or a speckle-free class map → /api/raster/enhance. Downloads, Stack, Make training data, embeddings and
   change detection also take an optional `resampling` method.
+- How many hectares (or km², %) of each class of a whole class map → /api/assess/area-stats, not /api/vector/zonal
+  (zonal is per polygon of a layer). How accurate a classified map is → /api/assess/sample (points to label), then
+  /api/assess/accuracy once labelled. Map algebra over several rasters (differences, masks, thresholds, custom
+  indices) → /api/raster/calc.
+- How an index (NDVI…) changes or develops over time (a season, a year, "over 2024", month by month) at a point or
+  field → ONE /api/timeseries step with the field's area as `geometry` and start / end dates. Don't download images
+  for this: /api/timeseries reads the catalogue itself.
 - A class raster as polygons → /api/convert/raster-to-polygon (continuous data: /api/raster/reclassify first); its
   class edges or the centrelines of roads / rivers → /api/convert/raster-to-polyline; pixels as points →
   /api/convert/raster-to-point; polygons or points into a raster (labels on an image's grid: like = that image) →
@@ -433,6 +535,55 @@ def _ask_claude(system: str, messages: list[dict]) -> str:
     return next((b.text for b in resp.content if b.type == "text"), "")
 
 
+class ApiError(ValueError):
+    """An online service's refusal, as a message that says what to do."""
+
+
+def ask_api(system: str, messages: list[dict], json_answer: bool = True, max_tokens: int = 8000) -> str:
+    """One chat request to an OpenAI-compatible service (Hugging Face, Groq, OpenRouter, Gemini, Mistral, Cerebras,
+    LM Studio…). JSON mode is asked for; a service that doesn't know it is asked again without it."""
+    base, model, key = _api_target()
+    name = API_PRESETS[settings()["api_preset"]]["title"]
+    body = {"model": model, "messages": [{"role": "system", "content": system}, *messages], "temperature": 0.1, "max_tokens": max_tokens}
+    if json_answer:
+        body["response_format"] = {"type": "json_object"}
+    for attempt in range(3):
+        try:
+            r = requests.post(f"{base}/chat/completions", headers=_api_headers(key), json=body, timeout=(10, 300))
+        except requests.RequestException as e:
+            raise ApiError(f"Couldn't reach {name} → check the internet connection (or the address) and try again ({e.__class__.__name__})")
+        if r.status_code == 400 and "response_format" in body and any(w in r.text.lower() for w in ("response_format", "json", "not supported")):
+            body.pop("response_format")   # JSON mode isn't offered by this model: the answer is read as text
+            continue
+        if r.status_code == 429 and attempt < 2:
+            time.sleep(float(r.headers.get("retry-after") or 8) if str(r.headers.get("retry-after") or "").replace(".", "").isdigit() else 8)
+            continue
+        break
+    if r.status_code in (401, 403):
+        raise ApiError(f"{name} refused the key → check it in Credentials (Online models for the Assistant)")
+    if r.status_code == 402:
+        raise ApiError(f"{name}: the free allowance of this key is used up → wait for it to renew, or choose another service or model")
+    if r.status_code == 404:
+        raise ApiError(f"{name} doesn't know the model “{model}” → choose another one (List models)")
+    if r.status_code == 429:
+        raise ApiError(f"{name} is limiting requests for your key (free-tier limit) → wait a minute, or choose another service")
+    if r.status_code >= 400:
+        try:
+            msg = r.json().get("error", {})
+            msg = msg.get("message") if isinstance(msg, dict) else msg
+        except ValueError:
+            msg = r.text[:300]
+        raise ApiError(f"{name} answered with an error ({r.status_code}): {str(msg)[:300]}")
+    try:
+        choice = r.json()["choices"][0]
+        text = choice["message"].get("content") or ""
+    except (ValueError, KeyError, IndexError):
+        raise ApiError(f"{name}'s answer couldn't be read → try again, or choose another model")
+    if choice.get("finish_reason") == "length":
+        raise ApiError("The plan was too long for the model → ask for less at once (fewer steps or areas)")
+    return text
+
+
 def _parse(text: str) -> dict:
     text = (text or "").strip()
     if not text.startswith("{"):
@@ -537,15 +688,18 @@ def plan(messages: list[dict], context: dict, conv_id: str = "", prefix: list[di
     With `prefix` (steps already run), only the steps still to run are asked for, numbered after them."""
     st = status()
     if not st["ready"]:
-        raise ValueError("The Assistant isn't set up yet → choose a model in its settings (a free local one, or Claude with your key)")
-    local = st["provider"] == "ollama"
+        raise ValueError("The Assistant isn't set up yet → choose a model in its settings (a free local one, a free online one with your key, or Claude)")
+    text_fields = st["provider"] == "claude"   # Claude's strict schema has settings as JSON text; the others give objects
     first_request = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
-    system, t0 = system_prompt(context, text_fields=not local, memory=_memory_text(str(first_request), context)), time.time()
+    system, t0 = system_prompt(context, text_fields=text_fields, memory=_memory_text(str(first_request), context)), time.time()
     known = {str(x.get("path")) for k in ("layers", "tables") for x in context.get(k) or [] if isinstance(x, dict) and x.get("path")}
     msgs = [{"role": m["role"], "content": str(m["content"])[:20000]} for m in messages if m.get("role") in ("user", "assistant") and m.get("content")]
     if not msgs or msgs[0]["role"] != "user":
         raise ValueError("Say what you want done")
-    ask = (lambda m: _ask_claude(system, m)) if st["provider"] == "claude" else (lambda m: _ask_ollama(st["model"], system, m))
+    if st["provider"] == "api":   # no schema to enforce online: the schema itself goes into the instructions
+        system += "\n\nThe JSON schema of your answer:\n" + json.dumps(_local_schema())
+    ask = {"claude": lambda m: _ask_claude(system, m), "api": lambda m: ask_api(system, m),
+           "ollama": lambda m: _ask_ollama(st["model"], system, m)}[st["provider"]]
     tries, out, wf, probs = 0, {}, {}, []
     while True:   # a plan with problems goes back to be fixed, twice at most
         text = ask(msgs)
@@ -592,3 +746,53 @@ def continue_plan(messages: list[dict], context: dict, workflow: dict, done: lis
     if conv_id:
         data.log(conv_id, {"role": "event", "kind": "replan", "failed": failed and {k2: failed.get(k2) for k2 in ("title", "endpoint", "error", "warnings")}, "plan": out["plan"]})
     return out
+
+
+# ------------------------------------------------------------------ explaining what came out
+EXPLAIN_SYSTEM = """You explain the results of a GIS workflow that just ran in LULC Fetch, for the person who asked for it.
+Write 3 to 6 short sentences in their language, plain text (no headings, no lists unless there are several numbers to
+compare). Say what came out and what it means for their question: the key numbers with their units (hectares, %, m,
+index values), the biggest or most surprising ones, and one caveat if the data suggest one (many empty pixels, few
+points, a low accuracy, clouds). Use ONLY the numbers given below; never invent or estimate others. If the results
+can't answer the question, say so and what to try next."""
+
+
+def chat_text(system: str, messages: list[dict], max_tokens: int = 1500) -> str:
+    """A plain-text answer from the chosen model (no plan schema)."""
+    st = status()
+    if not st["ready"]:
+        raise ValueError("The Assistant isn't set up yet → choose a model in its settings")
+    if st["provider"] == "api":
+        return ask_api(system, messages, json_answer=False, max_tokens=max_tokens).strip()
+    if st["provider"] == "claude":
+        import anthropic
+        client = anthropic.Anthropic(api_key=_claude_key(), max_retries=2, timeout=120)
+        resp = client.messages.create(model=CLAUDE_MODEL, max_tokens=max_tokens, system=system, messages=messages)
+        return "".join(b.text for b in resp.content if b.type == "text").strip()
+    s = settings()
+    r = requests.post(f"{s['ollama_url']}/api/chat", timeout=(5, 300), json={
+        "model": st["model"], "stream": False, "messages": [{"role": "system", "content": system}, *messages],
+        "options": {"temperature": 0.2, "num_ctx": 8192}})
+    r.raise_for_status()
+    return r.json()["message"]["content"].strip()
+
+
+def _trim(v, depth: int = 0):
+    """A step's result made small enough for the model: long lists cut, geometry and paths left out."""
+    if isinstance(v, dict):
+        return {k: _trim(x, depth + 1) for k, x in list(v.items())[:40]
+                if k not in ("geometry", "coordinates", "footprints", "preview") and not (isinstance(x, str) and len(x) > 300)}
+    if isinstance(v, list):
+        return [_trim(x, depth + 1) for x in v[:25]] + ([f"… {len(v) - 25} more"] if len(v) > 25 else [])
+    if isinstance(v, float):
+        return round(v, 4)
+    return v
+
+
+def explain(request: str, steps: list[dict]) -> str:
+    """What came out of a run, in a few sentences: the request, and each step's title, tool, result and what its files
+    hold (observations)."""
+    facts = [{"step": i + 1, "title": s.get("title"), "tool": s.get("endpoint"), "result": _trim(s.get("result")),
+              "files": _trim(s.get("observation"))} for i, s in enumerate(steps)]
+    text = json.dumps(facts, ensure_ascii=False, default=str)[:14000]
+    return chat_text(EXPLAIN_SYSTEM, [{"role": "user", "content": f"My request was: {request}\n\nWhat the steps made:\n{text}\n\nExplain the results."}])

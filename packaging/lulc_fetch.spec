@@ -9,7 +9,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 import re as _re
 # macOS wants a plain number: "v0.0.1-beta" → "0.0.1" (the full tag is kept in the info string)
-APP_VERSION = (_re.match(r"\d+(\.\d+)*", os.environ.get("LULC_VERSION", "0.0.2").lstrip("v")) or _re.match(r".*", "0.0.2")).group(0)
+APP_VERSION = (_re.match(r"\d+(\.\d+)*", os.environ.get("LULC_VERSION", "0.0.3").lstrip("v")) or _re.match(r".*", "0.0.3")).group(0)
 WIN, MAC = sys.platform.startswith("win"), sys.platform == "darwin"
 datas = [(os.path.join(ROOT, "webapp", "static"), os.path.join("webapp", "static")),
          (os.path.join(ROOT, "lulc_fetch", "agri", "data"), os.path.join("lulc_fetch", "agri", "data")),   # crop labels + knowledge base

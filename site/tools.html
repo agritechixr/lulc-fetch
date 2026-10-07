@@ -31,7 +31,7 @@
     <div class="center">
       <span class="eyebrow">All tools</span>
       <h1 class="ptitle">Every tool in LULC Fetch</h1>
-      <p class="lead">57 tools, most in the app's Analysis menu (Tools, Agri, Embeddings, Forecast), with the models each one offers. Each has a hint (ⓘ) on every option inside the app.</p>
+      <p class="lead">62 tools, most in the app's Analysis menu (Tools, Agri, Embeddings, Forecast), with the models each one offers. Each has a hint (ⓘ) on every option inside the app.</p>
       <div class="jump"><a href="#prep">Get &amp; prepare data</a><a href="#classical">Classical machine learning</a><a href="#segmentation">Deep learning: segmentation</a><a href="#detection">Deep learning: object detection</a><a href="#embeddings">Embeddings</a><a href="#agri">Agri</a><a href="#air">Air &amp; rain</a><a href="#gis">Vector &amp; spatial analysis</a><a href="#raster">Raster, terrain &amp; conversion</a><a href="#automate">Automate</a><a href="#workspace">Data, maps &amp; workspace</a></div>
     </div>
     <div class="tgroup" id="prep">
@@ -96,7 +96,7 @@
       </div>
     </div>
     <div class="tgroup" id="gis">
-      <div class="thead"><h2>Vector &amp; spatial analysis <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Tools · next version</span><p>Geoprocessing on shapefiles, GeoJSON and KML, measured in metres on the ground. Results are new layers, kept in the History and usable in Workflows and by the Assistant.</p></div>
+      <div class="thead"><h2>Vector &amp; spatial analysis <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Tools · new in 0.0.3</span><p>Geoprocessing on shapefiles, GeoJSON and KML, measured in metres on the ground. Results are new layers, kept in the History and usable in Workflows and by the Assistant.</p></div>
       <div class="tgrid">
       <div class="tcard"><h3>Buffer</h3><p>Grow points, lines or polygons by a distance in metres (or shrink polygons), optionally merged into one shape.</p></div>
       <div class="tcard"><h3>Select by attribute</h3><p>The features that meet a condition, written simply or SQL-style: crop == "rice" and area_ha &gt; 2, contains(name, "farm").</p></div>
@@ -109,7 +109,7 @@
       </div>
     </div>
     <div class="tgroup" id="raster">
-      <div class="thead"><h2>Raster, terrain &amp; conversion <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Tools · next version</span><p>DEMs, class maps and images: terrain, change, conversion between raster and vector, enhancement and resampling.</p></div>
+      <div class="thead"><h2>Raster, terrain &amp; conversion <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Tools · new in 0.0.3</span><p>DEMs, class maps and images: terrain, change, conversion between raster and vector, enhancement and resampling.</p></div>
       <div class="tgrid">
       <div class="tcard"><h3>Terrain · Contours</h3><p>Slope (degrees), aspect and a shaded relief from a DEM; contour lines every few metres with their height.</p></div>
       <div class="tcard"><h3>Reclassify · Change detection · Clip raster</h3><p>Ranges of values into named, coloured classes; the change between two dates (difference and %, or land-cover from → to with the area of each change); a raster cut or masked by polygons.</p></div>
@@ -117,14 +117,18 @@
       <div class="tcard"><h3>Vector to raster</h3><p>Burn a layer into a GeoTIFF: a field's numbers, text as named classes, presence, or a count per cell, on a pixel size or on another image's grid (training labels that line up).</p></div>
       <div class="tcard"><h3>Convert features</h3><div class="mchips"><span>Polygons → lines</span><span>Lines → polygons</span><span>Vertices → points</span><span>Points → lines (tracks)</span><span>Points along lines</span><span>Lines → segments</span><span>Bounding boxes</span></div></div>
       <div class="tcard"><h3>Enhance image</h3><p>Better input for computer vision and embeddings, in steps you order, with presets.</p><div class="mchips"><span>Contrast stretch</span><span>Histogram equalisation</span><span>CLAHE</span><span>Gamma</span><span>Median / gaussian denoise</span><span>Unsharp sharpen</span><span>Sobel / Laplacian edges</span><span>Focal statistics (texture)</span><span>Majority filter</span><span>Enlarge ×2 / ×4</span></div></div>
+      <div class="tcard"><h3>Raster calculator</h3><p>Map algebra over bands of several rasters (A, B, …) aligned to one grid: arithmetic, comparisons, and / or / not, where(), abs, sqrt, log, min, max. A true / false result becomes a mask, e.g. NDVI 2018 − NDVI 2025 &gt; 0.2.</p></div>
+      <div class="tcard"><h3>Accuracy assessment · Area statistics</h3><p>Stratified random points per class, labelled on the map (keys 1–9, the map's class hidden); confusion matrix, overall / user's / producer's accuracy, F1, kappa, and class areas estimated from the sample with 95 % confidence intervals (Olofsson et al. 2014), with an HTML report. Area statistics: hectares and % of each class.</p></div>
+      <div class="tcard"><h3>Index time series</h3><p>NDVI, EVI, NDWI, NDMI, NDRE or SAVI of a point or field in every Sentinel-2 scene of a period, from the free catalogue, clouds masked: a chart and a table.</p></div>
+      <div class="tcard"><h3>Georeference</h3><p>Put a scanned map, plan or photo on the map with control points: affine, 2nd-order polynomial or thin-plate spline, with residuals and RMSE.</p></div>
       <div class="tcard"><h3>Resample / reproject</h3><p>A new pixel size, factor or coordinate system. The same methods are an option in Find imagery, Stack layers, Make training data, Download embeddings and Change detection.</p><div class="mchips"><span>Nearest</span><span>Bilinear</span><span>Cubic (bicubic)</span><span>Cubic spline</span><span>Lanczos</span><span>Average</span><span>Mode</span><span>Median</span><span>Min / max</span><span>Quartiles</span></div></div>
       </div>
     </div>
     <div class="tgroup" id="automate">
-      <div class="thead"><h2>Automate <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Tools · next version</span><p>Let the app do the steps for you.</p></div>
+      <div class="thead"><h2>Automate <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Tools · new in 0.0.3</span><p>Let the app do the steps for you.</p></div>
       <div class="tgrid">
-      <div class="tcard"><h3>Assistant</h3><p>Describe the work in a sentence; it reads your layers, plans the app's tools step by step, checks the plan, shows it to you, runs it, checks each result and fixes or re-plans failed steps. Free local models through Ollama, or Claude with your own key.</p><div class="mchips"><span>qwen2.5 7B (recommended, local)</span><span>llama3.2 (local)</span><span>Claude (own key)</span></div></div>
-      <div class="tcard"><h3>Workflows</h3><p>Chains of tools made from runs in the History; run them again on other data, once or for every layer or polygon; edit, export and import.</p></div>
+      <div class="tcard"><h3>Assistant</h3><p>Describe the work in a sentence; it reads your layers, plans the app's tools step by step, checks the plan, shows it to you, runs it, checks each result and fixes or re-plans failed steps. Free local models through Ollama, free online models with your own key, or Claude. Explain the results sums up what came out.</p><div class="mchips"><span>qwen2.5 7B (recommended, local)</span><span>llama3.2 (local)</span><span>Hugging Face</span><span>Groq</span><span>Google Gemini</span><span>OpenRouter</span><span>Mistral</span><span>Cerebras</span><span>LM Studio / any OpenAI-compatible</span><span>Claude (own key)</span></div></div>
+      <div class="tcard"><h3>Workflows</h3><p>Chains of tools made from runs in the History; run them again on other data, once or for every layer or polygon; edit, export and import. Schedules run them by themselves (every few hours, daily or weekly) with an alert when a result crosses a limit.</p></div>
       </div>
     </div>
     <div class="tgroup" id="workspace">
@@ -133,7 +137,7 @@
       <div class="tcard"><h3>Add data</h3><p>GeoTIFF, JPG / PNG with world files, Sentinel .SAFE folders or zips, Shapefile, GeoJSON, KML / KMZ, CSV, Excel and Parquet. Tables with latitude / longitude columns become points on the map.</p></div>
       <div class="tcard"><h3>Data library</h3><p>Ready-made data from Hugging Face, free: 307 boundary layers of India (states, districts, sub-districts, villages, constituencies, city wards, highways, railways), IMD daily rainfall for all of India 2015–2025 (GeoTIFFs and a forecasting-ready table), and hourly AQI &amp; weather for Bengaluru and Delhi 2022–2026 with the stations; search and add, each file downloads once.</p></div>
       <div class="tcard"><h3>Tables &amp; editing</h3><p>Tables and attribute tables under the map: sort, filter, a field calculator (area, perimeter), right-click menus on columns and cells (delete, rename, statistics), pandas scripts, and save-or-discard editing.</p></div>
-      <div class="tcard"><h3>Map tools</h3><p>2D and 3D maps (DEMs as surfaces, AutoCAD-style ViewCube), bookmarks, Ctrl+K search, undo / redo, measure distance, area and height, elevation profiles, Swipe and side-by-side maps, print layouts. Click any pixel to see all its bands; right-click the map to copy coordinates (also UTM) and see what's there; band combinations (colour infrared, SWIR, agriculture, urban…), layer metadata and per-band statistics; streets, satellite and topographic basemaps; light and dark themes.</p></div>
+      <div class="tcard"><h3>Map tools</h3><p>2D and 3D maps (DEMs as surfaces, AutoCAD-style ViewCube), bookmarks, Ctrl+K search, undo / redo, measure distance, area and height, elevation profiles, Swipe and side-by-side maps, print layouts, style by attribute (categories or graduated colours with a legend). Click any pixel to see all its bands; right-click the map to copy coordinates (also UTM) and see what's there; band combinations (colour infrared, SWIR, agriculture, urban…), layer metadata and per-band statistics; streets, satellite and topographic basemaps; light and dark themes.</p></div>
       <div class="tcard"><h3>History</h3><p>Every tool run with its settings, outputs and time: open the results again, Run again, or Change settings &amp; run.</p></div>
       <div class="tcard"><h3>Projects, export &amp; jobs</h3><p>Keep layers, tables, models and results in one project folder that autosaves; export any layer as GeoTIFF, PNG, Shapefile, GeoJSON, KML, CSV or Parquet; every long run is a background job you can follow, read the log of, or cancel.</p></div>
       </div>

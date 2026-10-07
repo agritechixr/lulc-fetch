@@ -1,7 +1,34 @@
 # Changelog
 
-## Unreleased
+## 0.0.3 beta (2026-10-07)
 
+A full GIS around the land-cover tools: 2D and 3D maps, an Assistant that plans and runs workflows, and about 35 new
+tools. Everything below is new since 0.0.2.
+
+- **Online models for the Assistant**, as well as local Ollama models and Claude: Hugging Face (Inference Providers),
+  Groq, OpenRouter (free models), Google Gemini, Mistral, Cerebras, or any OpenAI-compatible address (LM Studio,
+  llama.cpp, vLLM). Free tiers with your own key, kept in the system keychain (Credentials ▸ Online models). List models
+  asks the service which models it has. **Explain the results**: after a run, the model sums up what came out, from
+  the results' own numbers.
+- **Accuracy assessment** (Analysis ▸ Tools ▸ Assess): stratified random points per class, labelled one by one on the
+  map (keys 1–9, the map's class hidden), then the confusion matrix, overall / user's / producer's accuracy, F1, kappa,
+  and the area of each class estimated from the sample with 95 % confidence intervals (Olofsson et al. 2014), with an
+  HTML report. **Area statistics**: hectares, km² and % of each class (inside an area).
+- **Raster calculator**: expressions over bands of several rasters (A, B, …), aligned to the first one's grid:
+  arithmetic, comparisons, and / or / not, where(), abs, sqrt, log, min, max, clip. True / false results become masks.
+- **Index time series**: NDVI, EVI, NDWI, NDMI, NDRE or SAVI of a point or a field in every Sentinel-2 scene of a
+  period, read straight from the free catalogue (only the area's pixels), clouds masked with each scene's
+  classification, as a chart and a table.
+- **Georeference**: put a scanned map, plan or photo on the map with control points (picture ↔ map), affine,
+  2nd-order polynomial or thin-plate spline, with each point's residual and the RMSE.
+- **Style by attribute**: colour a vector layer by a field's values (categories) or by classes of a number field
+  (quantiles, equal intervals, natural breaks) with colour ramps, and a legend in Contents.
+- **Scheduled workflows**: a workflow runs by itself every few hours, daily or weekly while the app is open (a missed
+  run runs once when it opens); dates can move with the run day; an alert when a result value crosses a limit.
+- **Zonal statistics** of class maps names its fields after the classes (pct_tree_cover, majority_class).
+- **Test data kit**: `scripts/make_test_data.py` downloads free data for six 2 × 2 km sites (Sentinel-2, Sentinel-1,
+  NAIP, Copernicus DEM, WorldCover, AlphaEarth, OpenStreetMap, air quality) with a README per site listing the tools to
+  try on it.
 - **Conversion tools** (Analysis ▸ Tools ▸ Conversion): Raster to polygon (class, area in ha; minimum area merges
   small patches first, smoothing, dissolve), Raster to polyline (class boundaries, or centrelines of roads / rivers),
   Raster to point (each band's value), Vector to raster (a field's numbers, text as named classes, presence or a count

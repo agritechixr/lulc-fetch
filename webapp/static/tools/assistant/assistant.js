@@ -14,7 +14,7 @@
 
   LF.tool({
     id: "assistant", title: "Assistant", icon: "assistant",
-    subtitle: "Say what you want done; it plans it with the app's tools from your data, you check the plan, then it runs it step by step and fixes what goes wrong. A free local model (Ollama) or Claude with your own key",
+    subtitle: "Say what you want done; it plans it with the app's tools from your data, you check the plan, then it runs it step by step and fixes what goes wrong. A free local model (Ollama), a free online model (Hugging Face, Groq, Gemini…) or Claude, with your own key",
     panel: `
       <div class="card as-model">
         <div class="row between" style="gap:8px;align-items:center"><span id="as-model-line" class="hint" style="margin:0"></span>
@@ -22,6 +22,8 @@
         <div id="as-settings" class="hidden">
           <label class="check"><input type="radio" name="as-prov" value="ollama"> Local model (free, offline, on this computer)</label>
           <div id="as-local" class="as-sub"></div>
+          <label class="check"><input type="radio" name="as-prov" value="api"> Online model: Hugging Face, Groq, Gemini… (free tiers, your own key)</label>
+          <div id="as-api" class="as-sub"></div>
           <label class="check"><input type="radio" name="as-prov" value="claude"> Claude, with your own Anthropic key (paid per use, by you)</label>
           <div id="as-cloud" class="as-sub"></div>
           <label class="check" style="margin-top:6px"><input type="checkbox" id="as-auto"> When a step fails, change the rest of the plan without asking me ${tip("A failed step is always fixed and run again on its own (up to 3 times). A new plan for the remaining steps is shown to you first, unless this is ticked.")}</label>
@@ -51,8 +53,9 @@
       async function refresh() {
         try { st.status = await api("/api/assistant/status"); } catch (e) { $("#as-model-line").textContent = e.message; return; }
         const s = st.status;
+        const provName = { claude: "Claude", api: s.api.presets[s.api.preset]?.title || "Online", ollama: "Local model" }[s.provider];
         $("#as-model-line").innerHTML = s.ready
-          ? `${s.provider === "claude" ? "Claude" : "Local model"} <b>${esc(s.model)}</b>${s.provider === "ollama" ? " · free, on this computer" : " · your key"}${s.provider === "ollama" && s.model !== s.recommended ? ` · <span title="Small models plan simple requests well; for more steps download ${esc(s.recommended)} in Settings">small model: check plans closely</span>` : ""}`
+          ? `${esc(provName)} <b>${esc(s.model)}</b>${s.provider === "ollama" ? " · free, on this computer" : s.provider === "api" ? " · online, your key" : " · your key"}${s.provider === "ollama" && s.model !== s.recommended ? ` · <span title="Small models plan simple requests well; for more steps download ${esc(s.recommended)} in Settings">small model: check plans closely</span>` : ""}`
           : `<span class="err-text">Not set up yet</span> · choose a model in Settings`;
         $$("[name=as-prov]").forEach((r) => { r.checked = r.value === s.provider; });
         const o = s.ollama;
@@ -64,10 +67,32 @@
         $("#as-cloud").innerHTML = s.claude.key_set
           ? `<p class="hint">Key set (Credentials ▸ Anthropic). Model: ${esc(s.claude.model)}. Each plan is a paid request to Anthropic, on your account.</p>`
           : `<p class="hint">No key yet. <a href="#" id="as-key">Add your Anthropic API key in Credentials</a> (kept in the system keychain).</p>`;
+        renderApi(s);
         $("#as-recheck")?.addEventListener("click", (e) => { e.preventDefault(); refresh(); });
         $("#as-key")?.addEventListener("click", (e) => { e.preventDefault(); $("#btn-creds").click(); });
         $("#as-pull")?.addEventListener("click", pullModel);
         if (!s.ready) $("#as-settings").classList.remove("hidden");
+      }
+      // ---- online models (OpenAI-compatible APIs with free tiers)
+      function renderApi(s, preset = s.api.preset) {
+        const P = s.api.presets, p = P[preset], same = preset === s.api.preset;
+        $("#as-api").innerHTML = `<label>Service <select id="as-api-preset">${Object.entries(P).map(([k, v]) => `<option value="${k}" ${k === preset ? "selected" : ""}>${esc(v.title)}${v.key_set ? " ✓" : ""}</option>`).join("")}</select></label>
+          <p class="hint">${esc(p.about)}. ${p.key_set || preset === "custom" ? "" : `<b>No key yet:</b> get a free one${p.signup ? ` at <a href="${esc(p.signup)}" target="_blank" rel="noopener">${esc(new URL(p.signup).hostname)}</a>` : ""}, then <a href="#" id="as-api-key">add it in Credentials</a>.`}</p>
+          ${preset === "custom" ? `<label>Address <input type="text" id="as-api-base" value="${esc(same ? s.api.base : "http://127.0.0.1:1234/v1")}" placeholder="http://127.0.0.1:1234/v1"></label>` : ""}
+          <label>Model <input type="text" id="as-api-model" list="as-api-models" value="${esc(same ? s.api.model : p.model)}" placeholder="the model's name"><datalist id="as-api-models"></datalist></label>
+          <div class="row tight" style="gap:6px"><button class="btn small ghost" id="as-api-list" title="Ask the service which models it offers (needs the key)">List models</button><span class="hint" id="as-api-n" style="margin:0"></span></div>
+          <p class="hint">Your request, the names, bands and a few values of your layers go to this service. Free tiers limit requests per minute and per day.</p>`;
+        $("#as-api-preset").onchange = (e) => renderApi(s, e.target.value);
+        $("#as-api-key")?.addEventListener("click", (e) => { e.preventDefault(); $("#btn-creds").click(); });
+        $("#as-api-list").onclick = async () => {
+          $("#as-api-n").textContent = "Asking…";
+          try {
+            const r = await api(`/api/assistant/api-models?preset=${encodeURIComponent($("#as-api-preset").value)}&base=${encodeURIComponent($("#as-api-base")?.value || "")}`);
+            $("#as-api-models").innerHTML = r.models.map((m) => `<option value="${esc(m)}">`).join("");
+            $("#as-api-n").textContent = `${r.models.length} models: click the Model box to choose`;
+          } catch (e) { $("#as-api-n").textContent = e.message; }
+        };
+        $("#as-api").onclick = () => { const r = $$("[name=as-prov]").find((x) => x.value === "api"); if (r) r.checked = true; };
       }
       async function pullModel() {
         const m = st.status.recommended;
@@ -83,7 +108,8 @@
       $("#as-save").onclick = async () => {
         const provider = $$("[name=as-prov]").find((r) => r.checked)?.value || "ollama";
         try {
-          st.status = await api("/api/assistant/settings", { method: "PUT", json: { provider, model: provider === "ollama" ? $("#as-model")?.value || "" : "" } });
+          st.status = await api("/api/assistant/settings", { method: "PUT", json: { provider, model: provider === "ollama" ? $("#as-model")?.value || "" : "",
+            api_preset: $("#as-api-preset")?.value || "", api_model: $("#as-api-model")?.value.trim() || "", api_base: $("#as-api-base")?.value.trim() || "" } });
           await refresh();
           if (st.status.ready) $("#as-settings").classList.add("hidden");
         } catch (e) { toast(e, true); }
@@ -189,10 +215,12 @@
             ${run?.ask ? `<div class="as-approve"><b>New plan for the rest:</b> ${esc(run.ask.plan)}<ol class="as-list">${run.ask.steps.map((s) => `<li>${esc(s.title)} <small>${esc(s.endpoint.replace("/api/", ""))}</small></li>`).join("")}</ol>
                 <div class="row tight" style="gap:6px"><button class="btn small primary" data-approve="yes">Continue with it</button><button class="btn small ghost" data-approve="no">Stop</button></div></div>` : ""}
             ${run?.summary ? `<div class="as-done">${esc(run.summary)}</div>` : ""}
+            ${run?.explained ? `<div class="as-explain">${esc(run.explained)}</div>` : ""}
             <div class="row tight" style="gap:6px;margin-top:8px;flex-wrap:wrap">
               ${run?.active ? `<button class="btn small ghost" data-stop>Stop</button>`
                 : `<button class="btn small primary" data-run="${n}" ${t.problems?.length ? "disabled title='Fix the plan first (Review)'" : ""}>${run ? "Run again" : "Run"}</button>
-                   <button class="btn small" data-review="${n}" title="Open it in Workflows: change inputs, steps or settings, save it">${run?.summary ? "Save as workflow…" : "Review &amp; edit…"}</button>`}
+                   <button class="btn small" data-review="${n}" title="Open it in Workflows: change inputs, steps or settings, save it">${run?.summary ? "Save as workflow…" : "Review &amp; edit…"}</button>
+                   ${run?.done?.length && !run.explained ? `<button class="btn small" data-explain="${n}" title="The model sums up what came out, from the results' own numbers">Explain the results</button>` : ""}`}
             </div></div>` : ""}
           <small class="hint">${esc(t.model || "")}${t.seconds ? ` · ${t.seconds} s` : ""}${t.fixes ? ` · fixed itself ${t.fixes}×` : ""}</small></div>`;
       }
@@ -206,6 +234,7 @@
           const t = st.turns[+b.dataset.review];
           openTool("workflows", { plan: { workflow: t.run?.workflow || t.workflow, note: "The Assistant's plan: check it, run it, or name and save it" } });
         });
+        $$("[data-explain]").forEach((b) => b.onclick = () => explainRun(st.turns[+b.dataset.explain]));
         $$("[data-stop]").forEach((b) => b.onclick = () => { st.stop = true; st.approve?.(false); toast("Stopping after the current step"); });
         $$("[data-approve]").forEach((b) => b.onclick = () => st.approve?.(b.dataset.approve === "yes"));
         $("#as-stop")?.addEventListener("click", () => st.ctrl?.abort());
@@ -263,7 +292,7 @@
                 else {
                   ctx.outputs[i] = r.outs; results.push(r);
                   Object.assign(rs, { state: "done", obs: obsLine(obs) || "done" });
-                  done.push({ title: s.title, endpoint: s.endpoint, body: s.body, observation: obs });
+                  done.push({ title: s.title, endpoint: s.endpoint, body: s.body, observation: obs, result: r.result });
                   if (lastErr) api("/api/assistant/memory/lesson", { method: "POST", json: { endpoint: s.endpoint, error: lastErr.error, body: s.body,
                     fix: `changed ${changedKeys(lastErr.body, s.body).join(", ") || "the step"}` } }).catch(() => {});
                   logEvent({ role: "event", kind: "step", index: i, title: s.title, ok: true, observation: rs.obs });
@@ -309,6 +338,7 @@
             }
           }
           const added = await LF.wf.addResults(results, false);
+          run.done = done;
           run.summary = `Done: ${wf.steps.length} step${wf.steps.length === 1 ? "" : "s"}, ${added} result${added === 1 ? "" : "s"} added to Contents.${history.length ? ` It fixed ${history.length} problem${history.length === 1 ? "" : "s"} on the way.` : ""}`;
           toast("The Assistant's plan finished");
           logEvent({ role: "event", kind: "finished", text: run.summary });
@@ -322,6 +352,17 @@
         }
       }
 
+      async function explainRun(turn) {
+        if (st.busy) return;
+        const request = [...st.turns.slice(0, st.turns.indexOf(turn))].reverse().find((x) => x.role === "user")?.text || turn.plan || "";
+        st.busy = "Looking at the results…"; render();
+        try {
+          const r = await api("/api/assistant/explain", { method: "POST", json: { request, steps: turn.run.done } });
+          turn.run.explained = r.text;
+          logEvent({ role: "event", kind: "explained", text: r.text });
+        } catch (e) { toast(e, true); }
+        finally { st.busy = false; render(); }
+      }
       $("#as-send").onclick = send;
       $("#as-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } });
       $("#as-new").onclick = () => { if (st.running) return toast("Wait for the plan to finish (or stop it)", true); st.convo = []; st.turns = []; st.conv = null; render(); $("#as-input").focus(); };

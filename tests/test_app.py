@@ -113,7 +113,7 @@ def test_tool_files_register_themselves(client):
         ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
         if "LF.tool(" in js.text:
             assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
-    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve", "vzonal", "vlocation", "vsjoin", "vgeometry", "vcount", "vtjoin", "rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "r2poly", "r2line", "r2point", "rasterize", "vconvert", "vhelpers"])
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve", "vzonal", "vlocation", "vsjoin", "vgeometry", "vcount", "vtjoin", "rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "r2poly", "r2line", "r2point", "rasterize", "vconvert", "areastats", "accuracy", "rcalc", "timeseries", "georef", "vhelpers"])
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200
@@ -289,6 +289,35 @@ def test_workflow_from_history_links_steps_and_makes_inputs(client):
     assert client.get(f"/api/workflows/{saved['id']}").status_code == 404
 
 
+def test_workflow_schedules(client):
+    """A schedule: its next run (daily at a time, weekly, every few hours), a missed run is due once, the run is recorded."""
+    import datetime as dt
+    import time as _t
+
+    from webapp import workflows
+    wf = {"name": "Weekly NDVI", "inputs": [{"id": "in1", "label": "End date", "type": "value", "default": "2025-01-31"}],
+          "steps": [{"title": "Area", "endpoint": "/api/assess/area-stats", "body": {"raster": "uploads/x.tif", "name": {"$in": "in1"}}}]}
+    wid = ok(client.put("/api/workflows/new", json={"workflow": wf}))["id"]
+    s = ok(client.put(f"/api/workflows/{wid}/schedule", json={"schedule": {"every": "day", "at": "07:30", "relative_dates": {"in1": 0},
+                                                                         "alert": {"field": "summary.mean", "op": "<", "value": 0.3}}}))
+    nxt = dt.datetime.fromtimestamp(s["next_run"])
+    assert (nxt.hour, nxt.minute) == (7, 30) and 0 < s["next_run"] - _t.time() <= 86400 and s["relative_dates"] == {"in1": 0}
+    wed = dt.datetime(2026, 10, 7, 12, 0).timestamp()   # a Wednesday, noon
+    assert dt.datetime.fromtimestamp(workflows.next_run({"every": "week", "weekday": 0, "at": "06:00"}, wed)).strftime("%a %d %H:%M") == "Mon 12 06:00"
+    assert workflows.next_run({"every": "hours", "hours": 6}, wed) == wed + 6 * 3600
+    lst = ok(client.get("/api/workflows/schedules"))["schedules"]
+    assert [x["id"] for x in lst] == [wid] and not lst[0]["due"] and lst[0]["name"] == "Weekly NDVI"
+    data = workflows._sched_all(); data[wid]["next_run"] = _t.time() - 7200; workflows._sched_write(data)   # missed while closed
+    assert ok(client.get("/api/workflows/schedules"))["schedules"][0]["due"]
+    r = ok(client.post(f"/api/workflows/{wid}/schedule/ran", json={"ok": True, "message": "summary.mean = 0.21 (< 0.3)", "alert": True}))
+    assert r["runs"][0]["alert"] and r["next_run"] > _t.time() and not ok(client.get("/api/workflows/schedules"))["schedules"][0]["due"]
+    for bad in ({"every": "month"}, {"every": "day", "at": "25:00"}, {"every": "hours", "hours": 0}, {"every": "week", "at": "07:00"},
+                {"every": "day", "at": "07:00", "alert": {"field": "x", "op": "~", "value": 1}}):
+        assert client.put(f"/api/workflows/{wid}/schedule", json={"schedule": bad}).status_code == 400, bad
+    ok(client.delete(f"/api/workflows/{wid}"))
+    assert ok(client.get("/api/workflows/schedules"))["schedules"] == []                 # a deleted workflow's schedule goes too
+
+
 def test_workflow_refuses_housekeeping_and_bad_links(client):
     bad = {"name": "x", "inputs": [], "steps": [{"endpoint": "/api/project/close", "body": {"a": 1}}]}
     assert client.put("/api/workflows/new", json={"workflow": bad}).status_code == 400
@@ -335,6 +364,62 @@ def test_assistant_flags_invented_files_and_wrong_input_kinds(client, monkeypatc
     r = ok(client.post("/api/assistant/plan", json={"messages": [{"role": "user", "content": "x"}], "context": {"layers": []}}))
     text = " ".join(r["problems"])
     assert "made_up.tif" in text and "not the area in1" in text and r["fixes"] == 2
+
+
+def test_assistant_plans_with_an_online_openai_compatible_model(client):
+    """A stand-in OpenAI-compatible server (like LM Studio, Groq or Hugging Face's router) on this computer: the plan
+    comes back through /chat/completions, a server without JSON mode is asked again without it, models are listed,
+    and a refused key says where to fix it."""
+    import json as _json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    plan = {"plan": "A buffer of 100 m.", "questions": [], "remember": [], "workflow": {"name": "Buffer",
+            "inputs": [{"id": "in1", "label": "Fields", "type": "file", "default": "uploads/f.geojson"}],
+            "steps": [{"title": "Buffer", "endpoint": "/api/vector/buffer", "body": {"layer": {"$in": "in1"}, "distance": 100}}]}}
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _send(self, code, obj):
+            b = _json.dumps(obj).encode()
+            self.send_response(code); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+
+        def do_GET(self):
+            self._send(200, {"data": [{"id": "tiny-model"}, {"id": "other-model"}]})
+
+        def do_POST(self):
+            body = _json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append(body)
+            if body["model"] == "locked":
+                return self._send(401, {"error": {"message": "bad key"}})
+            if "response_format" in body:
+                return self._send(400, {"error": {"message": "response_format is not supported"}})
+            self._send(200, {"choices": [{"message": {"content": "Here it is:\n" + _json.dumps(plan)}, "finish_reason": "stop"}]})
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_port}/v1"
+    try:
+        st = ok(client.put("/api/assistant/settings", json={"provider": "api", "api_preset": "custom", "api_base": base, "api_model": "tiny-model"}))
+        assert st["ready"] and st["provider"] == "api" and st["model"] == "tiny-model"
+        assert ok(client.get("/api/assistant/api-models", params={"preset": "custom", "base": base}))["models"] == ["other-model", "tiny-model"]
+        r = ok(client.post("/api/assistant/plan", json={"messages": [{"role": "user", "content": "buffer my fields by 100 m"}],
+                                                      "context": {"layers": [{"name": "Fields", "type": "vector", "path": "uploads/f.geojson"}]}}))
+        assert r["problems"] == [] and r["workflow"]["steps"][0]["endpoint"] == "/api/vector/buffer"
+        assert "response_format" in seen[0] and "response_format" not in seen[1]         # asked again without JSON mode
+        assert seen[1]["messages"][0]["role"] == "system" and "schema" in seen[1]["messages"][0]["content"]
+        ok(client.put("/api/assistant/settings", json={"provider": "api", "api_preset": "custom", "api_base": base, "api_model": "locked"}))
+        bad = client.post("/api/assistant/plan", json={"messages": [{"role": "user", "content": "x"}]})
+        assert bad.status_code == 400 and "refused the key" in bad.json()["detail"]
+        assert client.put("/api/assistant/settings", json={"provider": "api", "api_preset": "custom", "api_base": "ftp://x", "api_model": "m"}).status_code == 400
+        st = ok(client.put("/api/assistant/settings", json={"provider": "api", "api_preset": "groq"}))
+        assert st["model"] == "llama-3.3-70b-versatile" and not st["ready"]               # no Groq key: not ready
+    finally:
+        srv.shutdown()
+        client.put("/api/assistant/settings", json={"provider": "ollama"})
 
 
 def test_assistant_needs_setting_up_first(client, monkeypatch):
@@ -606,6 +691,9 @@ def test_conversion_tools(client, home):
     poly = rd(run(client, "/api/convert/raster-to-polygon", {"raster": "uploads/cls.tif", "dissolve": True}))
     by = {f["properties"]["value"]: f["properties"] for f in poly["features"]}
     assert set(by) == {1, 2} and by[2]["class"] == "forest" and abs(by[1]["area_ha"] + by[2]["area_ha"] - 16) < 0.01   # 400 m × 400 m
+    zn = rd(run(client, "/api/vector/zonal", {"layer": poly, "raster": "uploads/cls.tif", "categorical": True}))
+    z1 = next(f["properties"] for f in zn["features"] if f["properties"]["value"] == 1)
+    assert z1["pct_crop"] > 99 and z1["majority_class"] == "crop"           # class names, not pct_1
     sieved = rd(run(client, "/api/convert/raster-to-polygon", {"raster": "uploads/cls.tif", "min_area": 300}))
     assert len(sieved["features"]) == 2                                      # the stray pixel merged away
     edges = run(client, "/api/convert/raster-to-polyline", {"raster": "uploads/cls.tif", "min_length": 1})
@@ -649,6 +737,119 @@ def test_conversion_tools(client, home):
     assert len(conv("bounding_boxes", fields, whole=True)["features"]) == 1
 
 
+def test_area_statistics_and_accuracy_assessment(client, home):
+    """Area per class; stratified points; a confusion matrix and Olofsson's area estimates that we can work out by hand."""
+    import json
+
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from tests.helpers import run
+    (home / "uploads").mkdir(exist_ok=True)
+    a = np.ones((100, 100), "uint8"); a[:, 75:] = 2                              # 75 % class 1 (crop), 25 % class 2 (forest)
+    prof = dict(driver="GTiff", width=100, height=100, count=1, dtype="uint8", crs="EPSG:32643", transform=from_origin(700000, 1500000, 10, 10), nodata=0)
+    with rasterio.open(home / "uploads/map.tif", "w", **prof) as d:
+        d.write(a, 1); d.update_tags(classes=json.dumps({"1": "crop", "2": "forest"}))
+    st = run(client, "/api/assess/area-stats", {"raster": "uploads/map.tif"})
+    by = {c["class"]: c for c in st["classes"]}
+    assert abs(by["crop"]["area_ha"] - 75) < 1e-6 and abs(by["forest"]["percent"] - 25) < 1e-6 and st["csv"].startswith("tables/")
+    smp = run(client, "/api/assess/sample", {"raster": "uploads/map.tif", "per_class": 20, "seed": 3})
+    fc = ok(client.get("/api/vector/read", params={"path": smp["path"]}))
+    assert len(fc["features"]) == 40 and all(f["properties"]["reference"] == "" for f in fc["features"])
+    # label: all forest points right; 4 of the 20 crop points are really forest
+    crop = [f["properties"] for f in fc["features"] if f["properties"]["map_class"] == "crop"]
+    for p in (f["properties"] for f in fc["features"]):
+        p["reference"] = p["map_class"]
+    for p in crop[:4]:
+        p["reference"] = "forest"
+    r = run(client, "/api/assess/accuracy", {"raster": "uploads/map.tif", "points": fc})
+    assert r["matrix"] == [[16, 4], [0, 20]] and r["overall_accuracy"] == 0.9
+    w = {c["class"]: c for c in r["weighted"]["classes"]}
+    # Olofsson: forest share = 0.75 · 4/20 + 0.25 · 20/20 = 0.40 → 40 ha of 100; overall = 0.75 · 0.8 + 0.25 = 0.85
+    assert abs(w["forest"]["estimated_area_ha"] - 40) < 1e-6 and abs(r["weighted"]["overall_accuracy"] - 0.85) < 1e-9
+    assert w["forest"]["ci95_ha"] > 0 and r["report"].endswith(".html") and (home / r["report"]).read_text().count("Olofsson")
+    unlabelled = client.post("/api/assess/accuracy", json={"raster": "uploads/map.tif", "points": fc, "ref_field": "nope"})
+    assert unlabelled.status_code == 200   # (the job fails: no such field)
+
+
+def test_raster_calculator(client, home):
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from tests.helpers import run
+    (home / "uploads").mkdir(exist_ok=True)
+    prof = dict(driver="GTiff", width=20, height=20, count=2, dtype="float32", crs="EPSG:32643", transform=from_origin(700000, 1500000, 10, 10))
+    with rasterio.open(home / "uploads/two.tif", "w", **prof) as d:
+        d.write(np.full((20, 20), 0.1, "float32"), 1); d.write(np.full((20, 20), 0.5, "float32"), 2)
+    coarse = {**prof, "count": 1, "width": 10, "height": 10, "transform": from_origin(700000, 1500000, 20, 20)}
+    with rasterio.open(home / "uploads/coarse.tif", "w", **coarse) as d:
+        d.write(np.arange(100, dtype="float32").reshape(10, 10), 1)
+    nd = run(client, "/api/raster/calc", {"variables": {"R": {"path": "uploads/two.tif", "band": 1}, "N": {"path": "uploads/two.tif", "band": 2}},
+                                          "expression": "(N - R) / (N + R)", "name": "ndvi"})
+    with rasterio.open(home / nd["path"]) as s:
+        assert abs(float(s.read(1).mean()) - 0.4 / 0.6) < 1e-5
+    m = run(client, "/api/raster/calc", {"variables": {"A": {"path": "uploads/two.tif", "band": 2}, "C": {"path": "uploads/coarse.tif"}},
+                                         "expression": "(C > 49) and A > 0.3"})
+    with rasterio.open(home / m["path"]) as s:
+        assert m["boolean"] and s.dtypes[0] == "uint8" and s.shape == (20, 20) and abs(m["summary"]["true_pct"] - 50) < 1
+    for bad in ("__import__('os')", "A.real", "open(A)", "Z + 1", "A +"):
+        assert client.post("/api/raster/calc", json={"variables": {"A": {"path": "uploads/two.tif"}}, "expression": bad}).status_code == 400, bad
+
+
+def test_time_series_route(client, monkeypatch):
+    from lulc_fetch import timeseries
+
+    from tests.helpers import run
+    seen = {}
+
+    def fake(g, start, end, **kw):
+        seen.update(g=g, start=start, **kw)
+        return {"index": kw["index"], "rows": [{"date": "2025-01-01", "mean": 0.4}, {"date": "2025-01-11", "mean": 0.6}], "points": 2, "scenes": 2, "summary": {}}
+    monkeypatch.setattr(timeseries, "series", fake)
+    r = run(client, "/api/timeseries", {"geometry": {"type": "Feature", "geometry": {"type": "Point", "coordinates": [76.9, 12.5]}},
+                                         "start": "2025-01-01", "end": "2025-03-01", "index": "EVI"})
+    assert r["csv"].startswith("tables/") and seen["g"]["type"] == "Point" and seen["index"] == "EVI"
+    assert client.post("/api/timeseries", json={"geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 1]]}, "start": "2025-01-01", "end": "2025-02-01"}).status_code == 400
+    assert client.post("/api/timeseries", json={"geometry": {"type": "Point", "coordinates": [0, 0]}, "start": "2025-03-01", "end": "2025-02-01"}).status_code == 400
+
+
+def test_georeference_a_picture(client, home):
+    """A picture with no coordinates, 4 control points: placed where they say, with residuals."""
+    import io
+
+    import numpy as np
+    import rasterio
+    from PIL import Image
+    from rasterio.warp import transform_bounds
+
+    from tests.helpers import run
+    buf = io.BytesIO()
+    Image.fromarray((np.indices((200, 300)).sum(0) % 255).astype("uint8")).convert("RGB").save(buf, "PNG")
+    up = ok(client.post("/api/georef/upload", files={"file": ("plan.png", buf.getvalue(), "image/png")}))
+    assert up["width"] == 300 and up["height"] == 200
+    assert client.get("/api/georef/image", params={"path": up["path"]}).status_code == 200
+    pts = [{"px": 0, "py": 0, "lon": 77.50, "lat": 13.02}, {"px": 300, "py": 0, "lon": 77.53, "lat": 13.02},
+           {"px": 0, "py": 200, "lon": 77.50, "lat": 13.00}, {"px": 300, "py": 200, "lon": 77.53, "lat": 13.00}]
+    f = ok(client.post("/api/georef/fit", json={"image": up["path"], "points": pts}))
+    assert f["rmse_m"] < 5 and len(f["residuals_m"]) == 4
+    assert client.post("/api/georef/fit", json={"image": up["path"], "points": pts, "method": "poly2"}).status_code == 400   # needs 6
+    r = run(client, "/api/georef/warp", {"image": up["path"], "points": pts})
+    with rasterio.open(home / r["path"]) as s:
+        b = transform_bounds(s.crs, "EPSG:4326", *s.bounds)
+        assert s.count == 3 and abs(b[0] - 77.50) < 0.001 and abs(b[3] - 13.02) < 0.001
+    assert client.post("/api/georef/upload", files={"file": ("x.txt", b"hello", "text/plain")}).status_code == 400
+    tif = io.BytesIO()   # a TIFF is shown through a PNG preview (made without Pillow, which the app doesn't bundle)
+    with rasterio.MemoryFile() as mf:
+        with mf.open(driver="GTiff", width=40, height=30, count=1, dtype="uint16") as d:
+            d.write((np.arange(1200).reshape(1, 30, 40) * 7).astype("uint16"))
+        tif.write(mf.read())
+    up2 = ok(client.post("/api/georef/upload", files={"file": ("scan.tif", tif.getvalue(), "image/tiff")}))
+    img = client.get("/api/georef/image", params={"path": up2["path"]})
+    assert img.status_code == 200 and img.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 def test_vector_geometry_helpers(client):
     """Centroids, convex hull, simplify, merge, explode, fishnet (cells of a known size), random points inside."""
     from shapely.geometry import shape
@@ -680,3 +881,18 @@ def test_no_element_id_is_used_twice(client):
     srcs = [html] + [client.get(f"/static/{s}").text for s in re.findall(r'<script src="/static/(tools/[^"]+\.js)"', html)]
     ids = collections.Counter(i for s in srcs for i in re.findall(r'id="([A-Za-z][\w-]*)"', s))
     assert not [k for k, v in ids.items() if v > 1], f"ids used twice: {[k for k, v in ids.items() if v > 1]}"
+
+
+def test_assistant_explains_results_from_their_numbers(client, monkeypatch):
+    from webapp import assistant
+    seen = {}
+
+    def fake(system, messages, max_tokens=1500):
+        seen.update(system=system, text=messages[-1]["content"])
+        return "Cropland is 58 % of the area (231 ha)."
+    monkeypatch.setattr(assistant, "chat_text", fake)
+    steps = [{"title": "Area statistics", "endpoint": "/api/assess/area-stats", "result": {"total_ha": 400.0, "classes": [{"class": "Cropland", "area_ha": 231.4567}] * 30,
+              "geometry": {"type": "Polygon"}}, "observation": [{"kind": "table", "rows": 6}]}]
+    r = ok(client.post("/api/assistant/explain", json={"request": "how much cropland?", "steps": steps}))
+    assert r["text"].startswith("Cropland") and "only the numbers" in seen["system"].lower().replace("use only", "only")
+    assert "how much cropland?" in seen["text"] and "231.4567" in seen["text"] and "… 5 more" in seen["text"] and '"geometry"' not in seen["text"]

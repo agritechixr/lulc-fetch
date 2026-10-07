@@ -90,6 +90,11 @@
     r2point: '<rect x="2" y="3" width="9" height="9" rx="1"/><path d="M2 7.5h9M6.5 3v9" opacity=".45"/><circle cx="15" cy="15" r="1.3" fill="currentColor"/><circle cx="20" cy="15" r="1.3" fill="currentColor"/><circle cx="15" cy="20" r="1.3" fill="currentColor"/><circle cx="20" cy="20" r="1.3" fill="currentColor"/><path d="M11 8h4l-1.5-1.5M15 8l-1.5 1.5" opacity=".7"/>',
     rasterize: '<path d="M3 9l3-5 5 2-1 5z"/><path d="M10 8h4l-1.5-1.5M14 8l-1.5 1.5" opacity=".7"/><rect x="13" y="12" width="9" height="9" rx="1"/><path d="M13 16.5h9M17.5 12v9" opacity=".45"/><rect x="13" y="12" width="4.5" height="4.5" fill="currentColor" fill-opacity=".4" stroke="none"/>',
     vconvert: '<path d="M3 4l5-1 2 5-4 3-3-2z"/><path d="M14 17c2-3 4-1 7-4" /><path d="M8 14l-2 4h5M15 7h5l-2-2M20 7l-2 2" opacity=".7"/>',
+    areastats: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".45"/><path d="M7 17V12M11 17V8M15 17V10M19 17V6" stroke-width="2.2"/>',
+    accuracy: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18" opacity=".45"/><rect x="3" y="3" width="6" height="6" fill="currentColor" fill-opacity=".35" stroke="none"/><path d="M12.5 15l2.2 2.2 4.3-4.7"/>',
+    rcalc: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8" /><path d="M8 12h2M8 16h2M14 12h2M14 16h2" stroke-width="2.2"/>',
+    timeseries: '<path d="M3 20h18" opacity=".5"/><path d="M4 15c2-6 4-8 6-4s3 5 5 0 3-6 5-4"/><circle cx="10" cy="11" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="11" r="1.2" fill="currentColor" stroke="none"/>',
+    georef: '<rect x="3" y="4" width="11" height="9" rx="1"/><path d="M5 11l3-3 2 2 2-2" opacity=".6"/><path d="M17 12a3 3 0 0 1 3 3c0 2.5-3 5.5-3 5.5s-3-3-3-5.5a3 3 0 0 1 3-3z"/><path d="M14 8.5l3 3.5" stroke-dasharray="1.6 1.6"/>',
     vhelpers: '<circle cx="7" cy="7" r="2.2"/><path d="M14 4l6 5-3 7-6-2z"/><path d="M4 14h6v6H4z" stroke-dasharray="2 1.5"/><circle cx="17" cy="19" r="1" fill="currentColor"/><circle cx="20" cy="16" r="1" fill="currentColor"/>',
     workflow: '<rect x="3" y="3" width="6" height="5" rx="1"/><rect x="15" y="9.5" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><path d="M9 5.5h3v13H9M12 12h3"/>',
     map2d: '<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14" opacity=".55"/>',
@@ -164,8 +169,8 @@
     });
   }
   // the ribbon groups of the Tools category (tools not named here go in "More")
-  const TOOL_GROUPS = [["Imagery", ["search", "analyze", "pca", "stack"]], ["Training data", ["samples", "raster2table", "patches"]],
-    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve", "vhelpers"]], ["Spatial analysis", ["vzonal", "vlocation", "vsjoin", "vcount", "vgeometry", "vtjoin"]], ["Raster & terrain", ["rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance"]], ["Conversion", ["r2poly", "r2line", "r2point", "rasterize", "vconvert"]],["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
+  const TOOL_GROUPS = [["Imagery", ["search", "analyze", "timeseries", "pca", "stack"]], ["Training data", ["samples", "raster2table", "patches"]],
+    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve", "vhelpers"]], ["Spatial analysis", ["vzonal", "vlocation", "vsjoin", "vcount", "vgeometry", "vtjoin"]], ["Raster & terrain", ["rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "rcalc"]], ["Assess", ["areastats", "accuracy"]], ["Conversion", ["r2poly", "r2line", "r2point", "rasterize", "vconvert", "georef"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
   // one ribbon group: a few tools as big buttons, more as small ones in columns of three
   function ribbonGroup(caption, tools, big = tools.length <= 3) {
     if (!tools.length) return "";

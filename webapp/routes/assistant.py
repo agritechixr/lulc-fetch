@@ -18,19 +18,36 @@ def assistant_status():
 
 
 class AssistantSettings(BaseModel):
-    provider: str = Field(pattern="^(ollama|claude)$")
+    provider: str = Field(pattern="^(ollama|api|claude)$")
     model: str = Field("", max_length=100)
     ollama_url: str = Field("", max_length=200)
+    api_preset: str = Field("", max_length=40)
+    api_model: str = Field("", max_length=200)
+    api_base: str = Field("", max_length=300)
 
 
 @router.put("/api/assistant/settings")
 def assistant_settings(req: AssistantSettings):
     from .. import assistant
     try:
-        assistant.save_settings(req.provider, req.model, req.ollama_url)
+        assistant.save_settings(req.provider, req.model, req.ollama_url, req.api_preset, req.api_model, req.api_base)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return assistant.status()
+
+
+@router.get("/api/assistant/api-models")
+def assistant_api_models(preset: str, base: str = ""):
+    """The models an online service offers (with the saved key)."""
+    import requests as _rq
+
+    from .. import assistant
+    try:
+        return {"models": assistant.api_models(preset, base)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except _rq.RequestException as e:
+        raise HTTPException(502, f"Couldn't get the list of models ({e.__class__.__name__}) → type the model's name instead")
 
 
 class PullRequest(BaseModel):
@@ -70,6 +87,18 @@ def _model_errors(fn):
         if name in ("APIConnectionError", "APITimeoutError"):
             raise HTTPException(502, "Couldn't reach Claude → check the internet connection, or use the local model")
         raise
+
+
+class ExplainRequest(BaseModel):
+    request: str = Field(max_length=4000)
+    steps: list[dict] = Field(min_length=1, max_length=40)
+
+
+@router.post("/api/assistant/explain")
+def assistant_explain(req: ExplainRequest):
+    """A few sentences on what a run's results mean, from its steps' results and files (only their numbers)."""
+    from .. import assistant
+    return {"text": _model_errors(lambda: assistant.explain(req.request, req.steps))}
 
 
 @router.post("/api/assistant/plan")

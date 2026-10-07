@@ -415,7 +415,8 @@ def join_table(fc: dict, rows: list[dict], layer_field: str, table_field: str) -
 def zonal_stats(fc: dict, raster: str | Path, *, band: int = 1, stats=("mean", "min", "max", "std", "count"), categorical: bool = False,
                 prefix: str = "") -> dict:
     """Each polygon with the raster's values summarised inside it: mean, min, max, std, median, sum, count (pixels),
-    or, for a class raster (categorical), the % of each class (pct_<value>) and the majority class."""
+    or, for a class raster (categorical), the % of each class and the majority class. Classes with names (the raster's
+    "classes" tag, as WorldCover and the app's class maps have) give fields like pct_tree_cover and majority_class."""
     import numpy as np
     import rasterio
     from rasterio.features import geometry_mask
@@ -431,6 +432,11 @@ def zonal_stats(fc: dict, raster: str | Path, *, band: int = 1, stats=("mean", "
             raise ValueError(f"The raster has {src.count} band(s); there is no band {band}")
         if src.crs is None:
             raise ValueError("The raster has no coordinate system")
+        names = {}
+        if categorical:
+            from .convert import class_names
+            names = class_names(src)
+        slug = lambda c: (re.sub(r"[^a-z0-9]+", "_", names[c].lower()).strip("_") or str(c)) if c in names else str(c)
         for n, (props, g) in enumerate(items):
             p = dict(props)
             gr = shape(transform_geom("EPSG:4326", src.crs, mapping(g)))
@@ -453,8 +459,10 @@ def zonal_stats(fc: dict, raster: str | Path, *, band: int = 1, stats=("mean", "
                 if vals.size:
                     cls, cnt = np.unique(vals.astype("int64"), return_counts=True)
                     for c, k in zip(cls, cnt):
-                        p[f"{prefix}pct_{c}"] = round(100 * k / vals.size, 2)
+                        p[f"{prefix}pct_{slug(int(c))}"] = round(100 * k / vals.size, 2)
                     p[f"{prefix}majority"] = int(cls[np.argmax(cnt)])
+                    if names:
+                        p[f"{prefix}majority_class"] = names.get(int(cls[np.argmax(cnt)]), str(int(cls[np.argmax(cnt)])))
             else:
                 f = {"mean": np.mean, "min": np.min, "max": np.max, "std": np.std, "median": np.median, "sum": np.sum}
                 for s in stats:

@@ -42,6 +42,25 @@
           <ol id="wf-steps" class="wf-steps"></ol>
           <label class="check" style="margin-top:6px"><input type="checkbox" id="wf-all-results"> Add every step's results to Contents (not only the last step's)</label>
         </div>
+        <div class="card" id="wf-sched-card">
+          <h2>Schedule ${tip("Runs the workflow by itself while LULC Fetch is open, with the inputs chosen above (layers are used through their files). A run missed while the app was closed runs once when it opens. Date inputs can move with the run day, e.g. the last 30 days.")}</h2>
+          <label class="check"><input type="checkbox" id="wfs-on"> Run it by itself</label>
+          <div id="wfs-opts" class="hidden">
+            <div class="grid2"><label>Every <select id="wfs-every"><option value="day">Day</option><option value="week">Week</option><option value="hours">Few hours</option></select></label>
+              <label id="wfs-at-row">At <input type="time" id="wfs-at" value="07:00"></label>
+              <label id="wfs-hours-row" class="hidden">Hours <input type="number" id="wfs-hours" value="6" min="1" max="720"></label></div>
+            <label id="wfs-wd-row" class="hidden">On <select id="wfs-wd">${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select></label>
+            <div id="wfs-dates"></div>
+            <details><summary class="hint">Alert on a result</summary>
+              <p class="hint">When a value of the last step's result crosses a limit, e.g. <code>summary.mean_change</code> &lt; -0.1 or <code>summary.changed_pct</code> &gt; 5.</p>
+              <div class="grid2"><label>Result field <input type="text" id="wfs-af" placeholder="summary.mean_change"></label>
+                <label>Is <span class="row tight" style="gap:4px"><select id="wfs-aop" style="width:auto"><option>&lt;</option><option>&gt;</option><option>&lt;=</option><option>&gt;=</option></select><input type="number" step="any" id="wfs-av"></span></label></div></details>
+            <label>Tell me <select id="wfs-notify"><option value="always">After every run</option><option value="fail">Only when it fails or alerts</option></select></label>
+            <label class="check"><input type="checkbox" id="wfs-add" checked> Add the results to Contents</label>
+            <div class="row tight" style="gap:6px;margin-top:6px"><button class="btn small primary" id="wfs-save">Save schedule</button></div>
+          </div>
+          <p class="hint" id="wfs-status"></p>
+        </div>
         <div class="row tight" style="gap:6px;margin:4px 0 10px">
           <button class="btn primary" id="wf-run">Run workflow</button>
           <button class="btn hidden" id="wf-save">Save changes</button>
@@ -95,7 +114,7 @@
         $("#wf-edit").classList.toggle("hidden", st.editing);
         $("#wf-del").classList.toggle("hidden", !st.id);
         $("#wf-run").textContent = st.id ? "Run workflow" : "Run (without saving)";
-        renderInputs(); renderSteps();
+        renderInputs(); renderSteps(); renderSchedule();
       }
       const baseName = (p) => String(p || "").split(/[\\/]/).pop();
       const polyLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
@@ -222,26 +241,27 @@
         const res = await api(s.endpoint, { method: "POST", json: body });
         if (res?.id && res.status) {   // a background job: follow it (progress bar, Cancel, History)
           const done = await trackJob(res, { tool, title: `${title} · ${i + 1}/${total} ${s.title}` });
-          return { step: i, jobId: done.id, outs: await stepOutputs(done.id), body };
+          return { step: i, jobId: done.id, outs: await stepOutputs(done.id), body, result: done.result };
         }
-        return { step: i, body, outs: ["path", "csv", "output_table", "geojson_path", "outputs"].flatMap((k) => [].concat(res?.[k] || [])).filter((x) => typeof x === "string") };
+        return { step: i, body, result: res, outs: ["path", "csv", "output_table", "geojson_path", "outputs"].flatMap((k) => [].concat(res?.[k] || [])).filter((x) => typeof x === "string") };
       }
-      async function runOnce(chosen, label) {
-        const wf = st.wf, ctx = { inputs: {}, outputs: [] }, marks = {};
+      async function runOnce(chosen, label, wf = st.wf) {
+        const ctx = { inputs: {}, outputs: [] }, marks = {}, shown = () => wf === st.wf;
+        const renderSteps_ = (m) => { if (shown()) renderSteps(m); };
         wf.inputs.forEach((inp) => { ctx.inputs[inp.id] = inputValue(inp, chosen[inp.id]); });
         const results = [];
         for (let i = 0; i < wf.steps.length; i++) {
           const s = wf.steps[i];
-          marks[i] = "run"; renderSteps(marks);
+          marks[i] = "run"; renderSteps_(marks);
           status(`${label}Step ${i + 1} of ${wf.steps.length}: ${s.title}`, true);
           try {
             const r = await runStep(s, ctx, i, wf.steps.length, `${label}${wf.name}`);
             results.push(r);
             const outs = r.outs;
             ctx.outputs[i] = outs;
-            marks[i] = "done"; renderSteps(marks);
+            marks[i] = "done"; renderSteps_(marks);
           } catch (e) {
-            marks[i] = "fail"; renderSteps(marks);
+            marks[i] = "fail"; renderSteps_(marks);
             if (e?.cancelled) throw e;
             throw Object.assign(new Error(`Step ${i + 1} (${s.title}) failed: ${e.message}`), { detail: e.detail });
           }
@@ -327,6 +347,99 @@
           status("Ready");
         }
       }
+
+      // ---- schedules: the card, and the scheduler that runs due workflows while the app is open
+      const isDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+      const dayStr = (d) => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+      const when = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+      function schedUi() {
+        const every = $("#wfs-every").value;
+        $("#wfs-opts").classList.toggle("hidden", !$("#wfs-on").checked);
+        $("#wfs-at-row").classList.toggle("hidden", every === "hours");
+        $("#wfs-hours-row").classList.toggle("hidden", every !== "hours");
+        $("#wfs-wd-row").classList.toggle("hidden", every !== "week");
+      }
+      ["#wfs-on", "#wfs-every"].forEach((s) => $(s).addEventListener("change", schedUi));
+      async function renderSchedule() {
+        $("#wf-sched-card").classList.toggle("hidden", !st.id);
+        if (!st.id) return;
+        const dates = st.wf.inputs.filter((i) => i.type === "value" && isDate(i.default));
+        let s = null;
+        try { s = (await api("/api/workflows/schedules")).schedules.find((x) => x.id === st.id) || null; } catch {}
+        $("#wfs-on").checked = !!s?.enabled;
+        $("#wfs-every").value = s?.every || "day"; $("#wfs-at").value = s?.at || "07:00"; $("#wfs-hours").value = s?.hours || 6; $("#wfs-wd").value = s?.weekday ?? 0;
+        $("#wfs-notify").value = s?.notify === "fail" ? "fail" : "always"; $("#wfs-add").checked = s?.add_results ?? true;
+        $("#wfs-af").value = s?.alert?.field || ""; $("#wfs-aop").value = s?.alert?.op || "<"; $("#wfs-av").value = s?.alert?.value ?? "";
+        $("#wfs-dates").innerHTML = dates.length ? `<p class="hint" style="margin:6px 0 2px">Dates that move with the run day (empty = keep as set above):</p>` + dates.map((i) =>
+          `<label>${esc(i.label)} <span class="row tight" style="gap:6px;align-items:center"><input type="number" min="0" max="3650" data-rel="${esc(i.id)}" value="${s?.relative_dates?.[i.id] ?? ""}" style="width:90px"> days before the run</span></label>`).join("") : "";
+        const last = s?.runs?.[0];
+        $("#wfs-status").innerHTML = s ? (s.enabled ? `Next run: <b>${esc(when(s.next_run))}</b>` : "Paused") + (last ? ` · last ${esc(when(last.t))}: ${last.ok ? (last.alert ? "⚠ alert" : "✓ done") : "✗ failed"}${last.message ? ` (${esc(last.message.slice(0, 120))})` : ""}` : "") : "Not scheduled.";
+        schedUi();
+      }
+      $("#wfs-save").onclick = async () => {
+        const chosen = {};
+        for (const el of $$("#wf-inputs [data-in]")) {   // layers become their files, so the run doesn't depend on this session's Contents
+          let v = el.value;
+          if (v.startsWith("layer:")) {
+            const l = getLayer(v.slice(6));
+            if (l?.path) v = `item:${l.path}`;
+            else if (l?.type === "vector") v = `item:${(await api("/api/vector/save", { method: "POST", json: { layer_id: l.id, geojson: l.geojson } })).path}`;
+          }
+          if (v === "view") { const b = map.getBounds(); v = JSON.stringify({ type: "Polygon", coordinates: [[[b.getWest(), b.getSouth()], [b.getEast(), b.getSouth()], [b.getEast(), b.getNorth()], [b.getWest(), b.getNorth()], [b.getWest(), b.getSouth()]]] }); }
+          chosen[el.dataset.in] = v;
+        }
+        const rel = {};
+        $$("#wfs-dates [data-rel]").forEach((el) => { if (el.value !== "") rel[el.dataset.rel] = +el.value; });
+        const af = $("#wfs-af").value.trim(), av = $("#wfs-av").value;
+        const schedule = { enabled: $("#wfs-on").checked, every: $("#wfs-every").value, at: $("#wfs-at").value, hours: +$("#wfs-hours").value, weekday: +$("#wfs-wd").value,
+          notify: $("#wfs-notify").value, add_results: $("#wfs-add").checked, relative_dates: rel, inputs: chosen,
+          alert: af && av !== "" ? { field: af, op: $("#wfs-aop").value, value: +av } : null };
+        try { await api(`/api/workflows/${encodeURIComponent(st.id)}/schedule`, { method: "PUT", json: { schedule } }); toast(schedule.enabled ? "Schedule saved" : "Schedule paused"); renderSchedule(); }
+        catch (e) { toast(e, true); }
+      };
+      $("#wfs-on").addEventListener("change", () => { if (!$("#wfs-on").checked && st.id) $("#wfs-save").click(); });
+
+      const valueAt = (obj, path) => path.replace(/\[(\d+)\]/g, ".$1").split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+      const sched = { busy: false };
+      async function runDue() {
+        if (sched.busy || st.running) return;
+        let list;
+        try { list = (await api("/api/workflows/schedules")).schedules.filter((s) => s.due); } catch { return; }
+        for (const s of list) {
+          sched.busy = true; st.running = true;
+          let ok = false, msg = "", alert = false;
+          try {
+            const wf = await api(`/api/workflows/${encodeURIComponent(s.id)}`), chosen = { ...s.inputs };
+            for (const [id, v] of Object.entries(chosen)) if (typeof v === "string" && v.startsWith("{")) { try { chosen[id] = JSON.parse(v); } catch {} }
+            for (const [id, d] of Object.entries(s.relative_dates || {})) chosen[id] = dayStr(d);
+            toast(`Scheduled run: “${wf.name}” started`);
+            const results = await runOnce(chosen, "Scheduled · ", wf);
+            ok = true;
+            const added = s.add_results ? await addResults(results, false) : 0;
+            const last = results[results.length - 1]?.result;
+            if (s.alert) {
+              const v = Number(valueAt(last || {}, s.alert.field));
+              const hit = Number.isFinite(v) && { "<": v < s.alert.value, ">": v > s.alert.value, "<=": v <= s.alert.value, ">=": v >= s.alert.value }[s.alert.op];
+              if (hit) { alert = true; msg = `${s.alert.field} = ${fmtNum(v)} (${s.alert.op} ${s.alert.value})`; }
+              else msg = Number.isFinite(v) ? `${s.alert.field} = ${fmtNum(v)}` : `${s.alert.field} not in the result`;
+            }
+            msg = msg || `${results.length} step${results.length === 1 ? "" : "s"}${added ? `, ${added} result${added === 1 ? "" : "s"} added to Contents` : ""}`;
+            if (alert) toast(`⚠ Alert from “${wf.name}”: ${msg}`, true);
+            else if (s.notify === "always") toast(`Scheduled run of “${wf.name}” finished: ${msg}`);
+          } catch (e) {
+            msg = e?.message || String(e);
+            toast(`Scheduled run of “${s.name}” failed: ${msg}`, true);
+          } finally {
+            await api(`/api/workflows/${encodeURIComponent(s.id)}/schedule/ran`, { method: "POST", json: { ok, message: msg, alert } }).catch(() => {});
+            sched.busy = false; st.running = false; status("Ready");
+            if (st.id === s.id) renderSchedule();
+          }
+        }
+      }
+      const fmtNum = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(3);
+      setTimeout(runDue, 20000);           // missed runs: soon after the app opens
+      setInterval(runDue, 60000);          // then every minute
+      LF.wfSchedule = { runDue };
 
       // ---- making, saving, sharing
       async function fromHistory(ids) {

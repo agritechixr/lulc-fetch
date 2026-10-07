@@ -15,6 +15,51 @@ def workflows_list():
     return {"workflows": workflows.listing(), "folder": str(workflows.folder())}
 
 
+@router.get("/api/workflows/schedules")
+def workflow_schedules():
+    """Every schedule, its next run, and which are due now (the app runs those)."""
+    from .. import workflows
+    return {"schedules": workflows.schedules(), "now": __import__("time").time()}
+
+
+class ScheduleBody(BaseModel):
+    schedule: dict
+
+
+@router.put("/api/workflows/{wid}/schedule")
+def workflow_schedule_set(wid: str, req: ScheduleBody):
+    from .. import workflows
+    try:
+        return workflows.set_schedule(wid, req.schedule)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e))
+
+
+@router.delete("/api/workflows/{wid}/schedule")
+def workflow_schedule_delete(wid: str):
+    from .. import workflows
+    workflows.delete_schedule(wid)
+    return {"ok": True}
+
+
+class RanBody(BaseModel):
+    ok: bool
+    message: str = Field("", max_length=2000)
+    alert: bool = False
+
+
+@router.post("/api/workflows/{wid}/schedule/ran")
+def workflow_schedule_ran(wid: str, req: RanBody):
+    """A scheduled run finished (or failed): its next run is set."""
+    from .. import workflows
+    try:
+        return workflows.mark_ran(wid, req.ok, req.message, req.alert)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+
+
 @router.get("/api/workflows/{wid}")
 def workflow_get(wid: str):
     from .. import workflows

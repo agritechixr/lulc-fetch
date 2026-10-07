@@ -13,7 +13,7 @@ on:
         options: [all, windows, macos]
         default: all
       release_tag:
-        description: "Also add the apps to this existing release (e.g. v0.0.2-beta); empty = don't"
+        description: "Also add the apps to this existing release (e.g. v0.0.3-beta); empty = don't"
         required: false
         default: ""
 

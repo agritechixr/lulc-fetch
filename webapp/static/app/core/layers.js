@@ -10,10 +10,76 @@
   const selectedLayer = () => layers.find((l) => l.id === selectedId) || null;
   const getLayer = (id) => layers.find((l) => l.id === id) || null;
 
+  // ---- style by attribute: a colour per value of a field (categories), or classes of a number field (graduated)
+  const RAMPS = {
+    Viridis: ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"], Greens: ["#edf8e9", "#a1d99b", "#41ab5d", "#006d2c", "#00441b"],
+    "Red–yellow–green": ["#d7191c", "#fdae61", "#ffffbf", "#a6d96a", "#1a9641"], Blues: ["#eff3ff", "#9ecae1", "#4292c6", "#08519c", "#08306b"],
+    Reds: ["#fee5d9", "#fcae91", "#fb6a4a", "#cb181d", "#67000d"], Magma: ["#000004", "#51127c", "#b73779", "#fc8961", "#fcfdbf"],
+    "Blue–red": ["#2166ac", "#92c5de", "#f7f7f7", "#f4a582", "#b2182b"],
+  };
+  const CAT_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+    "#393b79", "#637939", "#8c6d31", "#843c39", "#7b4173", "#3182bd", "#e6550d", "#31a354", "#756bb1", "#636363"];
+  function rampColor(ramp, x) {   // x in 0…1
+    const c = RAMPS[ramp] || RAMPS.Viridis, p = Math.min(Math.max(x, 0), 1) * (c.length - 1), i = Math.min(Math.floor(p), c.length - 2), f = p - i;
+    const h = (s) => [1, 3, 5].map((k) => parseInt(s.slice(k, k + 2), 16));
+    const a = h(c[i]), b = h(c[i + 1]);
+    return "#" + a.map((v, k) => Math.round(v + (b[k] - v) * f).toString(16).padStart(2, "0")).join("");
+  }
+  function jenks(vals, n) {   // natural breaks (Fisher–Jenks) on up to 1,000 values
+    const v = vals.length > 1000 ? vals.filter((_, i) => i % Math.ceil(vals.length / 1000) === 0) : vals, m = v.length;
+    if (m <= n) return [...new Set(v)];
+    const lower = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0)), varc = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(Infinity));
+    for (let j = 1; j <= n; j++) { lower[1][j] = 1; varc[1][j] = 0; }
+    for (let l = 2; l <= m; l++) {
+      let s1 = 0, s2 = 0, w = 0;
+      for (let k = 1; k <= l; k++) {
+        const i3 = l - k + 1, val = v[i3 - 1]; s2 += val * val; s1 += val; w++;
+        const va = s2 - (s1 * s1) / w;
+        if (i3 > 1) for (let j = 2; j <= n; j++) if (varc[l][j] >= va + varc[i3 - 1][j - 1]) { lower[l][j] = i3; varc[l][j] = va + varc[i3 - 1][j - 1]; }
+      }
+      lower[l][1] = 1; varc[l][1] = s2 - (s1 * s1) / w;
+    }
+    const br = []; let k = m;
+    for (let j = n; j >= 2; j--) { const id = lower[k][j] - 2; br.unshift(v[id]); k = lower[k][j] - 1; }
+    return br;
+  }
+  /** a symbology from a field: categories (a colour per value) or graduated (n classes of a number field) */
+  function makeSymbology(l, mode, field, opts = {}) {
+    const vals = l.geojson.features.map((f) => f.properties?.[field]);
+    if (mode === "categories") {
+      const counts = new Map();
+      vals.forEach((v) => { const k = v == null || v === "" ? "(empty)" : String(v); counts.set(k, (counts.get(k) || 0) + 1); });
+      const keys = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+      const top = keys.slice(0, 19), map = {};
+      top.forEach((k, i) => { map[k] = opts.ramp && RAMPS[opts.ramp] ? rampColor(opts.ramp, top.length > 1 ? i / (top.length - 1) : 0.5) : CAT_COLORS[i % CAT_COLORS.length]; });
+      return { mode, field, ramp: opts.ramp || "", map, other: keys.length > top.length ? "#bdbdbd" : null,
+               legend: [...top.map((k) => ({ label: k, color: map[k], n: counts.get(k) })), ...(keys.length > top.length ? [{ label: `Other (${keys.length - top.length} values)`, color: "#bdbdbd", n: keys.slice(19).reduce((a, k) => a + counts.get(k), 0) }] : [])] };
+    }
+    const nums = vals.map(Number).filter((v, i) => vals[i] !== null && vals[i] !== "" && Number.isFinite(v)).sort((a, b) => a - b);
+    if (!nums.length) throw new Error(`“${field}” has no numbers: use Categories`);
+    const n = Math.max(2, Math.min(opts.classes || 5, 9)), lo = nums[0], hi = nums[nums.length - 1];
+    let breaks = opts.method === "equal" ? Array.from({ length: n - 1 }, (_, i) => lo + (hi - lo) * (i + 1) / n)
+      : opts.method === "jenks" ? jenks(nums, n) : Array.from({ length: n - 1 }, (_, i) => nums[Math.floor(nums.length * (i + 1) / n)]);
+    breaks = [...new Set(breaks)].sort((a, b) => a - b);
+    const colors = Array.from({ length: breaks.length + 1 }, (_, i) => rampColor(opts.ramp || "Viridis", breaks.length ? i / breaks.length : 0.5));
+    const edges = [lo, ...breaks, hi];
+    return { mode: "graduated", field, ramp: opts.ramp || "Viridis", method: opts.method || "quantile", classes: n, breaks, colors,
+             legend: colors.map((c, i) => ({ label: `${fmtv(edges[i])} – ${fmtv(edges[i + 1])}`, color: c, n: nums.filter((v) => (i === 0 || v >= edges[i]) && (i === colors.length - 1 || v < edges[i + 1])).length })) };
+  }
+  function symColor(sym, f) {
+    const v = f?.properties?.[sym.field];
+    if (sym.mode === "categories") return sym.map[v == null || v === "" ? "(empty)" : String(v)] || sym.other || "#bdbdbd";
+    const x = Number(v);
+    if (v == null || v === "" || !Number.isFinite(x)) return "#bdbdbd";
+    let i = 0;
+    while (i < sym.breaks.length && x >= sym.breaks[i]) i++;
+    return sym.colors[i];
+  }
+
   function vecStyle(l, f) {
-    const color = (f && l.classColors?.[f.properties?.class]) || l.color || "#2563eb";
+    const color = (f && l.symbology?.field && symColor(l.symbology, f)) || (f && l.classColors?.[f.properties?.class]) || l.color || "#2563eb";
     return { color, fillColor: color, weight: l.weight ?? 2, opacity: l.opacity,
-             fillOpacity: (l.fillOpacity ?? 0.12) * l.opacity, dashArray: l.dash || null };
+             fillOpacity: (l.symbology?.field ? (l.fillOpacity ?? 0.6) : (l.fillOpacity ?? 0.12)) * l.opacity, dashArray: l.dash || null };
   }
 
   function featurePopup(f, l) {
@@ -203,6 +269,9 @@
 
   function legendHtml(l) {
     const g = l.legend;
+    if (l.type === "vector" && l.symbology?.legend?.length) {
+      return `<div class="lyr-meta">${esc(l.symbology.field)}</div><div class="lyr-classes">${l.symbology.legend.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.label)}</span><span>${c.n}</span></div>`).join("")}</div>`;
+    }
     if (l.type === "vector" && l.classes?.length) {
       return `<div class="lyr-classes">${l.classes.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span><span>${l.geojson.features.filter((f) => f.properties.class === c.name).length}</span></div>`).join("")}</div>`;
     }
@@ -221,6 +290,7 @@
   }
 
   function layerIcon(l) {
+    if (l.type === "vector" && l.symbology?.legend?.length) return `<span class="lyr-ic" style="background:conic-gradient(${l.symbology.legend.slice(0, 6).map((c, i, a) => `${c.color} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(",")})"></span>`;
     if (l.type === "vector") return `<span class="lyr-ic" style="border-color:${l.color};color:${l.color};background:${l.color}22">${svg("vector", 2.2)}</span>`;
     const g = l.legend;
     if (g?.kind === "continuous") return `<span class="lyr-ic" style="background:linear-gradient(135deg, ${g.colors.join(",")})"></span>`;

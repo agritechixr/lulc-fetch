@@ -18,14 +18,15 @@ from rasterio.warp import transform_geom
 from shapely.geometry import mapping, shape
 
 from . import progress
-from .geoprocess import _fc, _geoms, _project, _to_metric, _utm
+from .geoprocess import _fc, _geoms, _to_metric, _utm
 
 MAX_PIXELS = 40_000_000
 MAX_FEATURES = 250_000
 PALETTE = ["#1a9850", "#91cf60", "#d9ef8b", "#fee08b", "#fc8d59", "#d73027", "#4575b4", "#91bfdb", "#a6611a", "#7b3294", "#636363", "#e7298a"]
 
 
-def _class_names(src, band: int = 1) -> dict:
+def class_names(src, band: int = 1) -> dict:
+    """{value: name} from a raster's "classes" tag (the app's class maps, WorldCover, Esri land cover)."""
     try:
         return {int(k): v for k, v in json.loads(src.tags().get("classes") or "{}").items()}
     except (ValueError, AttributeError):
@@ -86,7 +87,7 @@ def raster_to_polygons(path, *, band: int = 1, values: list[int] | None = None, 
     with rasterio.open(path) as src:
         a = _read_band(src, band)
         data, keep = _class_array(a, values)
-        names = _class_names(src, band)
+        names = class_names(src, band)
         mcrs = _metric_crs(src)
         px_m2 = abs(src.transform.a * src.transform.e) if not src.crs.is_geographic else (abs(src.transform.a) * 111320 * math.cos(math.radians((src.bounds.top + src.bounds.bottom) / 2)) * abs(src.transform.e) * 110574)
         if min_area and min_area > px_m2:
@@ -222,7 +223,6 @@ def raster_to_points(path, *, bands: list[int] | None = None, step: int = 1, max
         if any(not 1 <= b <= src.count for b in bl):
             raise ValueError(f"The raster has {src.count} bands")
         step = max(1, int(step))
-        h, w = math.ceil(src.height / step), math.ceil(src.width / step)
         if src.width * src.height > MAX_PIXELS * 4:
             raise ValueError("The raster is too big → clip it first")
         arrs = [src.read(b, masked=True)[::step, ::step] for b in bl]
@@ -241,7 +241,7 @@ def raster_to_points(path, *, bands: list[int] | None = None, step: int = 1, max
         if src.crs and src.crs.to_epsg() != 4326:
             xs, ys = warp_transform(src.crs, "EPSG:4326", xs.tolist(), ys.tolist())
         desc = [src.descriptions[b - 1] or f"band_{b}" for b in bl]
-        names = _class_names(src)
+        names = class_names(src)
         vals = [np.ma.getdata(a)[rows, cols] for a in arrs]
     feats = []
     for i in range(rows.size):
