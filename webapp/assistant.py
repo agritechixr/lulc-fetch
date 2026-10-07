@@ -17,6 +17,7 @@ from pathlib import Path
 
 import requests
 
+from . import assistant_data as data
 from . import workflows
 from . import workspace as ws
 
@@ -47,6 +48,13 @@ CATALOG = {
     "/api/layers/export": "Export a raster layer as format 'tif' (values), 'png' or 'shp' (classes as polygons), optional clip. Output: file",
     "/api/emb/fetch": "Download satellite embeddings (source 'aef' AlphaEarth 64 bands, or 'tessera') for an area (`clip`) and year. Output: .tif",
     "/api/library/fetch": "Download a file from the data library (Hugging Face): repo and path inside it. Output: file",
+    "/api/vector/buffer": "Buffer: a zone of `distance` metres around each shape of a vector layer (negative shrinks polygons); "
+                          "dissolve=true merges them into one. `layer`: the path of a vector layer from the data list. Output: .geojson",
+    "/api/vector/query": "Select by attribute: the features of `layer` whose attributes meet `where`, a condition on its fields, e.g. "
+                         "crop == \"rice\" and area_ha > 2 · name in (\"A\", \"B\") · contains(name, \"farm\"). Output: .geojson",
+    "/api/vector/overlay": "Overlay two vector layers `a` and `b` (paths): how = 'intersection' (where both are), 'union' (every piece of "
+                           "both), 'difference' (a without b), 'symmetric_difference', 'clip' (a cut to b). Output: .geojson",
+    "/api/vector/dissolve": "Dissolve: merge the shapes of `layer`, all into one, or one per value of `field`. Output: .geojson",
 }
 
 
@@ -146,6 +154,23 @@ def _type(spec: dict, s: dict) -> str:
     return s.get("type", "any")
 
 
+# the handbook (LLM-Find's per-source handbooks, GISclaw's domain knowledge): how the tools fit together
+RULES = """How to choose tools:
+- Satellite imagery is downloaded with /api/jobs: kind "composite" for a cloud-free mosaic of a period (start, end),
+  kind "scene" for one date. Land-cover maps (ESA WorldCover 2020/2021, Esri 2017-2023) are downloaded with /api/jobs
+  kind "labels" and product "worldcover" or "esri" and a year. Not with the library and not with embeddings.
+- One download per /api/jobs step: two things to download = two steps.
+- Tools that work on tables (/api/unsup/cluster: cluster, group) need a table. When the data is a raster, first make a
+  table of its pixels with /api/tables/from-raster, then use {"$step": n, "ext": ".csv", "nth": 0} as the table.
+- Indices (NDVI, NDWI, EVI, SAVI…) of an image: /api/analyze/export. A map of classes from labelled data:
+  /api/rasterml/run. Embeddings (AlphaEarth, TESSERA): /api/emb/fetch. Files in the data library: /api/library/fetch.
+- An area of the user's (a polygon layer, the map view) goes into aoi / clip as an input of type "area".
+- Vector layers (points, lines, polygons) are used with their path from the data list (an input of type "file"):
+  a zone around them → /api/vector/buffer; features matching a condition on their fields → /api/vector/query (use the
+  field names and values seen in the data); where two layers overlap, or their union / difference → /api/vector/overlay;
+  merging shapes → /api/vector/dissolve. A vector file made by an earlier step: {"$step": n, "ext": ".geojson", "nth": 0}."""
+
+
 def catalog_text() -> str:
     spec, out = _openapi(), []
     for ep, what in CATALOG.items():
@@ -183,7 +208,8 @@ def _check_body(spec: dict, endpoint: str, body: dict, input_types: dict | None 
         if k not in props:
             probs.append(f"{endpoint}: there is no setting “{k}” (settings: {', '.join(props)})")
             continue
-        t = props[k].get("type") or next((x.get("type") for x in props[k].get("anyOf", []) if x.get("type") != "null"), None)
+        kinds = {x.get("type") for x in props[k].get("anyOf", []) if x.get("type") != "null"}
+        t = props[k].get("type") or (next(iter(kinds)) if len(kinds) == 1 else None)   # text or object (a layer): either
         if isinstance(v, dict) and "$step" in v:
             if t not in (None, "string"):
                 probs.append(f"{endpoint}: “{k}” takes a {t}, not a file made by a step")
@@ -206,10 +232,11 @@ def _check_body(spec: dict, endpoint: str, body: dict, input_types: dict | None 
 # Claude's strict JSON output needs every object spelled out, so a step's settings (different for every tool) come as
 # JSON text (body_json); local models get the settings as a real object (body), which small models write far better.
 SCHEMA = {
-    "type": "object", "additionalProperties": False, "required": ["plan", "questions", "workflow"],
+    "type": "object", "additionalProperties": False, "required": ["plan", "questions", "remember", "workflow"],
     "properties": {
         "plan": {"type": "string"},
         "questions": {"type": "array", "items": {"type": "string"}},
+        "remember": {"type": "array", "items": {"type": "string"}},
         "workflow": {"type": "object", "additionalProperties": False, "required": ["name", "inputs", "steps"], "properties": {
             "name": {"type": "string"},
             "inputs": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["id", "label", "type", "default_json"],
@@ -253,10 +280,31 @@ def _example(text_fields: bool) -> str:
             i["default_json"] = json.dumps(i.pop("default"))
         for st in wf["steps"]:
             st["body_json"] = json.dumps(st.pop("body"))
-    return json.dumps({"plan": "Computes NDVI of Scene X inside the plots, then turns it into a table (one row per pixel).", "questions": [], "workflow": wf})
+    return json.dumps({"plan": "Computes NDVI of Scene X inside the plots, then turns it into a table (one row per pixel).", "questions": [], "remember": [], "workflow": wf})
 
 
-def system_prompt(context: dict, text_fields: bool = True) -> str:
+def _memory_text(request: str, context: dict) -> str:
+    """What the Assistant knows besides the request: the data looked at, the user's notes, known pitfalls, skills."""
+    paths = [x.get("path") for k in ("layers", "tables") for x in context.get(k) or [] if isinstance(x, dict) and x.get("path")]
+    parts = []
+    details = data.describe_many(paths)
+    if details:
+        parts.append("The user's files, looked at (bands and value ranges, columns and sample rows):\n" + json.dumps(details, ensure_ascii=False)[:9000])
+    notes = data.notes().strip()
+    if notes:
+        parts.append("Your notes (things the user told you to remember; follow them):\n" + notes[:3000])
+    pits = data.pitfalls(list(CATALOG))
+    if pits:
+        parts.append("Known pitfalls (errors of these tools in earlier runs; avoid them):\n" + "\n".join(
+            f"- {r['endpoint']}: {r['error']}" + (f" → fixed by: {r['fix']}" if r.get("fix") else "") for r in pits[:12]))
+    sk = data.skills(request)
+    if sk:
+        parts.append("Workflows the user saved before that look related (skills: reuse their steps and settings when they fit):\n"
+                     + "\n".join(json.dumps(x, ensure_ascii=False)[:2500] for x in sk))
+    return "\n\n".join(parts)
+
+
+def system_prompt(context: dict, text_fields: bool = True, memory: str = "") -> str:
     dflt, body = ("default_json (JSON text)", "body_json (JSON text)") if text_fields else ("default", "body (an object)")
     return f"""You plan GIS work for LULC Fetch, a desktop app for satellite imagery, land cover and maps. The user says what they
 want; you plan it as a workflow made only of the app's tools below. The app shows your plan to the user, who checks it
@@ -266,6 +314,8 @@ Answer with the JSON object of the given schema, nothing else:
 - plan: 1 to 4 short sentences, in the user's language, saying what the workflow will do and what comes out.
 - questions: only when something essential is missing that the user's data below doesn't answer (which area, which
   dates, which layer). Then keep the workflow empty (no steps). Otherwise an empty list.
+- remember: only when the user asks you to remember something for later (e.g. "my farm is the Fields layer",
+  "always use a 20% cloud limit"): each as one short sentence. Otherwise an empty list.
 - workflow.name: a short name.
 - workflow.inputs: the data the workflow works on, so it can be run again on other data. Each: id ("in1", "in2"…),
   label, type ("file": the path of a raster, table or vector FROM THE DATA LIST; "area": a GeoJSON Polygon or
@@ -284,8 +334,12 @@ An example. Request: “{EXAMPLE_REQUEST}”. Answer:
 The app's tools:
 {catalog_text()}
 
+{RULES}
+
 The user's data (the open map's Contents and view):
-{json.dumps(context, ensure_ascii=False, default=str)[:12000]}"""
+{json.dumps(context, ensure_ascii=False, default=str)[:12000]}
+
+{memory}"""
 
 
 def _ask_ollama(model: str, system: str, messages: list[dict]) -> str:
@@ -339,7 +393,45 @@ def _unwrap(v):
     return v
 
 
-def _to_workflow(out: dict, known_files: set | None = None) -> tuple[dict, list[str]]:
+AREA_NAMES = ("aoi", "clip", "area", "geometry")
+
+
+def _area_names(spec: dict, endpoint: str, body: dict) -> None:
+    """The tools call their area aoi, clip or area: an area given under another of these names is moved to the one
+    this tool has (when it has exactly one and it isn't given already)."""
+    props = (_schema_of(spec, endpoint) or {}).get("properties", {})
+    mine = [k for k in AREA_NAMES if k in props]
+    if len(mine) != 1 or mine[0] in body:
+        return
+    for k in AREA_NAMES:
+        if k in body and k not in props:
+            body[mine[0]] = body.pop(k)
+            return
+
+
+def _renumber(steps: list[dict], start: int) -> None:
+    """Small models often count steps from 1 in {"$step": n}: when every reference of the new steps points at its own
+    step or later, and all of them one lower would be valid, they are moved down by one."""
+    refs = []
+
+    def walk(node, i):
+        if isinstance(node, dict):
+            if "$step" in node and isinstance(node["$step"], int):
+                refs.append((i, node))
+            else:
+                for v in node.values():
+                    walk(v, i)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, i)
+    for i in range(start, len(steps)):
+        walk(steps[i]["body"], i)
+    if refs and any(r["$step"] >= i for i, r in refs) and all(0 <= r["$step"] - 1 < i for i, r in refs):
+        for _, r in refs:
+            r["$step"] -= 1
+
+
+def _to_workflow(out: dict, known_files: set | None = None, prefix: list[dict] | None = None) -> tuple[dict, list[str]]:
     """The model's answer as a workflow (settings as objects) and the problems found in it."""
     probs, w = [], out.get("workflow") or {}
     inputs = []
@@ -352,18 +444,25 @@ def _to_workflow(out: dict, known_files: set | None = None) -> tuple[dict, list[
         if typ == "area" and not (isinstance(default, dict) and default.get("type") in ("Polygon", "MultiPolygon")):
             probs.append(f"input {i.get('id')}: an area must be a GeoJSON Polygon or MultiPolygon")
         inputs.append({"id": str(i.get("id") or f"in{len(inputs) + 1}"), "label": i.get("label") or "Input", "type": typ, "kind": kind, "default": default})
-    steps, spec = [], _openapi()
-    for n, s in enumerate(w.get("steps") or []):
+    pre = [{"title": d["title"], "kind": "", "endpoint": d["endpoint"], "body": d["body"]} for d in prefix or []]
+    steps, spec = list(pre), _openapi()
+    for n, s in enumerate(w.get("steps") or [], start=len(pre)):
         body = _unwrap(s["body"] if "body" in s else (s.get("body_json") or "{}"))
+        if isinstance(body, dict) and len(body) == 1 and next(iter(body)) in ("settings", "body", "params", "parameters") and isinstance(next(iter(body.values())), dict):
+            body = next(iter(body.values()))   # the settings wrapped once more: unwrapped
         if isinstance(body, str):
             probs.append(f"step {n + 1}: the settings aren't valid JSON")
             body = {}
         if not isinstance(body, dict):
             probs.append(f"step {n + 1}: body_json must be a JSON object")
             body = {}
+        _area_names(spec, s.get("endpoint", ""), body)
         probs += [f"step {n + 1}: {p}" for p in _check_body(spec, s.get("endpoint", ""), body, {i["id"]: i["type"] for i in inputs})]
         steps.append({"title": s.get("title") or s.get("endpoint"), "kind": "", "endpoint": s.get("endpoint", ""), "body": body})
+    _renumber(steps, len(pre))
     wf = {"name": w.get("name") or "Assistant workflow", "description": out.get("plan", ""), "inputs": inputs, "steps": steps}
+    if prefix and len(steps) == len(pre):
+        probs.append("no steps were given for what still has to run")
     if steps:
         try:
             workflows.check(wf)
@@ -372,13 +471,15 @@ def _to_workflow(out: dict, known_files: set | None = None) -> tuple[dict, list[
     return wf, probs
 
 
-def plan(messages: list[dict], context: dict) -> dict:
-    """Plan the user's request (the conversation so far: questions answered, plans changed) as a workflow."""
+def plan(messages: list[dict], context: dict, conv_id: str = "", prefix: list[dict] | None = None) -> dict:
+    """Plan the user's request (the conversation so far: questions answered, plans changed) as a workflow.
+    With `prefix` (steps already run), only the steps still to run are asked for, numbered after them."""
     st = status()
     if not st["ready"]:
         raise ValueError("The Assistant isn't set up yet → choose a model in its settings (a free local one, or Claude with your key)")
     local = st["provider"] == "ollama"
-    system, t0 = system_prompt(context, text_fields=not local), time.time()
+    first_request = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+    system, t0 = system_prompt(context, text_fields=not local, memory=_memory_text(str(first_request), context)), time.time()
     known = {str(x.get("path")) for k in ("layers", "tables") for x in context.get(k) or [] if isinstance(x, dict) and x.get("path")}
     msgs = [{"role": m["role"], "content": str(m["content"])[:20000]} for m in messages if m.get("role") in ("user", "assistant") and m.get("content")]
     if not msgs or msgs[0]["role"] != "user":
@@ -389,7 +490,7 @@ def plan(messages: list[dict], context: dict) -> dict:
         text = ask(msgs)
         try:
             out = _parse(text)
-            wf, probs = _to_workflow(out, known)
+            wf, probs = _to_workflow(out, known, prefix)
         except (ValueError, json.JSONDecodeError) as e:
             out, wf, probs = {}, {}, [f"the answer wasn't the JSON asked for ({e})"]
         if not probs and wf.get("steps") is not None and not out.get("questions") and not wf["steps"]:
@@ -401,6 +502,32 @@ def plan(messages: list[dict], context: dict) -> dict:
                  {"role": "user", "content": "Your plan has these problems:\n- " + "\n- ".join(probs) + "\nFix them and answer again with the whole JSON."}]
     if not out:
         raise ValueError("The model's answer couldn't be read as a plan → try again, or rephrase the request")
-    return {"plan": out.get("plan", ""), "questions": [q for q in out.get("questions") or [] if q], "workflow": wf, "problems": probs,
-            "provider": st["provider"], "model": st["model"], "seconds": round(time.time() - t0, 1), "fixes": tries,
-            "reply": json.dumps(out, ensure_ascii=False)}
+    remembered = data.remember(out.get("remember") or [])
+    result = {"plan": out.get("plan", ""), "questions": [q for q in out.get("questions") or [] if q], "workflow": wf, "problems": probs,
+              "remembered": remembered, "provider": st["provider"], "model": st["model"], "seconds": round(time.time() - t0, 1), "fixes": tries,
+              "reply": json.dumps(out, ensure_ascii=False)}
+    if conv_id:
+        if not prefix:
+            data.log(conv_id, {"role": "user", "text": msgs[-1]["content"] if msgs[-1]["role"] == "user" else first_request})
+        data.log(conv_id, {"role": "assistant", **{k: result[k] for k in ("plan", "questions", "workflow", "problems", "remembered", "model", "seconds", "fixes")}})
+    return result
+
+
+def continue_plan(messages: list[dict], context: dict, workflow: dict, done: list[dict], failed: dict | None, conv_id: str = "") -> dict:
+    """GISclaw's Replan: steps 0…k-1 ran (with what they made), step k failed or made something wrong. The model gives
+    the steps still to run, from k on; the failure is kept in the error memory."""
+    k = len(done)
+    lines = [f"[{i}] {d['title']} ({d['endpoint']}) → made: {json.dumps(d.get('observation'), ensure_ascii=False)[:1500]}" for i, d in enumerate(done)]
+    if failed:
+        data.record_error(failed.get("endpoint", ""), failed.get("body") or {}, failed.get("error", ""))
+    errors = [f"- step [{e.get('index')}] {e.get('endpoint')}: {e.get('error')}" for e in (failed or {}).get("history", [])]
+    msg = ("We are running your plan.\nDone steps (their numbers are what {\"$step\": n} refers to):\n" + ("\n".join(lines) or "(none)") +
+           (f"\n\nStep [{k}] “{failed.get('title')}” ({failed.get('endpoint')}) with the settings {json.dumps(failed.get('body'), ensure_ascii=False)[:2500]}\n"
+            f"{'failed with: ' + failed.get('error', '') if failed.get('error') else 'made something wrong: ' + '; '.join(failed.get('warnings') or [])}" if failed else "") +
+           ("\n\nWhat failed so far in this task (don't repeat it):\n" + "\n".join(errors) if errors else "") +
+           f"\n\nGive the steps that still have to run, starting with step [{k}] (fixed, or done another way), and the plan for them."
+           " Keep the same inputs (you may add some). For a file made by a done step use {\"$step\": its number, ...}.")
+    out = plan([*messages, {"role": "user", "content": msg}], context, conv_id="", prefix=done)
+    if conv_id:
+        data.log(conv_id, {"role": "event", "kind": "replan", "failed": failed and {k2: failed.get(k2) for k2 in ("title", "endpoint", "error", "warnings")}, "plan": out["plan"]})
+    return out

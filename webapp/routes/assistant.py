@@ -47,18 +47,16 @@ def assistant_pull(req: PullRequest):
 
 
 class PlanRequest(BaseModel):
-    messages: list[dict] = Field(min_length=1, max_length=40)
+    messages: list[dict] = Field(min_length=1, max_length=60)
     context: dict = Field(default_factory=dict)
+    conv_id: str = Field("", max_length=40)
 
 
-@router.post("/api/assistant/plan")
-def assistant_plan(req: PlanRequest):
-    """The request (and the conversation so far) planned as a workflow of the app's tools; nothing runs."""
+def _model_errors(fn):
+    """Run a planning call; the models' failures as messages that say what to do."""
     import requests as _rq
-
-    from .. import assistant
     try:
-        return assistant.plan(req.messages, req.context)
+        return fn()
     except ValueError as e:
         raise HTTPException(400, str(e))
     except _rq.RequestException as e:
@@ -72,6 +70,104 @@ def assistant_plan(req: PlanRequest):
         if name in ("APIConnectionError", "APITimeoutError"):
             raise HTTPException(502, "Couldn't reach Claude → check the internet connection, or use the local model")
         raise
+
+
+@router.post("/api/assistant/plan")
+def assistant_plan(req: PlanRequest):
+    """The request (and the conversation so far) planned as a workflow of the app's tools; nothing runs."""
+    from .. import assistant
+    return _model_errors(lambda: assistant.plan(req.messages, req.context, req.conv_id))
+
+
+class ContinueRequest(PlanRequest):
+    workflow: dict
+    done: list[dict] = Field(default_factory=list, max_length=50)   # [{title, endpoint, body, observation}]
+    failed: dict | None = None                                       # {title, endpoint, body, error | warnings, history}
+
+
+@router.post("/api/assistant/continue")
+def assistant_continue(req: ContinueRequest):
+    """Replan after a step failed or made something wrong: the steps still to run (the done ones are kept)."""
+    from .. import assistant
+    return _model_errors(lambda: assistant.continue_plan(req.messages, req.context, req.workflow, req.done, req.failed, req.conv_id))
+
+
+class ObserveRequest(BaseModel):
+    paths: list[str] = Field(max_length=50)
+
+
+@router.post("/api/assistant/observe")
+def assistant_observe(req: ObserveRequest):
+    """What a step made, looked at (bands and value ranges, rows and columns), with warnings when it looks wrong."""
+    from .. import assistant_data
+    return {"files": assistant_data.describe_many(req.paths)}
+
+
+@router.get("/api/assistant/memory")
+def assistant_memory():
+    from .. import assistant_data as d
+    return {"notes": d.notes(), "pitfalls": d.pitfalls(per_tool=5), "conversations": d.conversations(), "folder": str(d.folder())}
+
+
+class NotesBody(BaseModel):
+    notes: str = Field("", max_length=20000)
+
+
+@router.put("/api/assistant/memory/notes")
+def assistant_notes(req: NotesBody):
+    from .. import assistant_data
+    return {"notes": assistant_data.save_notes(req.notes)}
+
+
+@router.delete("/api/assistant/memory/pitfalls")
+def assistant_pitfalls_clear():
+    from .. import assistant_data
+    assistant_data.clear_pitfalls()
+    return {"ok": True}
+
+
+class Lesson(BaseModel):
+    endpoint: str = Field(max_length=200)
+    error: str = Field(max_length=2000)
+    fix: str = Field("", max_length=2000)
+    body: dict = Field(default_factory=dict)
+
+
+@router.post("/api/assistant/memory/lesson")
+def assistant_lesson(req: Lesson):
+    """A step that failed, then worked after a fix: kept so later plans avoid the error."""
+    from .. import assistant_data
+    assistant_data.record_error(req.endpoint, req.body, req.error, req.fix)
+    return {"ok": True}
+
+
+class LogEvent(BaseModel):
+    conv_id: str = Field(max_length=40)
+    event: dict
+
+
+@router.post("/api/assistant/log")
+def assistant_log(req: LogEvent):
+    """An event of a conversation (a step done or failed, a run finished) for its transcript."""
+    from .. import assistant_data
+    assistant_data.log(req.conv_id, req.event)
+    return {"ok": True}
+
+
+@router.get("/api/assistant/conversations/{conv_id}")
+def assistant_conversation(conv_id: str):
+    from .. import assistant_data
+    try:
+        return {"events": assistant_data.conversation(conv_id)}
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(404, str(e))
+
+
+@router.delete("/api/assistant/conversations/{conv_id}")
+def assistant_conversation_delete(conv_id: str):
+    from .. import assistant_data
+    assistant_data.delete_conversation(conv_id)
+    return {"ok": True}
 
 
 @router.get("/api/assistant/catalog")

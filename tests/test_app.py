@@ -113,7 +113,7 @@ def test_tool_files_register_themselves(client):
         ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
         if "LF.tool(" in js.text:
             assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
-    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant"])
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve"])
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200
@@ -343,3 +343,106 @@ def test_assistant_needs_setting_up_first(client, monkeypatch):
     r = client.post("/api/assistant/plan", json={"messages": [{"role": "user", "content": "x"}]})
     assert r.status_code == 400 and "isn't set up" in r.json()["detail"]
     assert "/api/analyze/export" in ok(client.get("/api/assistant/catalog"))["text"]
+
+
+def test_assistant_looks_at_the_data(client, data):
+    """GISclaw's schema analysis / observation: bands with value ranges, a table's columns and rows, warnings."""
+    from webapp import assistant_data
+    r = ok(client.post("/api/assistant/observe", json={"paths": [data["s2"], "uploads/nothing.tif"]}))["files"]
+    assert r[0]["kind"] == "raster" and r[0]["bands_total"] >= 3 and "min" in r[0]["bands"][0]
+    assert "error" in r[1]
+    from webapp import workspace as ws
+    t = ws.root() / "tables" / "empty_t.csv"
+    t.parent.mkdir(exist_ok=True)
+    t.write_text("a,b\n")
+    d = assistant_data.describe("tables/empty_t.csv")
+    assert d["kind"] == "table" and d["rows"] == 0 and d["warnings"]
+
+
+def test_assistant_replans_after_a_failure_and_remembers(client, monkeypatch):
+    """Plan → Execute → Replan: the done steps are kept, the new ones come after them; the error is remembered and
+    shown to later plans as a known pitfall; what the user asks to remember goes into the notes."""
+    import json as _json
+    from webapp import assistant_data
+    rest = {"plan": "Table of the NDVI instead.", "questions": [], "remember": ["My farm is the Fields layer"], "workflow": {"name": "x", "inputs": [],
+            "steps": [{"title": "Table", "endpoint": "/api/tables/from-raster", "body": {"path": {"$step": 0, "ext": ".tif", "nth": 0}, "factor": 2}}]}}
+    seen = _assistant_ready(monkeypatch, [_json.dumps(rest), _json.dumps(rest)])
+    done = [{"title": "NDVI", "endpoint": "/api/analyze/export", "body": {"path": "uploads/x.tif", "band_map": {"B04": 3, "B08": 4}, "indices": ["NDVI"]},
+             "observation": [{"kind": "raster", "bands": [{"min": 0.1, "max": 0.8}]}]}]
+    failed = {"title": "Clusters", "endpoint": "/api/unsup/cluster", "body": {"table": "x"}, "error": "features: field required", "history": []}
+    r = ok(client.post("/api/assistant/continue", json={"messages": [{"role": "user", "content": "NDVI then cluster"}], "context": {},
+                                                      "workflow": {}, "done": done, "failed": failed, "conv_id": "test1234"}))
+    assert [s["endpoint"] for s in r["workflow"]["steps"]] == ["/api/analyze/export", "/api/tables/from-raster"]   # step [0] kept
+    assert "failed with: features: field required" in seen[-1] and "[0] NDVI" in seen[-1]
+    assert r["remembered"] == ["My farm is the Fields layer"] and "Fields layer" in assistant_data.notes()
+    assert any(p["endpoint"] == "/api/unsup/cluster" for p in assistant_data.pitfalls())
+    from webapp import assistant
+    prompt = assistant._memory_text("cluster", {})
+    assert "Known pitfalls" in prompt and "features: field required" in prompt and "Fields layer" in prompt
+    mem = ok(client.get("/api/assistant/memory"))
+    assert any(c["id"] == "test1234" for c in mem["conversations"])
+    ok(client.put("/api/assistant/memory/notes", json={"notes": ""}))
+    ok(client.delete("/api/assistant/memory/pitfalls"))
+    assert assistant_data.pitfalls() == [] and assistant_data.notes() == ""
+
+
+def test_assistant_renumbers_steps_counted_from_one():
+    from webapp.assistant import _renumber
+    steps = [{"body": {"path": "a"}}, {"body": {"table": {"$step": 1, "ext": ".csv", "nth": 0}}}, {"body": {"x": [{"$step": 2, "ext": ".csv", "nth": 0}]}}]
+    _renumber(steps, 0)
+    assert steps[1]["body"]["table"]["$step"] == 0 and steps[2]["body"]["x"][0]["$step"] == 1
+    ok_steps = [{"body": {}}, {"body": {"t": {"$step": 0}}}]
+    _renumber(ok_steps, 0)
+    assert ok_steps[1]["body"]["t"]["$step"] == 0       # already right: unchanged
+
+
+def test_assistant_moves_an_area_to_the_tools_own_name():
+    from webapp.assistant import _area_names, _openapi
+    body = {"kind": "labels", "clip": {"type": "Polygon", "coordinates": []}}
+    _area_names(_openapi(), "/api/jobs", body)
+    assert "aoi" in body and "clip" not in body
+    body2 = {"path": "x", "aoi": {"type": "Polygon"}}
+    _area_names(_openapi(), "/api/analyze/export", body2)
+    assert "clip" in body2 and "aoi" not in body2
+
+
+def _sq(x0, y0, d, **props):
+    return {"type": "Feature", "properties": props, "geometry": {"type": "Polygon", "coordinates": [[[x0, y0], [x0 + d, y0], [x0 + d, y0 + d], [x0, y0 + d], [x0, y0]]]}}
+
+
+def _area_m2(geom):
+    from rasterio.warp import transform_geom
+    from shapely.geometry import shape
+    return shape(transform_geom("EPSG:4326", "EPSG:32643", geom)).area
+
+
+def test_vector_buffer_query_overlay_dissolve(client):
+    """Buffer (metres), select by attribute (also SQL-like), overlay (intersection, union, difference) and dissolve,
+    as jobs whose results are GeoJSON files in the workspace."""
+    import math
+
+    from tests.helpers import run
+    pt = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"id": 1}, "geometry": {"type": "Point", "coordinates": [77.5, 13.0]}}]}
+    r = run(client, "/api/vector/buffer", {"layer": pt, "distance": 100, "segments": 64})
+    fc = ok(client.get("/api/vector/read", params={"path": r["path"]}))
+    assert abs(_area_m2(fc["features"][0]["geometry"]) - math.pi * 100 ** 2) / (math.pi * 100 ** 2) < 0.01   # π r², within 1 %
+    fields = {"type": "FeatureCollection", "features": [_sq(77.50, 13.0, 0.01, crop="Rice", area_ha=3), _sq(77.52, 13.0, 0.01, crop="wheat", area_ha=1),
+                                                         _sq(77.54, 13.0, 0.01, crop="rice", area_ha=1)]}
+    sel = run(client, "/api/vector/query", {"layer": fields, "where": "crop = 'rice' AND area_ha > 2"})
+    assert sel["features"] == 1
+    assert run(client, "/api/vector/query", {"layer": fields, "where": "crop == rice or crop in ('wheat',)"})["features"] == 3
+    assert client.post("/api/vector/query", json={"layer": fields, "where": "__import__('os')"}).status_code == 400
+    a = {"type": "FeatureCollection", "features": [_sq(77.50, 13.0, 0.02, name="A")]}
+    b = {"type": "FeatureCollection", "features": [_sq(77.51, 13.0, 0.02, name="B")]}
+    inter = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/overlay", {"a": a, "b": b, "how": "intersection"})["path"]}))
+    assert len(inter["features"]) == 1 and inter["features"][0]["properties"] == {"name": "A", "b_name": "B"}
+    ia, aa = _area_m2(inter["features"][0]["geometry"]), _area_m2(a["features"][0]["geometry"])
+    assert abs(ia / aa - 0.5) < 0.01                                                                  # half of A overlaps B
+    union = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/overlay", {"a": a, "b": b, "how": "union"})["path"]}))
+    assert len(union["features"]) == 3 and abs(sum(_area_m2(f["geometry"]) for f in union["features"]) / aa - 1.5) < 0.01
+    diff = run(client, "/api/vector/overlay", {"a": a, "b": b, "how": "difference"})
+    assert diff["features"] == 1
+    one = run(client, "/api/vector/dissolve", {"layer": fields})
+    assert one["features"] == 1
+    by = run(client, "/api/vector/dissolve", {"layer": fields, "field": "crop"})
+    assert by["features"] == 3                                                                        # Rice, wheat, rice (as written)

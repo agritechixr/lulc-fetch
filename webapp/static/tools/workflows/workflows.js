@@ -101,7 +101,7 @@
       const polyLayers = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)));
       function fileChoices(inp) {   // Contents entries of the same kind, with a file on disk
         if (inp.kind === "table") return dataItems.filter((d) => d.kind === "table" && d.path).map((d) => [`item:${d.path}`, d.name]);
-        if (inp.kind === "vector") return layers.filter((l) => l.type === "vector" && l.path).map((l) => [`layer:${l.id}`, l.name]);
+        if (inp.kind === "vector") return layers.filter((l) => l.type === "vector" && l.geojson?.features?.length).map((l) => [`layer:${l.id}`, l.name]);
         return layers.filter((l) => l.type === "raster" && l.path).map((l) => [`layer:${l.id}`, l.name]);
       }
       function renderInputs() {
@@ -216,6 +216,16 @@
         }
         return [];
       }
+      // one step: its settings with the inputs and earlier results filled in, run through its tool; the files it made
+      async function runStep(s, ctx, i, total, title, tool = "workflows") {
+        const body = resolve(s.body, ctx);
+        const res = await api(s.endpoint, { method: "POST", json: body });
+        if (res?.id && res.status) {   // a background job: follow it (progress bar, Cancel, History)
+          const done = await trackJob(res, { tool, title: `${title} · ${i + 1}/${total} ${s.title}` });
+          return { step: i, jobId: done.id, outs: await stepOutputs(done.id), body };
+        }
+        return { step: i, body, outs: ["path", "csv", "output_table", "geojson_path", "outputs"].flatMap((k) => [].concat(res?.[k] || [])).filter((x) => typeof x === "string") };
+      }
       async function runOnce(chosen, label) {
         const wf = st.wf, ctx = { inputs: {}, outputs: [] }, marks = {};
         wf.inputs.forEach((inp) => { ctx.inputs[inp.id] = inputValue(inp, chosen[inp.id]); });
@@ -225,17 +235,9 @@
           marks[i] = "run"; renderSteps(marks);
           status(`${label}Step ${i + 1} of ${wf.steps.length}: ${s.title}`, true);
           try {
-            const body = resolve(s.body, ctx);
-            const res = await api(s.endpoint, { method: "POST", json: body });
-            let outs = [];
-            if (res?.id && res.status) {   // a background job: follow it (progress bar, Cancel, History)
-              const done = await trackJob(res, { tool: "workflows", title: `${label}${wf.name} · ${i + 1}/${wf.steps.length} ${s.title}` });
-              outs = await stepOutputs(done.id);
-              results.push({ step: i, jobId: done.id, outs });
-            } else {   // an answer straight away
-              outs = ["path", "csv", "output_table", "geojson_path", "outputs"].flatMap((k) => [].concat(res?.[k] || [])).filter((x) => typeof x === "string");
-              results.push({ step: i, outs });
-            }
+            const r = await runStep(s, ctx, i, wf.steps.length, `${label}${wf.name}`);
+            results.push(r);
+            const outs = r.outs;
             ctx.outputs[i] = outs;
             marks[i] = "done"; renderSteps(marks);
           } catch (e) {
@@ -255,8 +257,8 @@
           try {
             if (/\.(tiff?)$/i.test(p) && !/_colour\.tif$/i.test(p)) { await addRasterFromPath(p, { name: name.replace(/\.tiff?$/i, ""), zoom: added === 0 }); added++; }
             else if (/^tables\/.+\.(csv|parquet)$/i.test(p)) { addItem({ kind: "table", name, path: p }); added++; }
-            else if (/\.geojson$/i.test(p) && r.jobId && p.startsWith(`downloads/${r.jobId}/`)) {
-              let fc = await api(`/api/jobs/${r.jobId}/files/${encodeURIComponent(name)}`);
+            else if (/\.geojson$/i.test(p)) {   // a vector result (a tool's file in analysis/, or a download)
+              let fc = r.jobId && p.startsWith(`downloads/${r.jobId}/`) ? await api(`/api/jobs/${r.jobId}/files/${encodeURIComponent(name)}`) : await api(`/api/vector/read?path=${encodeURIComponent(p)}`);
               if (typeof fc === "string") fc = JSON.parse(fc);
               if (fc?.features?.length) { addVectorLayer(fc, name.replace(/\.geojson$/i, ""), { path: p }); added++; }
             }
@@ -283,6 +285,14 @@
             runs = ticked.map((v) => [{ ...chosen, [bid]: v }, `${(v.startsWith("layer:") ? getLayer(v.slice(6))?.name : baseName(v.slice(5))) || ""} · `]);
           }
           if (runs.length > 1 && !confirm(`Run “${wf.name}” ${runs.length} times (${wf.steps.length} step${wf.steps.length === 1 ? "" : "s"} each)?`)) return;
+        }
+        // vector layers that aren't files yet are saved first (tools read layers from files)
+        for (const r of runs) for (const [k, v] of Object.entries(r[0])) {
+          const l = typeof v === "string" && v.startsWith("layer:") ? getLayer(v.slice(6)) : null;
+          if (l?.type === "vector" && !l.path) {
+            try { r[0][k] = `item:${(await api("/api/vector/save", { method: "POST", json: { layer_id: l.id, geojson: l.geojson } })).path}`; }
+            catch (e) { return toast(e, true); }
+          }
         }
         st.running = true;
         $("#wf-run").disabled = true;
@@ -377,6 +387,7 @@
       };
       // the Assistant hands its plans here: shown (not saved) to review, edit, save or run
       LF.wf = {
+        runStep, addResults, inputValue,   // for the Assistant, which runs a plan step by step and looks at each result
         show(wf, note) { openUnsaved(JSON.parse(JSON.stringify(wf)), note); },
         async showAndRun(wf) { openUnsaved(JSON.parse(JSON.stringify(wf))); await run(); },
       };

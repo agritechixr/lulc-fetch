@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Assistant, after GISclaw and OpenClaw:** it looks at the data first (bands and value ranges, columns and sample
+  rows, fields), runs a plan step by step, looks at what each step made, fixes a failed or empty step (3 tries) or
+  replans the rest (shown to you first), and keeps the errors as known pitfalls; long-term notes ("remember …"),
+  saved conversations, saved workflows as skills; a tool handbook; step numbers counted from 1 and area names fixed
+  automatically.
+- **Vector tools** (Analysis ▸ Tools ▸ Vector): Buffer (metres), Select by attribute (and / or, SQL-like; also the
+  attribute table's Query… button), Overlay (intersection, union, difference, symmetric difference, clip), Dissolve.
+  Jobs with History; results as GeoJSON files; usable in Workflows and by the Assistant.
 - **Assistant** (Analysis ▸ Tools ▸ Assistant): say what you want done; it plans a workflow of the app's tools from your
   Contents and the map view, you check the plan, then run it (in Workflows) or review and save it. A free local model
   through Ollama (one-click download of the recommended model), or Claude with your own Anthropic key (Credentials).

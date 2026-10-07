@@ -68,6 +68,10 @@
     swipe: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 2v20"/><path d="M8 10l-2 2 2 2M16 10l2 2-2 2" opacity=".7"/>',
     sidebyside: '<rect x="2" y="5" width="9" height="14" rx="1.5"/><path d="M17 5l5 3v8l-5 3-5-3V8z"/><path d="M12 8l5 3 5-3M17 11v8" opacity=".55"/>',
     assistant: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18.5 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" opacity=".7"/><path d="M5 16.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" opacity=".55"/>',
+    vbuffer: '<path d="M8 9l5-2 3 5-4 4-4-2z"/><path d="M4.5 9.5l7.5-5 7 6.5-6 8.5-7.5-3.5z" stroke-dasharray="2.5 2" opacity=".7"/>',
+    vquery: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16" opacity=".5"/><path d="M12.5 13.5h6M12.5 16.5h4"/>',
+    voverlay: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/><path d="M12 7.2a6 6 0 0 1 0 9.6a6 6 0 0 1 0-9.6z" fill="currentColor" fill-opacity=".35" stroke="none"/>',
+    vdissolve: '<path d="M4 6h7v6H4zM11 6h8v6h-8zM4 12h15v6H4z" stroke-dasharray="2 2" opacity=".55"/><path d="M4 6h15v12H4z"/>',
     workflow: '<rect x="3" y="3" width="6" height="5" rx="1"/><rect x="15" y="9.5" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><path d="M9 5.5h3v13H9M12 12h3"/>',
     map2d: '<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14" opacity=".55"/>',
     map3d: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" opacity=".6"/>',
@@ -142,7 +146,7 @@
   }
   // the ribbon groups of the Tools category (tools not named here go in "More")
   const TOOL_GROUPS = [["Imagery", ["search", "analyze", "pca", "stack"]], ["Training data", ["samples", "raster2table", "patches"]],
-    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
+    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
   // one ribbon group: a few tools as big buttons, more as small ones in columns of three
   function ribbonGroup(caption, tools, big = tools.length <= 3) {
     if (!tools.length) return "";
