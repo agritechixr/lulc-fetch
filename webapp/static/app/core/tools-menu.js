@@ -72,6 +72,18 @@
     vquery: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16" opacity=".5"/><path d="M12.5 13.5h6M12.5 16.5h4"/>',
     voverlay: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/><path d="M12 7.2a6 6 0 0 1 0 9.6a6 6 0 0 1 0-9.6z" fill="currentColor" fill-opacity=".35" stroke="none"/>',
     vdissolve: '<path d="M4 6h7v6H4zM11 6h8v6h-8zM4 12h15v6H4z" stroke-dasharray="2 2" opacity=".55"/><path d="M4 6h15v12H4z"/>',
+    vzonal: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".45"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18" opacity=".3"/><path d="M6 6l9 2 3 9-10 1z" stroke-width="2"/>',
+    vlocation: '<path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2"/><circle cx="12" cy="11" r="9" stroke-dasharray="2 2.5" opacity=".5"/>',
+    vsjoin: '<rect x="3" y="5" width="8" height="8" rx="1"/><rect x="13" y="11" width="8" height="8" rx="1"/><path d="M11 9h3a2 2 0 0 1 2 2v0" /><path d="M14.5 9.5L16 11l1.5-1.5"/>',
+    vgeometry: '<path d="M4 18L9 5l11 4-5 11z"/><path d="M3 21h4M5 19v4" opacity=".6"/><text x="10.5" y="14.5" font-size="6" font-family="sans-serif" fill="currentColor" stroke="none">ha</text>',
+    vcount: '<path d="M4 6l7-2 9 4-2 11-12-1z"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="14" cy="12" r="1.2" fill="currentColor"/><circle cx="10" cy="15" r="1.2" fill="currentColor"/>',
+    vtjoin: '<rect x="3" y="4" width="8" height="16" rx="1"/><path d="M3 9h8M3 14h8" opacity=".5"/><path d="M14 8l6 2-1 8-5-1z"/><path d="M11 12h3"/>',
+    rterrain: '<path d="M2 19l6-10 4 6 3-4 7 8z"/><path d="M8 9l1.5 4M15 11l-1 3" opacity=".55"/><circle cx="18" cy="5" r="1.6"/>',
+    rcontours: '<path d="M4 17c3-3 6-2 8-4s4-5 8-5"/><path d="M4 13c2-2 5-2 6-4s3-4 7-4" opacity=".6"/><path d="M5 21c3-2 7-1 10-3s4-3 6-3" opacity=".6"/>',
+    rreclass: '<rect x="3" y="3" width="8" height="18" rx="1"/><path d="M3 9h8M3 15h8" opacity=".5"/><path d="M14 6h7M14 12h7M14 18h7"/><path d="M11 12h3" stroke-dasharray="1.5 1.5"/>',
+    rchange: '<rect x="2" y="5" width="9" height="14" rx="1.5"/><rect x="13" y="5" width="9" height="14" rx="1.5" opacity=".6"/><path d="M8 12h8M14 10l2 2-2 2"/>',
+    rclip: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".45"/><path d="M7 8l5-3 6 4-1 8-8 2z"/><path d="M3 3l4 5M21 3l-3 6" opacity=".4"/>',
+    vhelpers: '<circle cx="7" cy="7" r="2.2"/><path d="M14 4l6 5-3 7-6-2z"/><path d="M4 14h6v6H4z" stroke-dasharray="2 1.5"/><circle cx="17" cy="19" r="1" fill="currentColor"/><circle cx="20" cy="16" r="1" fill="currentColor"/>',
     workflow: '<rect x="3" y="3" width="6" height="5" rx="1"/><rect x="15" y="9.5" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><path d="M9 5.5h3v13H9M12 12h3"/>',
     map2d: '<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14" opacity=".55"/>',
     map3d: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" opacity=".6"/>',
@@ -146,7 +158,7 @@
   }
   // the ribbon groups of the Tools category (tools not named here go in "More")
   const TOOL_GROUPS = [["Imagery", ["search", "analyze", "pca", "stack"]], ["Training data", ["samples", "raster2table", "patches"]],
-    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
+    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve", "vhelpers"]], ["Spatial analysis", ["vzonal", "vlocation", "vsjoin", "vcount", "vgeometry", "vtjoin"]], ["Raster & terrain", ["rterrain", "rcontours", "rreclass", "rchange", "rclip"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
   // one ribbon group: a few tools as big buttons, more as small ones in columns of three
   function ribbonGroup(caption, tools, big = tools.length <= 3) {
     if (!tools.length) return "";

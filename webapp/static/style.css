@@ -1402,3 +1402,10 @@ body.side-by-side .map3d { left: 50%; border-left: 3px solid var(--panel); box-s
 .as-conv { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; }
 .as-conv a { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .as-conv small { color: var(--muted); font-size: 11px; }
+.vz-stats { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 2px 0 6px; }
+.vz-stats label.check { margin: 0; }
+.rr-rules { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 4px 0; }
+.rr-rules th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11px; padding: 2px; }
+.rr-rules td { padding: 2px; }
+.rr-rules input { margin: 0; width: 100%; }
+.rr-rules td:last-child { width: 24px; }

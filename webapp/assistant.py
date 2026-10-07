@@ -55,6 +55,30 @@ CATALOG = {
     "/api/vector/overlay": "Overlay two vector layers `a` and `b` (paths): how = 'intersection' (where both are), 'union' (every piece of "
                            "both), 'difference' (a without b), 'symmetric_difference', 'clip' (a cut to b). Output: .geojson",
     "/api/vector/dissolve": "Dissolve: merge the shapes of `layer`, all into one, or one per value of `field`. Output: .geojson",
+    "/api/vector/zonal": "Zonal statistics: each polygon of `layer` with the values of the raster `raster` (a path) inside it: stats "
+                         "['mean','min','max','std','median','sum','count'], or categorical=true for a class raster (land cover): "
+                         "% of each class and the majority. Output: .geojson (the polygons with the new fields)",
+    "/api/vector/select-location": "Select by location: features of `a` that intersect / are within / contain / are disjoint from / are "
+                                   "within `distance` metres (predicate 'within_distance') of `b`. Output: .geojson",
+    "/api/vector/spatial-join": "Spatial join: features of `a` with the attributes of the feature of `b` they overlap most "
+                                "(how 'intersects'), are inside ('within') or are nearest to ('nearest', adds join_dist_m). Output: .geojson",
+    "/api/vector/geometry": "Calculate geometry: adds area_m2, area_ha, perimeter_m (polygons) or length_m (lines) and the centroid "
+                            "lon / lat to `layer`. Output: .geojson",
+    "/api/vector/count-points": "Count the `points` (a layer) inside each of the `polygons`, and the sum of a points' `sum_field`. Output: .geojson",
+    "/api/vector/join-table": "Join a table (`table`: a path of a CSV / Excel / Parquet) to `layer` where the layer's `layer_field` "
+                              "equals the table's `table_field`. Output: .geojson",
+    "/api/raster/terrain": "From a DEM (`dem`: a path): products ['slope', 'aspect', 'hillshade'] (slope in degrees, aspect in degrees "
+                           "from north). Output: .tif files",
+    "/api/raster/contours": "Contour lines of a DEM every `interval` metres. Output: .geojson lines with their `value`",
+    "/api/raster/reclassify": "Ranges of values of `raster` become classes: rules [{min, max, value (1-255), label}] (min inclusive, max "
+                              "exclusive; null = no limit). Output: .tif with class names",
+    "/api/raster/change": "Change between two dates of the same thing: `before` and `after` (paths): the difference and % change, or "
+                          "categorical=true for class maps (land cover): from→to map and a table of the area of every change. Output: .tif (+ .csv)",
+    "/api/raster/clip": "Cut `raster` to polygons `area` (a GeoJSON area; invert=true keeps the outside). Output: .tif",
+    "/api/vector/geom-op": "Geometry helpers, op = 'centroids' (inside=true: a point surely inside), 'convex_hull' (whole=true: one for "
+                           "the layer), 'simplify' (tolerance m), 'explode' (multipart to single), 'merge' (`layers`: two or more paths), "
+                           "'fishnet' (a grid of `cell` m over `layer`), 'random_points' (`count` points inside the polygons of `layer`, "
+                           "per_feature=true: in each). Output: .geojson",
 }
 
 
@@ -168,7 +192,17 @@ RULES = """How to choose tools:
 - Vector layers (points, lines, polygons) are used with their path from the data list (an input of type "file"):
   a zone around them → /api/vector/buffer; features matching a condition on their fields → /api/vector/query (use the
   field names and values seen in the data); where two layers overlap, or their union / difference → /api/vector/overlay;
-  merging shapes → /api/vector/dissolve. A vector file made by an earlier step: {"$step": n, "ext": ".geojson", "nth": 0}."""
+  merging shapes → /api/vector/dissolve. A vector file made by an earlier step: {"$step": n, "ext": ".geojson", "nth": 0}.
+- A raster's values per polygon (mean NDVI of each field, % land cover per district) → /api/vector/zonal (for an index,
+  make it first with /api/analyze/export and use its .tif). Features near / inside / touching another layer →
+  /api/vector/select-location. Attributes of the layer they fall in or are nearest to → /api/vector/spatial-join.
+  Area in hectares, length, perimeter → /api/vector/geometry. How many points per polygon → /api/vector/count-points.
+  A table's columns added to a layer by a shared key → /api/vector/join-table.
+- Slope, aspect or a shaded relief of a DEM → /api/raster/terrain; contour lines → /api/raster/contours; ranges of
+  values to classes (e.g. NDVI → low / medium / high) → /api/raster/reclassify; what changed between two dates →
+  /api/raster/change (categorical for land-cover maps); a raster cut to an area → /api/raster/clip.
+- Centroids, convex hulls, simplifying, merging layers, splitting multipart shapes, a grid of cells, random sample
+  points in polygons → /api/vector/geom-op with its op."""
 
 
 def catalog_text() -> str:

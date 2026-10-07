@@ -113,7 +113,7 @@ def test_tool_files_register_themselves(client):
         ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
         if "LF.tool(" in js.text:
             assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
-    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve"])
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve", "vzonal", "vlocation", "vsjoin", "vgeometry", "vcount", "vtjoin", "rterrain", "rcontours", "rreclass", "rchange", "rclip", "vhelpers"])
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200
@@ -446,3 +446,139 @@ def test_vector_buffer_query_overlay_dissolve(client):
     assert one["features"] == 1
     by = run(client, "/api/vector/dissolve", {"layer": fields, "field": "crop"})
     assert by["features"] == 3                                                                        # Rice, wheat, rice (as written)
+
+
+def test_vector_batch1_zonal_location_join_geometry_count_table(client, home):
+    """Zonal statistics (known pixel values), select by location (and within a distance), spatial join, calculate
+    geometry (area in ha), count points in polygons, join a table by a field."""
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from tests.helpers import run
+    rd = home / "uploads"
+    rd.mkdir(exist_ok=True)
+    # a 10 × 10 raster of 100 m pixels in UTM 43N: left half 1, right half 3 (one class map, one value map)
+    with rasterio.open(rd / "zs.tif", "w", driver="GTiff", width=10, height=10, count=1, dtype="float32", crs="EPSG:32643",
+                       transform=from_origin(700000, 1500000, 100, 100)) as d:
+        a = np.ones((10, 10), "float32"); a[:, 5:] = 3; d.write(a, 1)
+    from rasterio.warp import transform_geom
+    def poly_utm(x0, y0, x1, y1, **p):
+        g = transform_geom("EPSG:32643", "EPSG:4326", {"type": "Polygon", "coordinates": [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]})
+        return {"type": "Feature", "properties": p, "geometry": g}
+    zones = {"type": "FeatureCollection", "features": [poly_utm(700000, 1499000, 700500, 1500000, id="left"),       # all 1s
+                                                        poly_utm(700000, 1499000, 701000, 1500000, id="whole")]}    # half 1, half 3
+    fc = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/zonal", {"layer": zones, "raster": "uploads/zs.tif"})["path"]}))
+    left, whole = (f["properties"] for f in fc["features"])
+    assert abs(left["mean"] - 1) < 1e-6 and abs(whole["mean"] - 2) < 0.05 and whole["min"] == 1 and whole["max"] == 3
+    assert 45 <= left["count"] <= 55 and 95 <= whole["count"] <= 105
+    cat = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/zonal", {"layer": zones, "raster": "uploads/zs.tif", "categorical": True})["path"]}))
+    w = cat["features"][1]["properties"]
+    assert abs(w["pct_1"] - 50) < 3 and abs(w["pct_3"] - 50) < 3
+    # geometry: the left zone is 500 m × 1 km = 50 ha
+    geo = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/geometry", {"layer": zones})["path"]}))
+    assert abs(geo["features"][0]["properties"]["area_ha"] - 50) < 0.5
+    # points: one in the left zone, one 150 m east of the whole zone
+    from rasterio.warp import transform as wt
+    (x1, x2), (y1, y2) = wt("EPSG:32643", "EPSG:4326", [700200, 701150], [1499500, 1499500])
+    pts = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"n": 2}, "geometry": {"type": "Point", "coordinates": [x1, y1]}},
+                                                     {"type": "Feature", "properties": {"n": 5}, "geometry": {"type": "Point", "coordinates": [x2, y2]}}]}
+    assert run(client, "/api/vector/select-location", {"a": pts, "b": zones, "predicate": "within"})["features"] == 1
+    assert run(client, "/api/vector/select-location", {"a": pts, "b": zones, "predicate": "within_distance", "distance": 200})["features"] == 2
+    cnt = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/count-points", {"polygons": zones, "points": pts, "sum_field": "n"})["path"]}))
+    assert [f["properties"]["point_count"] for f in cnt["features"]] == [1, 1] and cnt["features"][0]["properties"]["sum_n"] == 2
+    sj = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/spatial-join", {"a": pts, "b": zones, "how": "nearest"})["path"]}))
+    assert sj["features"][1]["properties"]["id"] == "whole" and 140 < sj["features"][1]["properties"]["join_dist_m"] < 160
+    (home / "tables").mkdir(exist_ok=True)
+    (home / "tables" / "yields.csv").write_text("zone,yield\nLEFT,4.5\nwhole,3.1\n")
+    r = run(client, "/api/vector/join-table", {"layer": zones, "table": "tables/yields.csv", "layer_field": "id", "table_field": "zone"})
+    jt = ok(client.get("/api/vector/read", params={"path": r["path"]}))
+    assert r["unmatched"] == 0 and [f["properties"]["yield"] for f in jt["features"]] == [4.5, 3.1]
+
+
+def test_raster_tools_terrain_contours_reclassify_change_clip(client, home):
+    """Terrain on a plane tilting up to the south-east (slope and aspect known), contours of it, reclassify, change
+    between two dates (values and classes), clip to a polygon."""
+    import math
+
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+    from rasterio.warp import transform_geom
+
+    from tests.helpers import run
+    (home / "uploads").mkdir(exist_ok=True)
+    n, px = 50, 10.0
+    yy, xx = np.mgrid[0:n, 0:n] * px
+    z = (0.1 * xx + 0.1 * yy).astype("float32")             # rises 0.1 m per m east and per m south (rows run south)
+    prof = dict(driver="GTiff", width=n, height=n, count=1, dtype="float32", crs="EPSG:32643", transform=from_origin(700000, 1500000, px, px))
+    with rasterio.open(home / "uploads/plane.tif", "w", **prof) as d:
+        d.write(z, 1)
+    outs = run(client, "/api/raster/terrain", {"dem": "uploads/plane.tif"})["outputs"]
+    vals = {}
+    for o in outs:
+        with rasterio.open(home / o) as s:
+            vals[o.split("_")[-1]] = float(np.median(s.read(1)[5:-5, 5:-5]))
+    assert abs(vals["slope.tif"] - math.degrees(math.atan(math.hypot(0.1, 0.1)))) < 0.1     # 8.05°
+    assert abs(vals["aspect.tif"] - 315) < 1                                                # faces north-west (downhill)
+    assert vals["hillshade.tif"] > 200                                                      # lit from the north-west: bright
+    c = run(client, "/api/raster/contours", {"dem": "uploads/plane.tif", "interval": 20})
+    fc = ok(client.get("/api/vector/read", params={"path": c["path"]}))
+    assert c["features"] >= 4 and {f["properties"]["value"] for f in fc["features"]} >= {20.0, 40.0, 60.0}
+    r = run(client, "/api/raster/reclassify", {"raster": "uploads/plane.tif", "rules": [{"max": 40, "value": 1, "label": "low"}, {"min": 40, "value": 2, "label": "high"}]})
+    info = ok(client.get("/api/rasters/info", params={"path": r["path"]}))
+    with rasterio.open(home / r["path"]) as s:
+        cls = s.read(1)
+        assert set(np.unique(cls)) == {1, 2} and s.tags()["classes"] and s.colormap(1)[2]
+    assert cls[0, 0] == 1 and cls[-1, -1] == 2
+    with rasterio.open(home / "uploads/plane2.tif", "w", **prof) as d:
+        d.write(z + 5, 1)
+    ch = run(client, "/api/raster/change", {"before": "uploads/plane.tif", "after": "uploads/plane2.tif"})
+    assert abs(ch["summary"]["mean_change"] - 5) < 1e-3 and ch["summary"]["increased_pct"] == 100
+    p2 = {**prof, "dtype": "uint8"}
+    for nm, k in (("lc_a.tif", 1), ("lc_b.tif", 1)):
+        with rasterio.open(home / "uploads" / nm, "w", **p2) as d:
+            a = np.full((n, n), k, "uint8")
+            if nm == "lc_b.tif":
+                a[:, :25] = 2                                                               # half of class 1 became 2
+            d.write(a, 1)
+    cc = run(client, "/api/raster/change", {"before": "uploads/lc_a.tif", "after": "uploads/lc_b.tif", "categorical": True})
+    assert abs(cc["summary"]["changed_pct"] - 50) < 1 and abs(cc["summary"]["changed_ha"] - 12.5) < 0.1   # 1,250 px × 0.01 ha
+    assert any(t["from"] == 1 and t["to"] == 2 for t in cc["transitions"]) and cc["csv"].startswith("tables/")
+    area = transform_geom("EPSG:32643", "EPSG:4326", {"type": "Polygon", "coordinates": [[[700000, 1499800], [700200, 1499800], [700200, 1500000], [700000, 1500000], [700000, 1499800]]]})
+    cl = run(client, "/api/raster/clip", {"raster": "uploads/plane.tif", "area": area})
+    with rasterio.open(home / cl["path"]) as s:
+        assert 19 <= s.width <= 22 and 19 <= s.height <= 22                                 # 200 m / 10 m
+
+
+def test_vector_geometry_helpers(client):
+    """Centroids, convex hull, simplify, merge, explode, fishnet (cells of a known size), random points inside."""
+    from shapely.geometry import shape
+
+    from tests.helpers import run
+    sq = lambda x, d, **p: {"type": "Feature", "properties": p, "geometry": {"type": "Polygon", "coordinates": [[[x, 13.0], [x + d, 13.0], [x + d, 13.0 + d], [x, 13.0 + d], [x, 13.0]]]}}
+    a = {"type": "FeatureCollection", "features": [sq(77.50, 0.01, id=1), sq(77.52, 0.01, id=2)]}
+    rd = lambda r: ok(client.get("/api/vector/read", params={"path": r["path"]}))
+    c = rd(run(client, "/api/vector/geom-op", {"op": "centroids", "layer": a}))
+    assert abs(c["features"][0]["geometry"]["coordinates"][0] - 77.505) < 1e-6
+    assert run(client, "/api/vector/geom-op", {"op": "convex_hull", "layer": a, "whole": True})["features"] == 1
+    assert run(client, "/api/vector/geom-op", {"op": "merge", "layers": [a, a], "layer_names": ["x", "y"]})["features"] == 4
+    multi = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"k": 1}, "geometry": {"type": "MultiPolygon", "coordinates": [sq(77.5, 0.01)["geometry"]["coordinates"], sq(77.52, 0.01)["geometry"]["coordinates"]]}}]}
+    assert run(client, "/api/vector/geom-op", {"op": "explode", "layer": multi})["features"] == 2
+    net = rd(run(client, "/api/vector/geom-op", {"op": "fishnet", "layer": {"type": "FeatureCollection", "features": [sq(77.5, 0.01)]}, "cell": 250}))
+    assert 16 <= len(net["features"]) <= 30                                                    # ~1.1 km square / 250 m
+    pts = rd(run(client, "/api/vector/geom-op", {"op": "random_points", "layer": a, "count": 5, "per_feature": True, "seed": 1}))
+    assert len(pts["features"]) == 10 and all(any(shape(p["geometry"]).within(shape(f["geometry"])) for f in a["features"]) for p in pts["features"])
+    s = rd(run(client, "/api/vector/geom-op", {"op": "simplify", "layer": a, "tolerance": 5}))
+    assert len(s["features"]) == 2
+
+
+def test_no_element_id_is_used_twice(client):
+    """Every tool's panel is on one page: two panels using the same element id (e.g. the same "<prefix>-run") would
+    make one tool's button run the other."""
+    import collections
+    import re
+    html = client.get("/").text
+    srcs = [html] + [client.get(f"/static/{s}").text for s in re.findall(r'<script src="/static/(tools/[^"]+\.js)"', html)]
+    ids = collections.Counter(i for s in srcs for i in re.findall(r'id="([A-Za-z][\w-]*)"', s))
+    assert not [k for k, v in ids.items() if v > 1], f"ids used twice: {[k for k, v in ids.items() if v > 1]}"

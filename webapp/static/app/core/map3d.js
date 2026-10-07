@@ -136,13 +136,15 @@
   }
 
   // ---- heights: single-band rasters are surfaces (unless set to be draped); their grid comes from the server
+  const NOT_HEIGHTS = /slope|aspect|hillshade|contour|ndvi|ndwi|evi|savi|index|indices|difference|pct_change|change|from_to|classes|class|cluster|probab|confidence|embedding/i;
   const ELEV_NAME = /\b(dem|dsm|dtm|elev|elevation|height|heights|srtm|alos|aster|nasadem|copdem|terrain|altitude|relief)\b|dem[_-]|_dem/i;
   function isSurface(l) {
     if (l.type !== "raster" || !l.path) return false;
     if (l.view3d) return l.view3d === "surface";
     if ((l.info?.count || 0) !== 1 || l.legend?.kind === "classes" || l.info?.embedding) return false;
-    const b = l.info?.bands?.[0];   // the file's own values (a DEM's metres), not the display scale
-    return ELEV_NAME.test(`${l.name} ${l.path}`) || (b && b.p98 - b.median > 25);
+    const b = l.info?.bands?.[0], text = `${l.name} ${l.path} ${b?.description || ""}`;   // the file's own values (a DEM's metres), not the display scale
+    if (NOT_HEIGHTS.test(text)) return false;   // products made from a DEM or an image are not heights
+    return ELEV_NAME.test(text) || (b && b.p98 - b.median > 25);
   }
   // heights are the band's values as stored in the file (metres for a DEM): the display scale (e.g. ×0.0001 guessed for
   // satellite numbers) is not applied

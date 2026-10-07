@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Spatial analysis tools:** Zonal statistics (mean / min / max… of a raster per polygon, or % of each class), Select
+  by location (intersect, inside, contain, apart, within a distance), Spatial join (overlapping most, inside, nearest
+  with the distance), Calculate geometry (area m² / ha, perimeter, length, centroid), Count points in polygons (and a
+  sum), Join table to layer (by a shared field).
+- **Raster & terrain tools:** Terrain (slope, aspect, hillshade), Contours, Reclassify (ranges to named classes),
+  Change detection (difference and % change, or land-cover from → to with areas), Clip raster (or mask).
+- **Geometry tools:** centroids, convex hull, simplify, merge layers, multipart to single parts, fishnet grid, random
+  points. Every tool runs as a job with History, can be a Workflow step and is in the Assistant's toolbox.
+- The Assistant's test set: qwen2.5:7b plans 74% of 9 tasks right (3 runs each), llama3.2 52%.
 - **Assistant, after GISclaw and OpenClaw:** it looks at the data first (bands and value ranges, columns and sample
   rows, fields), runs a plan step by step, looks at what each step made, fixes a failed or empty step (3 tries) or
   replans the rest (shown to you first), and keeps the errors as known pitfalls; long-term notes ("remember …"),

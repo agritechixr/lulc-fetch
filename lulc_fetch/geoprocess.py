@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 import shapely
+import shapely.prepared
 from shapely.geometry import mapping, shape
 from shapely.strtree import STRtree
 
@@ -261,3 +262,302 @@ def dissolve(fc: dict, field: str | None = None) -> dict:
     for p, g in items:
         groups.setdefault(p.get(field) if field else None, []).append(g)
     return _fc([({field: k, "features": len(v)} if field else {"features": len(v)}, shapely.union_all(v)) for k, v in groups.items()])
+
+
+# ------------------------------------------------------------------ batch 1: spatial analysis
+def _to_metric(items):
+    """The items projected to their UTM zone (metres), and that zone."""
+    crs = _utm(items)
+    return [(p, _project(g, "EPSG:4326", crs)) for p, g in items], crs
+
+
+PREDICATES = ("intersects", "within", "contains", "disjoint", "within_distance")
+
+
+def select_by_location(fc_a: dict, fc_b: dict, predicate: str = "intersects", distance: float = 0) -> dict:
+    """The features of A that intersect / are within / contain / are apart from (disjoint) / are within `distance`
+    metres of any feature of B."""
+    if predicate not in PREDICATES:
+        raise ValueError(f"predicate: one of {', '.join(PREDICATES)}")
+    A, B = _geoms(fc_a), _geoms(fc_b)
+    if not A or not B:
+        raise ValueError("Both layers need shapes")
+    if predicate == "within_distance":
+        if not distance or distance <= 0:
+            raise ValueError("Give the distance in metres")
+        (Bm, crs) = _to_metric(B)
+        B = [(p, _project(g.buffer(distance), crs, "EPSG:4326")) for p, g in Bm]
+        predicate = "intersects"
+    tree = STRtree([g for _, g in B])
+    keep = []
+    for n, (props, g) in enumerate(A):
+        hits = tree.query(g, predicate="intersects")
+        if predicate == "disjoint":
+            ok = len(hits) == 0
+        elif predicate == "intersects":
+            ok = len(hits) > 0
+        elif predicate == "within":
+            ok = any(g.within(B[int(j)][1]) for j in hits)
+        else:   # contains
+            ok = any(g.contains(B[int(j)][1]) for j in hits)
+        if ok:
+            keep.append((props, g))
+        if n % 500 == 0:
+            progress.update(n / len(A), f"Checking {n:,} of {len(A):,}")
+    return _fc(keep)
+
+
+def spatial_join(fc_a: dict, fc_b: dict, how: str = "intersects", max_distance: float | None = None) -> dict:
+    """Each feature of A with the attributes of the feature of B it overlaps most (how='intersects'), lies within
+    ('within') or is nearest to ('nearest', with join_dist_m; up to max_distance metres when given). A's features
+    without a match keep their own attributes only."""
+    if how not in ("intersects", "within", "nearest"):
+        raise ValueError("how: intersects, within or nearest")
+    A, B = _geoms(fc_a), _geoms(fc_b)
+    if not A or not B:
+        raise ValueError("Both layers need shapes")
+    out = []
+    if how == "nearest":
+        (Am, crs) = _to_metric(A)
+        Bm = [(p, _project(g, "EPSG:4326", crs)) for p, g in B]
+        tree = STRtree([g for _, g in Bm])
+        for (pa, ga), (_, gam) in zip(A, Am):
+            j = int(tree.nearest(gam))
+            d = gam.distance(Bm[j][1])
+            props = dict(pa)
+            if max_distance is None or d <= max_distance:
+                props = {**_merge_props(pa, Bm[j][0]), "join_dist_m": round(d, 2)}
+            out.append((props, ga))
+        return _fc(out)
+    tree = STRtree([g for _, g in B])
+    for pa, ga in A:
+        best, best_v = None, 0.0
+        for j in tree.query(ga, predicate="intersects"):
+            gb = B[int(j)][1]
+            if how == "within" and not ga.within(gb):
+                continue
+            v = ga.intersection(gb).area if ga.area > 0 else 1.0   # polygons: the largest overlap; points / lines: the first
+            if best is None or v > best_v:
+                best, best_v = int(j), v
+        out.append((_merge_props(pa, B[best][0]) if best is not None else dict(pa), ga))
+    return _fc(out)
+
+
+def calculate_geometry(fc: dict) -> dict:
+    """Area (m², ha), perimeter or length (m) and the centroid (lon, lat) as fields, measured in metres in the UTM zone."""
+    items = _geoms(fc)
+    if not items:
+        raise ValueError("The layer has no shapes")
+    metric, _ = _to_metric(items)
+    out = []
+    for (props, g), (_, gm) in zip(items, metric):
+        p = dict(props)
+        if gm.area > 0:
+            p.update(area_m2=round(gm.area, 2), area_ha=round(gm.area / 1e4, 4), perimeter_m=round(gm.length, 2))
+        elif gm.length > 0:
+            p.update(length_m=round(gm.length, 2))
+        c = g.centroid
+        p.update(centroid_lon=round(c.x, 6), centroid_lat=round(c.y, 6))
+        out.append((p, g))
+    return _fc(out)
+
+
+def count_points(fc_polys: dict, fc_points: dict, sum_field: str | None = None) -> dict:
+    """Each polygon with the number of points inside it (point_count), and the sum of a points' field when asked."""
+    P, Q = _geoms(fc_polys), _geoms(fc_points)
+    if not P:
+        raise ValueError("The polygon layer has no shapes")
+    tree = STRtree([g for _, g in Q]) if Q else None
+    out = []
+    for props, g in P:
+        hits = [int(j) for j in tree.query(g, predicate="intersects")] if tree is not None else []
+        p = {**props, "point_count": len(hits)}
+        if sum_field:
+            vals = []
+            for j in hits:
+                try:
+                    vals.append(float(Q[j][0].get(sum_field)))
+                except (TypeError, ValueError):
+                    pass
+            p[f"sum_{sum_field}"] = round(sum(vals), 6)
+        out.append((p, g))
+    return _fc(out)
+
+
+def join_table(fc: dict, rows: list[dict], layer_field: str, table_field: str) -> tuple[dict, int]:
+    """The layer with the columns of a table's row whose `table_field` equals the feature's `layer_field` (text
+    compared, without case or spaces at the ends). Returns the layer and how many features found no row."""
+    def key(v):
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            return str(int(f)) if f.is_integer() else str(f)   # 7, 7.0 and "7" match
+        except (TypeError, ValueError):
+            return str(v).strip().lower()
+    index = {}
+    for r in rows:
+        index.setdefault(key(r.get(table_field)), r)
+    feats, missing = [], 0
+    for f in fc.get("features") or []:
+        props = dict(f.get("properties") or {})
+        r = index.get(key(props.get(layer_field)))
+        if r is None:
+            missing += 1
+        else:
+            for k, v in r.items():
+                if k != table_field:
+                    props[f"t_{k}" if k in props else k] = v
+        feats.append({**f, "properties": props})
+    return {"type": "FeatureCollection", "features": feats}, missing
+
+
+def zonal_stats(fc: dict, raster: str | Path, *, band: int = 1, stats=("mean", "min", "max", "std", "count"), categorical: bool = False,
+                prefix: str = "") -> dict:
+    """Each polygon with the raster's values summarised inside it: mean, min, max, std, median, sum, count (pixels),
+    or, for a class raster (categorical), the % of each class (pct_<value>) and the majority class."""
+    import numpy as np
+    import rasterio
+    from rasterio.features import geometry_mask
+    from rasterio.warp import transform_geom
+    from rasterio.windows import from_bounds
+
+    items = _geoms(fc)
+    if not items:
+        raise ValueError("The layer has no shapes")
+    out = []
+    with rasterio.open(raster) as src:
+        if not 1 <= band <= src.count:
+            raise ValueError(f"The raster has {src.count} band(s); there is no band {band}")
+        if src.crs is None:
+            raise ValueError("The raster has no coordinate system")
+        for n, (props, g) in enumerate(items):
+            p = dict(props)
+            gr = shape(transform_geom("EPSG:4326", src.crs, mapping(g)))
+            try:
+                win = from_bounds(*gr.bounds, transform=src.transform).round_offsets().round_lengths()
+                win = win.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
+            except Exception:  # noqa: BLE001 — the polygon is outside the raster
+                win = None
+            vals = np.array([])
+            if win is not None and win.width > 0 and win.height > 0:
+                a = src.read(band, window=win, masked=True)
+                for touched in (gr.area == 0, True):   # a polygon smaller than a pixel: the pixels it touches
+                    inside = ~geometry_mask([mapping(gr)], out_shape=a.shape, transform=src.window_transform(win), all_touched=touched)
+                    v = a.data[inside & ~np.ma.getmaskarray(a)].astype("float64")
+                    vals = v[np.isfinite(v)]
+                    if vals.size or touched:
+                        break
+            if categorical:
+                p[f"{prefix}count"] = int(vals.size)
+                if vals.size:
+                    cls, cnt = np.unique(vals.astype("int64"), return_counts=True)
+                    for c, k in zip(cls, cnt):
+                        p[f"{prefix}pct_{c}"] = round(100 * k / vals.size, 2)
+                    p[f"{prefix}majority"] = int(cls[np.argmax(cnt)])
+            else:
+                f = {"mean": np.mean, "min": np.min, "max": np.max, "std": np.std, "median": np.median, "sum": np.sum}
+                for s in stats:
+                    if s == "count":
+                        p[f"{prefix}count"] = int(vals.size)
+                    elif s in f:
+                        p[f"{prefix}{s}"] = round(float(f[s](vals)), 6) if vals.size else None
+            out.append((p, g))
+            if n % 50 == 0:
+                progress.update(n / len(items), f"Polygon {n:,} of {len(items):,}")
+    return _fc(out)
+
+
+# ------------------------------------------------------------------ batch 3: geometry helpers
+def centroids(fc: dict, inside: bool = False) -> dict:
+    """A point per feature: its centroid, or (inside=True) a point surely inside it."""
+    return _fc([(p, g.representative_point() if inside else g.centroid) for p, g in _geoms(fc)])
+
+
+def convex_hull(fc: dict, whole: bool = False) -> dict:
+    """The convex hull of each feature, or of the whole layer."""
+    items = _geoms(fc)
+    if whole:
+        return _fc([({"features": len(items)}, shapely.union_all([g for _, g in items]).convex_hull)])
+    return _fc([(p, g.convex_hull) for p, g in items])
+
+
+def simplify(fc: dict, tolerance: float) -> dict:
+    """Shapes with fewer vertices: no point moves more than `tolerance` metres (shapes stay valid)."""
+    if not tolerance or tolerance <= 0:
+        raise ValueError("Give the tolerance in metres")
+    items = _geoms(fc)
+    metric, crs = _to_metric(items)
+    return _fc([(p, _project(gm.simplify(tolerance, preserve_topology=True), crs, "EPSG:4326")) for (p, _), (_, gm) in zip(items, metric)])
+
+
+def merge_layers(fcs: list[tuple[str, dict]]) -> dict:
+    """Several layers as one, each feature with the name of the layer it came from (source_layer)."""
+    feats = []
+    for name, fc in fcs:
+        for f in fc.get("features") or []:
+            feats.append({**f, "properties": {**(f.get("properties") or {}), "source_layer": name}})
+    return {"type": "FeatureCollection", "features": feats}
+
+
+def explode(fc: dict) -> dict:
+    """Multipart features as one feature per part."""
+    out = []
+    for p, g in _geoms(fc):
+        parts = list(getattr(g, "geoms", [g]))
+        out += [({**p, "part": i + 1}, part) for i, part in enumerate(parts)]
+    return _fc(out)
+
+
+def fishnet(area: dict, cell: float, clip: bool = True) -> dict:
+    """A grid of square cells of `cell` metres over an area (or a layer's extent); clip: only the cells (parts) inside it."""
+    if not cell or cell <= 0:
+        raise ValueError("Give the cell size in metres")
+    items = _geoms(read_layer(area))
+    if not items:
+        raise ValueError("No area given")
+    metric, crs = _to_metric(items)
+    shape_m = shapely.union_all([g for _, g in metric])
+    x0, y0, x1, y1 = shape_m.bounds
+    nx, ny = math.ceil((x1 - x0) / cell), math.ceil((y1 - y0) / cell)
+    if nx * ny > 50_000:
+        raise ValueError(f"That makes {nx * ny:,} cells → use bigger cells (at most 50,000)")
+    out, n = [], 0
+    prepared = shapely.prepared.prep(shape_m) if hasattr(shapely, "prepared") else None
+    for r in range(ny):
+        for c in range(nx):
+            box = shapely.box(x0 + c * cell, y1 - (r + 1) * cell, x0 + (c + 1) * cell, y1 - r * cell)
+            if clip:
+                if not (prepared.intersects(box) if prepared else box.intersects(shape_m)):
+                    continue
+                box = box.intersection(shape_m) if not (prepared and prepared.contains(box)) else box
+                if box.is_empty:
+                    continue
+            n += 1
+            out.append(({"id": n, "row": r + 1, "col": c + 1}, _project(box, crs, "EPSG:4326")))
+    return _fc(out)
+
+
+def random_points(area: dict, n: int, per_feature: bool = False, seed: int | None = None) -> dict:
+    """`n` random points inside the polygons (in all, or n in each polygon with per_feature), e.g. for sampling."""
+    import random
+    if not 1 <= n <= 100_000:
+        raise ValueError("Ask for 1 to 100,000 points")
+    rng = random.Random(seed)
+    items = [(p, g) for p, g in _geoms(read_layer(area)) if g.area > 0]
+    if not items:
+        raise ValueError("Random points need polygons")
+    groups = [(p, g, n) for p, g in items] if per_feature else [({}, shapely.union_all([g for _, g in items]), n)]
+    out, k = [], 0
+    for props, g, want in groups:
+        x0, y0, x1, y1 = g.bounds
+        tries = 0
+        prep = shapely.prepared.prep(g) if hasattr(shapely, "prepared") else g
+        got = 0
+        while got < want and tries < want * 200:
+            tries += 1
+            pt = shapely.Point(rng.uniform(x0, x1), rng.uniform(y0, y1))
+            if prep.contains(pt):
+                k += 1; got += 1
+                out.append(({**props, "id": k}, pt))
+    return _fc(out)
