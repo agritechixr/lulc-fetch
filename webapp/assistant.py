@@ -13,6 +13,7 @@ runs until the user presses Run.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -70,6 +71,8 @@ CATALOG = {
     "/api/layers/export": "Export a raster layer as format 'tif' (values), 'png' or 'shp' (classes as polygons), optional clip. Output: file",
     "/api/emb/fetch": "Download satellite embeddings (source 'aef' AlphaEarth 64 bands, or 'tessera') for an area (`clip`) and year. Output: .tif",
     "/api/library/fetch": "Download a file from the data library (Hugging Face): repo and path inside it. Output: file",
+    "/api/vector/place": "Find a place by name (a stadium, town, address…, from OpenStreetMap): `place` e.g. 'M. Chinnaswamy "
+                         "Stadium, Bengaluru'; outline=true gives its outline instead of a point. Output: .geojson (one feature)",
     "/api/vector/buffer": "Buffer: a zone of `distance` metres around each shape of a vector layer (negative shrinks polygons); "
                           "dissolve=true merges them into one. `layer`: the path of a vector layer from the data list. Output: .geojson",
     "/api/vector/query": "Select by attribute: the features of `layer` whose attributes meet `where`, a condition on its fields, e.g. "
@@ -303,6 +306,9 @@ RULES = """How to choose tools:
 - Indices (NDVI, NDWI, EVI, SAVI…) of an image: /api/analyze/export. A map of classes from labelled data:
   /api/rasterml/run. Embeddings (AlphaEarth, TESSERA): /api/emb/fetch. Files in the data library: /api/library/fetch.
 - An area of the user's (a polygon layer, the map view) goes into aoi / clip as an input of type "area".
+- A place named in the request (a stadium, school, town, address) that isn't in the data list: find it first with
+  /api/vector/place (the name, with the city), then use its file {"$step": n, "ext": ".geojson", "nth": 0}, e.g. as the
+  layer of /api/vector/buffer. Never guess coordinates, and never use the map view in place of a named place.
 - Vector layers (points, lines, polygons) are used with their path from the data list (an input of type "file"):
   a zone around them → /api/vector/buffer; features matching a condition on their fields → /api/vector/query (use the
   field names and values seen in the data); where two layers overlap, or their union / difference → /api/vector/overlay;
@@ -672,6 +678,10 @@ def _to_workflow(out: dict, known_files: set | None = None, prefix: list[dict] |
         probs += [f"step {n + 1}: {p}" for p in _check_body(spec, s.get("endpoint", ""), body, {i["id"]: i["type"] for i in inputs})]
         steps.append({"title": s.get("title") or s.get("endpoint"), "kind": "", "endpoint": s.get("endpoint", ""), "body": body})
     _renumber(steps, len(pre))
+    used = set(re.findall(r'"\$in":\s*"([^"]+)"', json.dumps([s["body"] for s in steps])))
+    unused = {i["id"] for i in inputs} - used   # inputs no step uses (e.g. the map view, given "just in case") are left out
+    inputs = [i for i in inputs if i["id"] in used]
+    probs = [p for p in probs if not any(p.startswith(f"input {u}: an area") for u in unused)]   # invented files are still reported
     wf = {"name": w.get("name") or "Assistant workflow", "description": out.get("plan", ""), "inputs": inputs, "steps": steps}
     if prefix and len(steps) == len(pre):
         probs.append("no steps were given for what still has to run")

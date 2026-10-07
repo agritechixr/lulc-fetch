@@ -907,3 +907,23 @@ def test_assistant_explains_results_from_their_numbers(client, monkeypatch):
     r = ok(client.post("/api/assistant/explain", json={"request": "how much cropland?", "steps": steps}))
     assert r["text"].startswith("Cropland") and "only the numbers" in seen["system"].lower().replace("use only", "only")
     assert "how much cropland?" in seen["text"] and "231.4567" in seen["text"] and "… 5 more" in seen["text"] and '"geometry"' not in seen["text"]
+
+
+def test_find_place_then_buffer(client, monkeypatch):
+    """Find place: the best match of a name as a point (or its outline), usable by Buffer; nothing found → a clear error."""
+    from tests.helpers import run
+    from webapp import aoi_io
+    hit = {"name": "M Chinnaswamy Stadium, Bengaluru", "type": "stadium", "lat": 12.9788127, "lon": 77.5995775, "bbox": [77.598, 12.977, 77.601, 12.980],
+           "boundary": {"type": "Polygon", "coordinates": [[[77.5985, 12.9791], [77.5993, 12.9779], [77.6006, 12.9783], [77.5999, 12.9798], [77.5985, 12.9791]]]}}
+    monkeypatch.setattr(aoi_io, "geocode", lambda q, limit=6: [hit] if "chinnaswamy" in q.lower() else [])
+    pt = run(client, "/api/vector/place", {"place": "M. Chinnaswamy Stadium, Bengaluru"})
+    fc = ok(client.get("/api/vector/read", params={"path": pt["path"]}))
+    assert fc["features"][0]["geometry"] == {"type": "Point", "coordinates": [77.5995775, 12.9788127]} and fc["features"][0]["properties"]["type"] == "stadium"
+    outline = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/place", {"place": "Chinnaswamy", "outline": True})["path"]}))
+    assert outline["features"][0]["geometry"]["type"] == "Polygon"
+    zone = ok(client.get("/api/vector/read", params={"path": run(client, "/api/vector/buffer", {"layer": pt["path"], "distance": 20000})["path"]}))
+    assert abs(_area_m2(zone["features"][0]["geometry"]) / (3.14159265 * 20000 ** 2) - 1) < 0.01   # a 20 km circle
+    j = ok(client.post("/api/vector/place", json={"place": "Nowhere-at-all"}))
+    while (s := ok(client.get(f"/api/jobs/{j['id']}")))["status"] not in ("done", "error"):
+        pass
+    assert s["status"] == "error" and "No place called" in s["error"]

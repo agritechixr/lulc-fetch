@@ -23,6 +23,10 @@ tools. Everything below is new since 0.0.2.
   2nd-order polynomial or thin-plate spline, with each point's residual and the RMSE.
 - **Style by attribute**: colour a vector layer by a field's values (categories) or by classes of a number field
   (quantiles, equal intervals, natural breaks) with colour ramps, and a legend in Contents.
+- **Find place** for the Assistant and Workflows (`/api/vector/place`): a place name (a stadium, school, town,
+  address) becomes a point layer, or its outline, from OpenStreetMap, so "a 20 km buffer around M. Chinnaswamy
+  Stadium" finds the stadium first instead of guessing coordinates or using the map view. Plans leave out inputs no
+  step uses.
 - **Single colour…** in a vector layer's right-click menu (one colour for every point, line or polygon). Style by
   attribute no longer suggests id fields such as osm_id, and warns when every feature would get its own colour.
 - Contents shows the normal arrow over layers (not the map's pan hand); the closed hand only while a layer is dragged.

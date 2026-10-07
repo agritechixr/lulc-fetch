@@ -1,4 +1,4 @@
-"""Vector tools (Analysis ▸ Tools ▸ Vector): buffer, select by attribute, overlay (intersection, union, difference,
+"""Vector tools (Analysis ▸ Tools ▸ Vector): find a place by name, buffer, select by attribute, overlay (intersection, union, difference,
 symmetric difference, clip) and dissolve. Each runs as a background job (progress, History, Workflows, the
 Assistant) and writes its result as a GeoJSON file in analysis/. A layer is given as GeoJSON, or as a workspace file
 (GeoJSON or a zipped shapefile). Logic in lulc_fetch/geoprocess.py."""
@@ -48,6 +48,31 @@ def vector_buffer(req: BufferRequest):
     from lulc_fetch import geoprocess
     return jobs.submit("vbuffer", f"Buffer {req.distance:g} m", {"distance": req.distance},
                        lambda job: _write(geoprocess.buffer(_layer(req.layer), req.distance, segments=req.segments, dissolve=req.dissolve), req.name)).to_dict()
+
+
+class PlaceRequest(BaseModel):
+    place: str = Field(min_length=2, max_length=300, description="a place name or address, e.g. 'M. Chinnaswamy Stadium, Bengaluru'")
+    outline: bool = Field(False, description="the place's outline (a polygon) when OpenStreetMap has one, else its point")
+    name: str = Field("", max_length=80)
+
+
+def find_place(place: str, outline: bool = False) -> dict:
+    """The best OpenStreetMap (Nominatim) match of a place name, as a one-feature layer: its point, or its outline."""
+    from ..aoi_io import geocode
+    hits = geocode(place, limit=1)
+    if not hits:
+        raise ValueError(f"No place called “{place}” was found → add the city or country, or check the spelling")
+    h = hits[0]
+    geom = h["boundary"] if outline and h.get("boundary") else {"type": "Point", "coordinates": [h["lon"], h["lat"]]}
+    props = {"place": place, "found": h["name"], "type": h.get("type"), "lat": round(h["lat"], 7), "lon": round(h["lon"], 7)}
+    return {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": props, "geometry": geom}]}
+
+
+@router.post("/api/vector/place")
+def vector_place(req: PlaceRequest):
+    """Find a place by name (OpenStreetMap search; needs the internet): a point layer, or the place's outline."""
+    return jobs.submit("vplace", f"Find place: {req.place[:60]}", {"place": req.place},
+                       lambda job: _write(find_place(req.place, req.outline), req.name or req.place)).to_dict()
 
 
 class QueryRequest(BaseModel):
