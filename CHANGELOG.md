@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Assistant** (Analysis ▸ Tools ▸ Assistant): say what you want done; it plans a workflow of the app's tools from your
+  Contents and the map view, you check the plan, then run it (in Workflows) or review and save it. A free local model
+  through Ollama (one-click download of the recommended model), or Claude with your own Anthropic key (Credentials).
+  Plans are checked against the tools' settings and sent back to the model to fix. Server: `/api/assistant/*`.
 - **Workflows** (Analysis ▸ Tools ▸ Workflows, or History ▸ Workflows): make a chain of tools from runs in the History
   (their files, areas and years become inputs; a step uses an earlier step's result where the runs did), then run it on
   other data, once or for each layer or polygon (batch); edit, export and import workflows. Server: `/api/workflows`.

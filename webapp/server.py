@@ -39,6 +39,7 @@ from .routes import (
     training_data,
     unsupervised,
     workflows,
+    assistant,
 )
 from .routes import jobs as job_routes
 
@@ -218,6 +219,12 @@ def test_credentials(provider: str):
             return {"ok": True, "message": "Logged in to USGS EarthExplorer (M2M API)"}
         if provider == "planetary_computer":
             return {"ok": True, "message": "Saved (Planetary Computer works without a key; nothing to test)"}
+        if provider == "anthropic":   # looks the model up: no tokens are used
+            import anthropic
+
+            from .assistant import CLAUDE_MODEL
+            m = anthropic.Anthropic(api_key=credentials.get_all("anthropic")["api_key"], max_retries=1, timeout=20).models.retrieve(CLAUDE_MODEL)
+            return {"ok": True, "message": f"The key works: {m.display_name} is available to the Assistant"}
     except Exception as e:
         return {"ok": False, "message": str(e)[:300]}
     raise HTTPException(404, "Unknown provider")
@@ -227,7 +234,7 @@ def test_credentials(provider: str):
 # (shared helpers in webapp/core.py). Included in this order, the order the endpoints had in one file.
 
 for _r in (find_imagery, job_routes, rasters, safe_products, pca, tables, pictures, classical_ml, raster_ml, training_data,
-           deep_learning, history, embeddings, agri, library, interpolation, forecast, unsupervised, stack, export, projects, workflows):
+           deep_learning, history, embeddings, agri, library, interpolation, forecast, unsupervised, stack, export, projects, workflows, assistant):
     app.include_router(_r.router)
 
 

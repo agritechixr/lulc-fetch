@@ -375,10 +375,16 @@
           openUnsaved({ name: wf.name || f.name, description: wf.description || "", inputs: wf.inputs || [], steps: wf.steps }, "Imported: check its inputs (files are looked for in this workspace), then save it");
         } catch (x) { toast(`Couldn't import it: ${x.message}`, true); }
       };
+      // the Assistant hands its plans here: shown (not saved) to review, edit, save or run
+      LF.wf = {
+        show(wf, note) { openUnsaved(JSON.parse(JSON.stringify(wf)), note); },
+        async showAndRun(wf) { openUnsaved(JSON.parse(JSON.stringify(wf))); await run(); },
+      };
       return {
         async open(arg) {
           await loadList();
-          if (arg?.fromHistory?.length) fromHistory(arg.fromHistory);
+          if (arg?.plan) { openUnsaved(JSON.parse(JSON.stringify(arg.plan.workflow)), arg.plan.note); if (arg.plan.run) run(); }
+          else if (arg?.fromHistory?.length) fromHistory(arg.fromHistory);
           else if (st.wf) renderInputs();   // Contents may have changed
         },
         layersChanged() { if (st.wf && !st.running) renderInputs(); },

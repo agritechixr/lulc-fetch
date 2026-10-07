@@ -38,6 +38,14 @@ PROVIDERS = {
         "fields": {"username": "ERS username", "token": "M2M application token"},
         "secret": {"token"},
     },
+    "anthropic": {
+        "title": "Anthropic (Claude) — optional, for the Assistant",
+        "help": "Not required: the Assistant works with a free local model. With your own Anthropic API key it can plan with "
+                "Claude instead (paid per use by you, to Anthropic).",
+        "signup": "https://console.anthropic.com/",
+        "fields": {"api_key": "API key"},
+        "secret": {"api_key"},
+    },
     "planetary_computer": {
         "title": "Microsoft Planetary Computer (optional)",
         "help": "Not required. A subscription key only raises rate limits.",

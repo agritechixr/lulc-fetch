@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = ["fastapi", "uvicorn[standard]", "python-multipart", "keyring", "scikit-learn", "pyarrow", "joblib", "xgboost", "lightgbm", "openpyxl", "pandas"]
+web = ["fastapi", "uvicorn[standard]", "python-multipart", "keyring", "anthropic", "scikit-learn", "pyarrow", "joblib", "xgboost", "lightgbm", "openpyxl", "pandas"]
 # deep-learning tools (optional; the app can also install these itself)
 dl = ["torch", "torchvision", "segmentation-models-pytorch"]
 yolo = ["torch", "torchvision", "ultralytics"]   # AGPL-3.0: optional, never bundled

@@ -113,7 +113,7 @@ def test_tool_files_register_themselves(client):
         ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
         if "LF.tool(" in js.text:
             assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
-    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows"])
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant"])
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200
@@ -296,3 +296,50 @@ def test_workflow_refuses_housekeeping_and_bad_links(client):
     assert client.put("/api/workflows/new", json={"workflow": loop}).status_code == 400
     missing = {"name": "x", "inputs": [], "steps": [{"endpoint": "/api/jobs", "body": {"path": {"$in": "in9"}}}]}
     assert client.put("/api/workflows/new", json={"workflow": missing}).status_code == 400
+
+
+def _assistant_ready(monkeypatch, answers):
+    """The Assistant with a stand-in local model that gives these answers in turn (and records what it was told)."""
+    from webapp import assistant
+    seen = []
+    monkeypatch.setattr(assistant, "status", lambda: {"provider": "ollama", "model": "test-model", "ready": True})
+    monkeypatch.setattr(assistant, "_ask_ollama", lambda model, system, msgs: (seen.append(msgs[-1]["content"]), answers.pop(0))[1])
+    return seen
+
+
+def test_assistant_plans_a_checked_workflow_and_fixes_its_mistakes(client, monkeypatch):
+    import json as _json
+    area = {"type": "Polygon", "coordinates": [[[77.4, 12.9], [77.5, 12.9], [77.5, 13.0], [77.4, 12.9]]]}
+    bad = {"plan": "NDVI", "questions": [], "workflow": {"name": "NDVI", "inputs": [{"id": "in1", "label": "Image", "type": "file", "default": "uploads/x.tif"}],
+           "steps": [{"title": "NDVI", "endpoint": "/api/analyze/export", "body": {"path": {"$in": "in1"}, "colour": "red"}}]}}
+    good = {"plan": "NDVI inside the area, then a table.", "questions": [], "workflow": {"name": "NDVI table",
+            "inputs": [{"id": "in1", "label": "Image", "type": "file", "default": "uploads/x.tif"}, {"id": "in2", "label": "Area", "type": "area", "default": area}],
+            "steps": [{"title": "NDVI", "endpoint": "/api/analyze/export", "body": {"path": {"$in": "in1"}, "band_map": {"B04": 3, "B08": 4}, "indices": ["NDVI"], "clip": {"$in": "in2"}}},
+                      {"title": "Table", "endpoint": "/api/tables/from-raster", "body": {"path": {"$step": 0, "ext": ".tif", "nth": 0}}}]}}
+    seen = _assistant_ready(monkeypatch, [_json.dumps(bad), _json.dumps(good)])
+    r = ok(client.post("/api/assistant/plan", json={"messages": [{"role": "user", "content": "NDVI table"}],
+                                                  "context": {"layers": [{"name": "X", "type": "raster", "path": "uploads/x.tif"}]}}))
+    assert r["fixes"] == 1 and r["problems"] == []
+    assert "band_map" in seen[-1] and "colour" in seen[-1]      # the problems went back to the model
+    assert [s["endpoint"] for s in r["workflow"]["steps"]] == ["/api/analyze/export", "/api/tables/from-raster"]
+    assert {i["type"] for i in r["workflow"]["inputs"]} == {"file", "area"}
+
+
+def test_assistant_flags_invented_files_and_wrong_input_kinds(client, monkeypatch):
+    import json as _json
+    wrong = {"plan": "x", "questions": [], "workflow": {"name": "x", "inputs": [
+        {"id": "in1", "label": "Area", "type": "area", "default": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}},
+        {"id": "in2", "label": "Map", "type": "file", "default": "uploads/made_up.tif"}],
+        "steps": [{"title": "s", "endpoint": "/api/tables/from-raster", "body": {"path": {"$in": "in1"}}}]}}
+    _assistant_ready(monkeypatch, [_json.dumps(wrong)] * 3)
+    r = ok(client.post("/api/assistant/plan", json={"messages": [{"role": "user", "content": "x"}], "context": {"layers": []}}))
+    text = " ".join(r["problems"])
+    assert "made_up.tif" in text and "not the area in1" in text and r["fixes"] == 2
+
+
+def test_assistant_needs_setting_up_first(client, monkeypatch):
+    from webapp import assistant
+    monkeypatch.setattr(assistant, "status", lambda: {"provider": "ollama", "model": "m", "ready": False})
+    r = client.post("/api/assistant/plan", json={"messages": [{"role": "user", "content": "x"}]})
+    assert r.status_code == 400 and "isn't set up" in r.json()["detail"]
+    assert "/api/analyze/export" in ok(client.get("/api/assistant/catalog"))["text"]

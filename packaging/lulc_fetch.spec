@@ -19,7 +19,7 @@ hiddenimports = (collect_submodules("webapp") + collect_submodules("lulc_fetch")
                  + collect_submodules("keyring.backends") + ["multipart", "python_multipart", "openpyxl", "shapefile"])
 
 # packages with native libraries / data files / lazy imports that need everything collected
-for pkg in ("rasterio", "xgboost", "lightgbm", "sklearn", "pystac_client", "planetary_computer", "pystac", "shapely", "pyarrow"):
+for pkg in ("rasterio", "xgboost", "lightgbm", "sklearn", "pystac_client", "planetary_computer", "pystac", "shapely", "pyarrow", "anthropic"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

@@ -28,7 +28,7 @@ DATA_PATH = re.compile(r"^(uploads|downloads|tables|models|imports|exports|analy
 AREA_KEYS = ("clip", "aoi", "geometry", "area")
 VALUE_KEYS = ("year", "years", "date", "start", "end", "start_date", "end_date")
 # a workflow only runs tools: never the app's own housekeeping (projects, files, credentials, history, add-ons)
-BLOCKED = re.compile(r"^/api/(project|fs|files|history|errors|credentials|cache|dl/install|yolo/install|workflows)", re.I)
+BLOCKED = re.compile(r"^/api/(project|fs|files|history|errors|credentials|cache|dl/install|yolo/install|workflows|assistant)", re.I)
 RASTER = (".tif", ".tiff", ".vrt", ".img", ".jp2")
 TABLE = (".csv", ".tsv", ".parquet", ".xlsx", ".xls")
 VECTOR = (".geojson", ".json", ".zip", ".shp", ".kml", ".kmz", ".gpkg")
