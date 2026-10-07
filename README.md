@@ -2,7 +2,9 @@
 
 A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your own computer as a **desktop-GIS-style web app** (layers, tools, map), with a **command-line tool** for downloads.
 
-⬇️ **[Download for Mac or Windows](#download-mac-and-windows-no-installation-of-python-needed)**: ready-to-run apps, no Python needed.
+⬇️ **Download the latest version (0.0.3 beta):** [Mac (Apple Silicon)](https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-macOS-AppleSilicon.dmg) · [Windows](https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-Windows.zip): ready-to-run apps, no Python needed ([install steps](#download-mac-and-windows-no-installation-of-python-needed)).
+
+🌐 **Website:** [agritechixr.github.io/lulc-fetch](https://agritechixr.github.io/lulc-fetch/) · **What's new:** [3D maps, the Assistant and the GIS tools](https://agritechixr.github.io/lulc-fetch/gis.html)
 
 📖 **Full explanation of every tool: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)**
 
@@ -26,16 +28,24 @@ A land-use / land-cover (LULC) toolkit for free satellite data. It runs on your 
 | **Classical ML: supervised** | Train 16 models (Random Forest, XGBoost, LightGBM, SVM, Maximum Likelihood…) for classification or regression: choose the target and each column's role and type (numeric / categorical), preprocess (missing values, outlier clipping, skew transforms, scaling, removing redundant columns), tune hyperparameters with cross-validation, compare all models on a leaderboard, get honest spatially independent accuracy and an **HTML evaluation report** (confusion matrices, ROC / PR curves, residual plots…), then **classify an image** into a land-cover map |
 | **Classical ML: unsupervised** | **Clustering** with K-means, hierarchical (dendrogram), DBSCAN, HDBSCAN, spectral clustering and Gaussian mixture: automatic choice of k, quality scores, cluster profiles, comparison with known labels, and **unsupervised classification of images**. **t-SNE maps** to see how classes or clusters separate. |
 | **Export data** | Save any layer as GeoTIFF, PNG, Shapefile, GeoJSON or KML, for the whole layer or just an area |
-| **Embeddings menu**: Download, Train, Classify, Convert and Explore embeddings | Free AI embeddings for any area, no account: **Google AlphaEarth** (64-D) and **TESSERA** (128-D), 10 m, 2017–2025. See which years exist for your area, download them as a GeoTIFF (only the needed parts are read), get a colour view (PCA), **find places similar** to the ones you click, then classify or cluster them. **Train embedding model** trains one of eleven light segmentation models (TinyUNet, ENet, DABNet, LEDNet…, 0.15–0.95 M parameters, all bands, 256 × 256 patches) on your labels and maps the layer; **Classify with embedding model** maps other areas or years. **Convert embeddings** turns 8-bit (AlphaEarth coding or scaled per band) into 16 / 32-bit float and back, showing how much the values change |
+| **Analysis ▸ Embeddings**: Download, Train, Classify, Convert and Explore embeddings | Free AI embeddings for any area, no account: **Google AlphaEarth** (64-D) and **TESSERA** (128-D), 10 m, 2017–2025. See which years exist for your area, download them as a GeoTIFF (only the needed parts are read), get a colour view (PCA), **find places similar** to the ones you click, then classify or cluster them. **Train embedding model** trains one of eleven light segmentation models (TinyUNet, ENet, DABNet, LEDNet…, 0.15–0.95 M parameters, all bands, 256 × 256 patches) on your labels and maps the layer; **Classify with embedding model** maps other areas or years. **Convert embeddings** turns 8-bit (AlphaEarth coding or scaled per band) into 16 / 32-bit float and back, showing how much the values change |
 | **Insert ▸ Library**: ready-made GIS data | India's states, districts, sub-districts, villages, constituencies, city wards, highways, railways… (307 layers) and anything else uploaded to the library on Hugging Face: search and add to the map, downloaded once |
 | **Interpolation**: IDW, kriging, spline, natural neighbour, nearest neighbour, trend surface, TIN | A surface from values at points (air-quality stations, rain gauges, soil samples), cut to any boundary, with a leave-one-out comparison of the methods and India's AQI colours |
 
-**Agri menu** (from the Multi-Crop Disease Decision Support System):
+**Analysis ▸ Agri** (from the Multi-Crop Disease Decision Support System):
 
 | Tool | What it does |
 |---|---|
 | **Diagnose crop disease** | Leaf photos → the crop (two ConvNeXt crop detectors, 42 crops) → its disease (one ConvNeXt model per crop, top 3 with confidence; 91–100 % on test photos). Add single photos or a whole survey folder. Unclear or non-leaf photos get "retake" instead of a guess. A results table, and **geotagged photos become a disease map** (point layer). Needs the deep-learning add-on; the models ([Hugging Face](https://huggingface.co/ixrbhii/multicrop-disease-models)) download by themselves the first time, about 95 MB per crop. Each crop's model is also its own timm repository ([collection](https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993)). |
 | **Crop disease guide** | About 9,000 expert questions and answers: symptoms, treatment, spray schedules and pests per crop and disease, searchable; offline. Diagnosis results link straight to their disease. Also a dataset: [ixrbhii/crop-disease-qa](https://huggingface.co/datasets/ixrbhii/crop-disease-qa). |
+
+**Analysis ▸ Forecast:**
+
+| Tool | What it does |
+|---|---|
+| **Get AQI & weather data** | Hourly air quality (PM2.5, PM10, NO2, SO2, CO, O3 and the Indian AQI) and weather (temperature, humidity, wind, rain, cloud, sunshine) at your points: up to 92 past days plus the weather forecast for the next days. Free, from Open-Meteo (CAMS and ECMWF models). |
+| **Train forecasting model** | Forecast the next hours, days or months of a value in a table (AQI per station, rainfall, humidity, sales…) from its past, the calendar, nearby stations and inputs such as weather: LightGBM, XGBoost, Random Forest, linear and more, **backtested** against simple baselines (last value, same time one cycle ago) with a warning when the model isn't better. |
+| **Forecast with a model** | Run a saved model on newer data (e.g. today's AQI and the weather forecast): the next hours / days / months with an uncertainty band, as a table, a chart and points on the map. |
 
 **GIS tools & Assistant** (new in 0.0.3; Analysis ▸ Tools, with screenshots on the [What's new page](https://agritechixr.github.io/lulc-fetch/gis.html)):
 
@@ -79,8 +89,8 @@ Across the app:
 
 | Your computer | Click this file |
 |---|---|
-| Mac with Apple Silicon (M1, M2, M3, M4), macOS 14 Sonoma or newer | **LULC-Fetch-macOS-AppleSilicon.dmg** |
-| Windows 10 / 11 (64-bit) | **LULC-Fetch-Windows.zip** |
+| Mac with Apple Silicon (M1, M2, M3, M4), macOS 14 Sonoma or newer | **[LULC-Fetch-macOS-AppleSilicon.dmg](https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-macOS-AppleSilicon.dmg)** |
+| Windows 10 / 11 (64-bit) | **[LULC-Fetch-Windows.zip](https://github.com/agritechixr/lulc-fetch/releases/latest/download/LULC-Fetch-Windows.zip)** |
 
 Not sure which Mac you have? Apple menu ▸ **About This Mac**: "Chip: Apple M…" means Apple Silicon. Macs with an Intel processor aren't supported by the ready-made app; they can [run from source](#run-from-source-for-development).
 
@@ -100,7 +110,7 @@ The files are large (about 170–200 MB), because Python and all libraries are i
 3. Optional: right-click `LULC Fetch.exe` ▸ *Show more options* ▸ **Send to ▸ Desktop (create shortcut)**.
 
 **Using the app**
-- LULC Fetch opens in your web browser, and a small window lets you reopen it, open your data folder, or quit. Closing that window stops the app.
+- LULC Fetch opens in your web browser at **http://127.0.0.1:8765** (another free port if that one is busy; it only runs on your computer). If the page is closed, click **Open LULC Fetch** in the small window or open that address. The small window lets you reopen it, open your data folder, or quit. Closing that window stops the app.
 - Everything runs on your own computer. The internet is only used to find and download satellite images, for background maps, for address search, and to download a crop's disease model from Hugging Face the first time it's needed. All analysis and machine learning work offline.
 - Your files are kept in **Documents ▸ LULC Fetch**. Put Copernicus `.SAFE` products in its `data` folder. Projects can live in any folder.
 - **Deep-learning tools:** the first time you open one, it offers to install the free **PyTorch add-on** (about 0.8 GB on Mac; on Windows about 1.1 GB for CPU only or 3.5 GB with NVIDIA GPU support). It is downloaded once into the data folder; everything else works without it.
