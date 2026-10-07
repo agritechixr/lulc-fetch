@@ -23,6 +23,8 @@ tools. Everything below is new since 0.0.2.
   2nd-order polynomial or thin-plate spline, with each point's residual and the RMSE.
 - **Style by attribute**: colour a vector layer by a field's values (categories) or by classes of a number field
   (quantiles, equal intervals, natural breaks) with colour ramps, and a legend in Contents.
+- **Single colour…** in a vector layer's right-click menu (one colour for every point, line or polygon). Style by
+  attribute no longer suggests id fields such as osm_id, and warns when every feature would get its own colour.
 - **Scheduled workflows**: a workflow runs by itself every few hours, daily or weekly while the app is open (a missed
   run runs once when it opens); dates can move with the run day; an alert when a result value crosses a limit.
 - **Zonal statistics** of class maps names its fields after the classes (pct_tree_cover, majority_class).

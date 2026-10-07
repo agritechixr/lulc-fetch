@@ -11,6 +11,7 @@
       l.type !== "image" ? ["Metadata…", () => openMetadata(l)] : null,
       l.type === "raster" && !l.derived ? ["Compute indices on this layer", () => analyzeLayer(l)] : null,
       l.type === "vector" ? ["Open attribute table", () => openAttr(l)] : null,
+      l.type === "vector" ? ["Single colour…", () => { openProps(l); $("#lp-sym").value = "single"; syncSymUi(); }] : null,
       l.type === "vector" ? ["Style by attribute…", () => { openProps(l); $("#lp-sym").value = l.symbology?.mode || "categories"; syncSymUi(); }] : null,
       isPoly && l.id !== "aoi" ? ["Use as area of interest", () => useAsAoi(l)] : null,
       is3D() && l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type)) ? [l.extrude ? "3D: change the extrusion…" : "3D: extrude by an attribute…", () => openExtrude(l)] : null,

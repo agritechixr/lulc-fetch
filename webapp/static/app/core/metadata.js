@@ -101,9 +101,13 @@
       $("#lp-field").innerHTML = keys.map((k) => `<option>${esc(k)}</option>`).join("") || `<option value="">(no fields)</option>`;
       $("#lp-sym").value = l.symbology?.mode || "single";
       if (l.symbology?.field && keys.includes(l.symbology.field)) $("#lp-field").value = l.symbology.field;
-      else {   // a sensible first field: a class / type text field, else the first number
-        const sample = l.geojson.features.slice(0, 200).map((f) => f.properties || {});
-        $("#lp-field").value = keys.find((k) => /^(class|type|landuse|building|highway|crop|name|majority_class)$/i.test(k)) || keys.find((k) => sample.some((p) => typeof p[k] === "number")) || keys[0] || "";
+      else {   // a sensible first field: a class / type field with a few values (not an id, where every feature differs), else the first number
+        const sample = l.geojson.features.slice(0, 500).map((f) => f.properties || {});
+        const distinct = (k) => new Set(sample.map((p) => p[k]).filter((v) => v != null && v !== "")).size;
+        const idLike = (k) => /(^|_)(id|fid|uuid|gid|objectid)$/i.test(k) || distinct(k) === sample.length;
+        const groupy = keys.filter((k) => !idLike(k) && distinct(k) >= 2 && distinct(k) <= 30);
+        $("#lp-field").value = groupy.find((k) => /^(class|type|landuse|building|highway|crop|amenity|majority_class)$/i.test(k)) || groupy[0]
+          || keys.find((k) => !idLike(k) && sample.some((p) => typeof p[k] === "number")) || keys.find((k) => !idLike(k)) || keys[0] || "";
       }
       $("#lp-classes").value = l.symbology?.classes || 5;
       $("#lp-method").value = l.symbology?.method || "quantile";
@@ -125,7 +129,9 @@
     if (mode === "single" || !l?.geojson || !$("#lp-field").value) { $("#lp-sym-preview").innerHTML = ""; return null; }
     try {
       const sym = makeSymbology(l, mode, $("#lp-field").value, { ramp: $("#lp-ramp").value, classes: +$("#lp-classes").value, method: $("#lp-method").value });
-      $("#lp-sym-preview").innerHTML = sym.legend.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.label)}</span><span>${c.n}</span></div>`).join("");
+      const nf = l.geojson.features.length, nv = mode === "categories" ? new Set(l.geojson.features.map((f) => String(f.properties?.[sym.field] ?? ""))).size : 0;
+      const warn = mode === "categories" && nf > 5 && nv === nf ? `<p class="hint" style="color:var(--warn);margin:0 0 6px">Every feature has its own “${esc(sym.field)}”, so each gets its own colour. Pick a field that groups features (a type or class), or Style ▸ Single colour for one colour for the whole layer.</p>` : "";
+      $("#lp-sym-preview").innerHTML = warn + sym.legend.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.label)}</span><span>${c.n}</span></div>`).join("");
       return sym;
     } catch (e) { $("#lp-sym-preview").innerHTML = `<p class="hint" style="color:var(--warn)">${esc(e.message)}</p>`; return null; }
   }
