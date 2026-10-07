@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GIS tools &amp; Assistant · LULC Fetch</title>
+<meta name="description" content="What's new in LULC Fetch: a ribbon like a desktop GIS, 2D and 3D maps, an AI Assistant that plans workflows, vector and spatial analysis, terrain, conversion between raster and vector, image enhancement and resampling.">
+<meta property="og:title" content="GIS tools &amp; Assistant · LULC Fetch">
+<meta property="og:description" content="3D maps, an AI Assistant that builds workflows from a sentence, 25 new GIS tools: vector, spatial analysis, terrain, raster ↔ vector conversion, enhancement and resampling.">
+<meta property="og:image" content="assets/map3d.jpg">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<nav id="top">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links" id="nav-links">
+      <a href="gis.html" class="on" aria-current="page">What's new</a><a href="tools.html">All tools</a><a href="mapping.html">Land cover &amp; AI</a><a href="agriculture.html">Agriculture</a><a href="air.html">Air &amp; rain</a><a href="data.html">Open data</a><a href="demos.html">Demos</a><a href="faq.html">FAQ</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+    </div>
+    <a class="btn small primary" href="index.html#download">Download</a>
+    <button class="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</nav>
+
+<section id="tour">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">What's new · coming in the next version</span>
+      <h1 class="ptitle">A full GIS, and an Assistant that runs it for you</h1>
+      <p class="lead">A ribbon like a desktop GIS, 2D and 3D maps, an AI Assistant that turns a sentence into a workflow, and 25 new tools for vectors, terrain, conversion and image enhancement. Every screenshot is the real app on real data: Sentinel-2 and the Copernicus 30 m DEM over Nandi Hills, and a land-cover map of north Bengaluru.</p>
+      <p class="cta-note">These features are in the next release. Until it is out, <a href="https://github.com/agritechixr/lulc-fetch#run-from-source-for-development">run from source</a> (the <a href="https://github.com/agritechixr/lulc-fetch/tree/dev">dev branch</a>) to try them.</p>
+      <figure style="margin:28px auto 0;max-width:1080px"><img width="1855" height="132" src="assets/ribbon-gis.jpg" alt="The Analysis ribbon's new groups: Vector, Spatial analysis, Raster & terrain and Conversion" style="border:1px solid var(--border);border-radius:10px;width:100%;height:auto"><figcaption class="cta-note">The new groups on the Analysis ribbon</figcaption></figure>
+      <div class="jump"><a href="#maps">Ribbon, 2D &amp; 3D maps</a><a href="#assistant">Assistant</a><a href="#gis-tools">Vector &amp; spatial analysis</a><a href="#terrain">Terrain</a><a href="#conversion">Conversion</a><a href="#enhance">Enhancement &amp; resampling</a><a href="#everyday">Everyday tools</a></div>
+    </div>
+
+    <div class="show" id="maps">
+      <div class="txt">
+        <span class="tag">Ribbon · 2D &amp; 3D maps</span>
+        <h3>Laid out like a desktop GIS, now in 3D too</h3>
+        <p>A Word-style ribbon (File, Insert, Analysis, History, View, Help) and as many 2D and 3D maps as you like, each with its own Contents. Copy layers between maps with Ctrl+C / Ctrl+V.</p>
+        <ul>
+          <li>DEMs become surfaces; imagery and maps are draped on them</li>
+          <li>AutoCAD-style navigation: ViewCube (faces, edges and corners), orbit, pan, zoom, UCS icon and named views</li>
+          <li>Bookmarks of map views, kept with a thumbnail</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/map3d.jpg" alt="3D map of Nandi Hills: the Copernicus DEM as a surface with a Sentinel-2 image draped on it, and the ViewCube" loading="lazy">
+    </div>
+
+    <div class="show rev" id="assistant">
+      <div class="txt">
+        <span class="tag">Assistant</span>
+        <h3>Say what you want; it plans the workflow</h3>
+        <p>Type a request such as <i>“a hillshade and contours every 50 m of the DEM, and the land cover as polygons”</i>. The Assistant looks at your layers, plans the steps with the app's own tools, checks the plan, and shows it to you before anything runs.</p>
+        <ul>
+          <li>Free and private: a local model through Ollama (qwen2.5 7B, one-click download), or Claude with your own key</li>
+          <li>Runs step by step, checks each result, fixes failed steps or re-plans, and remembers pitfalls</li>
+          <li>Plans become Workflows you can run again on new data, also for every layer or polygon</li>
+          <li>Built after the GISclaw and OpenClaw research on GIS agents</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/assistant.jpg" alt="The Assistant panel with a three-step plan made by the local qwen2.5 model: hillshade, contours every 50 m, land cover to polygons" loading="lazy">
+    </div>
+
+    <div class="show" id="gis-tools">
+      <div class="txt">
+        <span class="tag">Vector &amp; spatial analysis</span>
+        <h3>The GIS toolbox, on the Analysis ribbon</h3>
+        <p>Everyday geoprocessing on shapefiles, GeoJSON and KML, measured in metres on the ground. Here: a 2 km grid (fishnet) over north Bengaluru, and the share of each land-cover class in every cell (zonal statistics). Every tool runs as a background job, is kept in the History, and can be a Workflow step.</p>
+        <ul>
+          <li><b>Vector:</b> buffer, select by attribute (SQL-like), overlay (intersection, union, difference, symmetric difference, clip), dissolve</li>
+          <li><b>Spatial analysis:</b> zonal statistics, select by location, spatial join, count points in polygons, calculate geometry, join a table</li>
+          <li><b>Geometry tools:</b> centroids, convex hull, simplify, merge, multipart to single, fishnet grid, random points</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/zonal.jpg" alt="A 2 km grid over north Bengaluru with the percentage of each land-cover class per cell from zonal statistics, in the attribute table" loading="lazy">
+    </div>
+
+    <div class="show rev" id="terrain">
+      <div class="txt">
+        <span class="tag">Raster &amp; terrain</span>
+        <h3>Terrain, contours, reclassify, change</h3>
+        <p>From a DEM to slope, aspect and a shaded relief, and contour lines every few metres. Pixel sizes are worked out in metres, also for DEMs in degrees.</p>
+        <ul>
+          <li>Reclassify ranges into named classes (e.g. NDVI → bare, sparse, dense)</li>
+          <li>Change detection: the difference between two dates, or land-cover from → to with the area of every change</li>
+          <li>Clip or mask a raster by polygons</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/terrain.jpg" alt="Hillshade of Nandi Hills from the Copernicus 30 m DEM with contour lines every 50 m" loading="lazy">
+    </div>
+
+    <div class="show" id="conversion">
+      <div class="txt">
+        <span class="tag">Conversion</span>
+        <h3>Raster ↔ vector, and every geometry type</h3>
+        <p>Turn a classified map into polygons with their class and area, ready for reports and GIS. Here 4,501 land-cover polygons, small patches merged away first.</p>
+        <ul>
+          <li><b>Raster to polygon:</b> minimum area, smoothing, chosen classes, one polygon per class</li>
+          <li><b>Raster to polyline:</b> class boundaries, or centrelines of roads, rivers and canals</li>
+          <li><b>Raster to point</b> with each band's value; <b>Vector to raster</b>: values, named classes, presence or counts, on another image's grid for training labels</li>
+          <li><b>Convert features:</b> polygons ↔ lines, vertices to points, GPS points to tracks, points every n metres, segments, bounding boxes</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/convert.jpg" alt="Land-cover raster of north Bengaluru converted to polygons, with the attribute table showing class and area in hectares" loading="lazy">
+    </div>
+
+    <div class="show rev" id="enhance">
+      <div class="txt">
+        <span class="tag">Enhancement &amp; resampling</span>
+        <h3>Better pictures for computer vision</h3>
+        <p>Enhance an image before detection, segmentation or embeddings, and compare with the original with Swipe. Left: Sentinel-2 as downloaded; right: stretch, CLAHE and sharpen.</p>
+        <ul>
+          <li>Contrast stretch, histogram equalisation, CLAHE, gamma, median / gaussian denoise, unsharp sharpening, Sobel and Laplacian edges, texture (focal statistics), majority filter for class maps</li>
+          <li>Enlarge ×2 / ×4 with bicubic or Lanczos</li>
+          <li>Resample / reproject with nearest, bilinear, cubic (bicubic), cubic spline, Lanczos, average, mode, median and more, also as an option in downloads, Stack, Make training data, embeddings and change detection</li>
+        </ul>
+      </div>
+      <img width="1800" height="1100" class="shot" src="assets/enhance.jpg" alt="Swipe comparison of a Sentinel-2 image of Nandi Hills: original on the left, enhanced with CLAHE and sharpening on the right" loading="lazy">
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="everyday">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">Everyday tools</span>
+      <h2>Small things that save time</h2>
+    </div>
+    <div class="local">
+      <div class="card"><h3>Search everything</h3><p>Ctrl+K finds any command, tool, layer, map or bookmark. Undo / redo, Save and Save as in the quick access bar, which you can add any ribbon button to.</p></div>
+      <div class="card"><h3>Measure &amp; compare</h3><p>Distance, area and height, an elevation profile along a line, Swipe between two layers, and two maps side by side, linked.</p></div>
+      <div class="card"><h3>Export &amp; print</h3><p>The map view as an image or a print layout with a title, legend, scale and north arrow.</p></div>
+      <div class="card"><h3>Workflows</h3><p>Turn runs from the History into a chain of tools, then run it again on other data, once or for each layer or polygon.</p></div>
+      <div class="card"><h3>Safe work</h3><p>Autosave with crash recovery, notifications for finished jobs, clear error messages, and a short tour the first time.</p></div>
+      <div class="card"><h3>Still private</h3><p>Everything runs on your computer. The Assistant's local model needs no account; Claude is optional, with your own key.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="next">
+  <div class="wrap center">
+    <h2>Try it on your own data</h2>
+    <p class="lead">Free for Mac and Windows. No account, no cloud: everything runs on your computer.</p>
+    <div class="cta"><a class="btn primary" href="index.html#download">Download free</a><a class="btn" href="tools.html">All tools</a><a class="btn" href="https://github.com/agritechixr/lulc-fetch#run-from-source-for-development">Run from source</a></div>
+  </div>
+</section>
+
+<div class="lb" id="lb"><img alt=""></div>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="">LULC Fetch</a>
+    <div class="links2">
+      <a href="https://github.com/agritechixr/lulc-fetch">GitHub</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/USER_GUIDE.md">User guide</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/releases">Releases</a>
+      <a href="https://huggingface.co/collections/ixrbhii/multi-crop-disease-models-42-crops-6ac0a3291f2153fa716e2993">Crop disease models</a>
+      <a href="https://github.com/agritechixr/lulc-fetch/issues">Report a problem</a>
+    </div>
+    <span>Apache 2.0 licence</span>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>
