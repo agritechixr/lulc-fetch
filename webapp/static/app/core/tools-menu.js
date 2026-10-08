@@ -65,6 +65,7 @@
     errlog: '<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".9" fill="currentColor" stroke="none"/>',
     bookmark: '<path d="M6 3h12v18l-6-4.5L6 21z"/><path d="M12 7v6M9 10h6" opacity=".75"/>',
     history: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/>',
+    sar: '<path d="M4 20l5-9" /><circle cx="9.5" cy="10" r="1.6"/><path d="M12.5 7a5 5 0 0 1 4 4M14 4a8.5 8.5 0 0 1 6 6" /><path d="M3 20h18" opacity=".5"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor" stroke="none"/>',
     save: '<path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3"/><rect x="7" y="13" width="10" height="6" rx="1"/>',
     saveas: '<path d="M13 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l3 3v5"/><path d="M7 3v5h8V3"/><path d="M7 21v-6h5"/><path d="M15.5 21l.6-2.6 4.6-4.6a1.4 1.4 0 0 1 2 2l-4.6 4.6z"/>',
@@ -143,6 +144,9 @@
     forecast: { el: "#forecast-menu", label: "Also useful for forecasts", shortcuts: ["interp", "ml"],
                 subtitles: { interp: "Make a map from a forecast at stations (Put on the map, then a surface: kriging, IDW…)",
                              ml: "Predict a value from other columns without time (regression / classification on tables)" } },
+    sar: { el: "#sar-menu", label: "Also useful for SAR", shortcuts: ["rclip", "rmosaic", "rchange", "rasterml"],
+           subtitles: { rchange: "Before / after difference of two SAR dates (the SAR tools do it in dB with flood classes)",
+                        rasterml: "Classify crops or land cover from SAR features (VV, VH, ratio, RVI, texture) and labelled points" } },
     library: { el: "#library-menu", label: "", shortcuts: [] },
     online: { el: "#online-menu", label: "", shortcuts: [] },
   };
@@ -196,7 +200,7 @@
     wireEntries($("#tools-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });
     Object.entries(MENUS).forEach(([key, m]) => {
       const el = $(m.el);
-      el.innerHTML = ribbonGroup({ agri: "Agri", embed: "Embeddings", forecast: "Forecast", library: "Library", online: "Online & field" }[key] || key, TOOLS.filter((t) => t.menu === key)) +
+      el.innerHTML = ribbonGroup({ agri: "Agri", embed: "Embeddings", forecast: "Forecast", sar: "SAR", library: "Library", online: "Online & field" }[key] || key, TOOLS.filter((t) => t.menu === key)) +
         ribbonGroup(m.label, m.shortcuts.map((id) => TOOLS.find((t) => t.id === id)).filter(Boolean)
           .map((t) => m.subtitles?.[t.id] ? { ...t, subtitle: m.subtitles[t.id] } : t));
       wireEntries(el, "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });

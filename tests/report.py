@@ -44,6 +44,7 @@ TOOLS = {
     "test_crs": "Coordinate systems & georeferencing",
     "test_workflow_conditions": "Workflows: conditions, checks & diagram",
     "test_fuzzy": "Fuzzy & suitability",
+    "test_sar": "SAR (Sentinel-1)",
 }
 
 

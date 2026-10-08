@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/static/tools/library/library.css">
   <link rel="stylesheet" href="/static/tools/interpolation/interpolation.css">
   <link rel="stylesheet" href="/static/tools/forecast/forecast.css">
+  <link rel="stylesheet" href="/static/tools/sar/sar.css">
 </head>
 <body>
 <!-- ================= menu bar ================= -->
@@ -109,12 +110,14 @@
             <button type="button" class="an-cat" role="tab" data-an="agri" title="Crop disease diagnosis and guide"><span class="ic" data-ic="leaf"></span><b>Agri</b></button>
             <button type="button" class="an-cat" role="tab" data-an="embed" title="AlphaEarth &amp; TESSERA, light models"><span class="ic" data-ic="embed"></span><b>Embeddings</b></button>
             <button type="button" class="an-cat" role="tab" data-an="forecast" title="AQI &amp; weather data, forecasting models"><span class="ic" data-ic="forecast"></span><b>Forecast</b></button>
+            <button type="button" class="an-cat" role="tab" data-an="sar" title="Sentinel-1 radar: preprocessing workflow, speckle, features, time series &amp; flooding"><span class="ic" data-ic="sar"></span><b>SAR</b></button>
           </div></div><div class="rb-cap">Category</div></div>
         <div class="an-panels">
           <div class="an-panel" data-an-panel="tools" id="tools-menu" role="tabpanel"></div>
           <div class="an-panel" data-an-panel="agri" id="agri-menu" role="tabpanel"></div>
           <div class="an-panel" data-an-panel="embed" id="embed-menu" role="tabpanel"></div>
           <div class="an-panel" data-an-panel="forecast" id="forecast-menu" role="tabpanel"></div>
+          <div class="an-panel" data-an-panel="sar" id="sar-menu" role="tabpanel"></div>
         </div>
       </div>
     </div>
@@ -1698,6 +1701,7 @@
 <script src="/static/tools/convert/convert-tools.js"></script>
 <script src="/static/tools/analysis/analysis-tools.js"></script>
 <script src="/static/tools/analysis/fuzzy.js"></script>
+<script src="/static/tools/sar/sar.js"></script>
 <script src="/static/tools/workflows/workflows.js"></script>
 <script src="/static/tools/assistant/assistant.js"></script>
 <script src="/static/app.js"></script>

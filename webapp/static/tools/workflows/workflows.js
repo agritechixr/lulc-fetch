@@ -179,7 +179,7 @@
       const OPS = [["<", "is below"], ["<=", "is at most"], [">", "is above"], [">=", "is at least"], ["==", "equals"], ["!=", "is not"], ["drop", "falls by at least"], ["rise", "rises by at least"]];
       const WHATS = [["field", "a value of its result"], ["mean", "its mean"], ["min", "its minimum"], ["max", "its maximum"], ["empty_pct", "its % without data"], ["rows", "its number of rows"], ["features", "its number of features"]];
       const FIELD_HINTS = { "/api/jobs": ["cloud_pct", "valid_pct", "scenes"], "/api/raster/change": ["summary.mean_change", "summary.increased_pct", "summary.changed_pct", "summary.changed_ha"],
-        "/api/raster/burn": ["summary.burned_ha", "summary.burned_pct", "summary.mean_dnbr"], "/api/raster/mosaic": ["covered_pct", "area_km2"],
+        "/api/raster/burn": ["summary.burned_ha", "summary.burned_pct", "summary.mean_dnbr"], "/api/raster/mosaic": ["covered_pct", "area_km2"], "/api/sar/process": ["flood_ha", "mean_change_db"], "/api/sar/series": ["flood_ha", "mean_change_db"],
         "/api/vector/spatial-stats": ["I", "z", "p_permutation", "R", "p", "max_per_km2", "features"], "/api/agri/diagnose": ["counts.disease", "counts.healthy", "counts.retake"],
         "/api/assess/accuracy": ["overall_accuracy", "kappa"] };
       st.lastFields = {};
