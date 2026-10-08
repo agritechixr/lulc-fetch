@@ -438,6 +438,15 @@ body.no-contents .contents, body.no-tools .toolpanel { border: 0; }
 .wfd-elabel { fill: var(--muted); font: 10.5px system-ui, sans-serif; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
 .wfd-elabel.cond { fill: #b45309; }
 @media (max-width: 800px) { .wfd-body { grid-template-columns: 1fr; } .wfd-side { border-left: 0; border-top: 1px solid var(--border); } }
+/* fuzzy tools: the membership editor and its curve */
+.fz-fn { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; margin: 6px 0; }
+.fz-params { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 4px 8px; }
+.fz-params label { margin: 0; font-size: 12px; }
+.fz-curve { width: 100%; height: 96px; display: block; margin-top: 4px; }
+.fz-curve .ax { stroke: var(--border); stroke-width: 1; } .fz-curve .half { stroke: var(--border); stroke-dasharray: 3 3; }
+.fz-curve .cv { fill: none; stroke: var(--accent); stroke-width: 2.2; vector-effect: non-scaling-stroke; }
+.fz-curve .lb { fill: var(--muted); font-size: 8px; }
+.fz-row { border-bottom: 1px solid var(--border); padding: 6px 0 8px; margin-bottom: 6px; }
 .crs-chosen { font-size: 12.5px; margin-bottom: 6px; }
 .crs-list { display: grid; gap: 3px; max-height: 260px; overflow: auto; margin-top: 6px; }
 .crs-list .home-label { margin: 6px 0 2px; }

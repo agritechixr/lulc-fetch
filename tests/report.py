@@ -43,6 +43,7 @@ TOOLS = {
     "test_mosaic_burn_spatial": "Mosaic, burn severity & spatial statistics",
     "test_crs": "Coordinate systems & georeferencing",
     "test_workflow_conditions": "Workflows: conditions, checks & diagram",
+    "test_fuzzy": "Fuzzy & suitability",
 }
 
 

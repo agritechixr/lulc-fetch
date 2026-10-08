@@ -113,7 +113,7 @@ def test_tool_files_register_themselves(client):
         ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
         if "LF.tool(" in js.text:
             assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
-    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve", "vzonal", "vlocation", "vsjoin", "vgeometry", "vcount", "vtjoin", "rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "r2poly", "r2line", "r2point", "rasterize", "vconvert", "areastats", "accuracy", "rcalc", "timeseries", "georef", "vhelpers", "online", "field", "rmosaic", "rburn", "vstats"])
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve", "vzonal", "vlocation", "vsjoin", "vgeometry", "vcount", "vtjoin", "rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "r2poly", "r2line", "r2point", "rasterize", "vconvert", "areastats", "accuracy", "rcalc", "timeseries", "georef", "vhelpers", "online", "field", "rmosaic", "rburn", "vstats", "fmember", "foverlay", "fboundary", "fcmeans"])
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200
@@ -927,3 +927,21 @@ def test_find_place_then_buffer(client, monkeypatch):
     while (s := ok(client.get(f"/api/jobs/{j['id']}")))["status"] not in ("done", "error"):
         pass
     assert s["status"] == "error" and "No place called" in s["error"]
+
+
+def test_every_loaded_file_is_in_git():
+    """Every script, stylesheet and app part index.html loads is tracked by git: a file only on this disk (e.g. hidden by
+    a .gitignore rule) works here but is missing from a clone and from the apps built from it."""
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    if not shutil.which("git") or not (root / ".git").exists():
+        pytest.skip("not a git checkout")
+    html = (root / "webapp/static/index.html").read_text(encoding="utf-8")
+    files = {f"webapp/static/{p}" for p in re.findall(r'(?:src|href)="/static/([^"]+)"', html) if p != "app.js"}
+    files |= {f"webapp/static/app/{p}" for p in __import__("json").loads((root / "webapp/static/app/parts.json").read_text())["parts"]}
+    tracked = set(subprocess.run(["git", "ls-files", "--cached", "webapp/static"], cwd=root, capture_output=True, text=True).stdout.split())
+    missing = sorted(f for f in files if f not in tracked)
+    assert not missing, f"loaded by the app but not in git (check .gitignore, then git add): {missing}"

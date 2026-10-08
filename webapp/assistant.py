@@ -108,6 +108,17 @@ CATALOG = {
     "/api/raster/mosaic": "Mosaic: join neighbouring tiles or scenes (`rasters`: paths, same bands, the first's grid) into one image. "
                           "method 'blend' (smooth seams, default), 'first' / 'last' (on top), 'median', 'mean', 'min', 'max'; "
                           "categorical=true for class maps (method first, last or 'mode'). Leave balance (colour matching) as it is. Output: .tif",
+    "/api/fuzzy/membership": "Fuzzy membership (0–1) of a `raster`'s values, or with `layer` (a vector path) of the distance in metres to its "
+                             "features (fuzzy distance; `like` a raster path for its grid, else `res` m). fn: large (higher is better: "
+                             "params mid, spread 5), small (lower is better: mid, spread), linear (a → 0, b → 1), gaussian (mid, sigma), "
+                             "near (mid, spread), sigmoid (mid, slope; distance near a road: mid 500, slope -0.01), trapezoid (a, b, c, d). Output: .tif",
+    "/api/fuzzy/overlay": "Fuzzy overlay / suitability: `layers` [{path, fn, params, weight, name}] each made membership by its fn ('none' when "
+                          "already 0–1), combined by op 'gamma' (gamma 0.9, default), 'weighted_sum', 'weighted_product', 'and', 'or', "
+                          "'product', 'sum'. Output: suitability .tif (0–1) and its five classes with hectares",
+    "/api/fuzzy/boundary": "Fuzzy boundary & uncertainty of a 0–1 `raster` (membership, probability): uncertainty map, α-cut zones "
+                           "(cuts), the crisp boundary at alpha and the transition zone (low–high) as smoothed polygons. Output: .tif + .geojson",
+    "/api/fuzzy/cmeans": "Fuzzy classification (fuzzy c-means) of an image `raster` into k classes (m fuzziness 2): a membership band per "
+                         "class, the hard class and an uncertainty map (mixed pixels). Output: .tif files",
     "/api/raster/burn": "Burn severity: `before` and `after` images (paths, with NIR B08 and SWIR2 B12, or NBR rasters): dNBR = NBR "
                         "before − after and its USGS severity classes, with burned hectares. min_post_nbr 0.1 for stubble / crop "
                         "residue burning (keeps just-harvested fields out). Output: .tif (severity, dNBR) + .csv",
@@ -333,6 +344,11 @@ RULES = """How to choose tools:
   /api/raster/change (categorical for land-cover maps); a raster cut to an area → /api/raster/clip.
 - Several tiles or scenes joined into one image → ONE /api/raster/mosaic step with all of them in `rasters`. Burned
   areas / burn severity / stubble burning between two dates → /api/raster/burn (images before and after the burning).
+- Where it is suitable / good for something from several conditions (slope, soil, rainfall, NDVI, distance to water or
+  roads) → /api/fuzzy/membership for each distance to a vector layer, then ONE /api/fuzzy/overlay of all the rasters,
+  each with its own fn ('small' for slope / distance, 'large' for NDVI / rainfall, 'gaussian' for an ideal value,
+  'none' for memberships made by an earlier step). How sure / uncertain a zone's boundary is, a transition zone →
+  /api/fuzzy/boundary of a 0–1 map. Mixed pixels, soft classes with memberships → /api/fuzzy/cmeans.
 - A heat map of points (reports, incidents) → /api/vector/spatial-stats method 'density'; where values or reports
   cluster (hot spots) → 'hotspots'; whether a value is spatially clustered → 'moran'; whether points are clustered
   or evenly spread → 'nearest'.
