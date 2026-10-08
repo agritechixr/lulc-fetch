@@ -139,8 +139,24 @@ def _base_tables(con: sqlite3.Connection):
     ])
 
 
-def write_gpkg(layers: list[tuple[str, list[tuple]]], out: str | Path) -> Path:
-    """Write vector layers ([(name, [(shapely geometry, properties)])], EPSG:4326) as one GeoPackage (replacing out)."""
+def _srs(con: sqlite3.Connection, crs) -> int:
+    """The SRS id of a coordinate system in the file (EPSG:4326 is there already; others are added)."""
+    from rasterio.crs import CRS
+    c = CRS.from_user_input(crs)
+    epsg = c.to_epsg()
+    if epsg == 4326:
+        return 4326
+    sid = epsg or 100000
+    wkt = c.to_wkt()
+    name = wkt.split('"')[1] if '"' in wkt else "custom"
+    con.execute("INSERT OR IGNORE INTO gpkg_spatial_ref_sys VALUES (?, ?, ?, ?, ?, ?)",
+                (name, sid, "EPSG" if epsg else "NONE", epsg or sid, wkt, ""))
+    return sid
+
+
+def write_gpkg(layers: list[tuple[str, list[tuple]]], out: str | Path, crs: str | None = None) -> Path:
+    """Write vector layers ([(name, [(shapely geometry, properties)])], EPSG:4326) as one GeoPackage (replacing out).
+    crs: store them in another coordinate system (converted from WGS 84)."""
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".part")
@@ -148,6 +164,11 @@ def write_gpkg(layers: list[tuple[str, list[tuple]]], out: str | Path) -> Path:
     con = sqlite3.connect(tmp)
     try:
         _base_tables(con)
+        srs_id = _srs(con, crs) if crs else 4326
+        if srs_id != 4326:
+            from rasterio.warp import transform_geom
+            from shapely.geometry import shape
+            layers = [(n, [(shape(transform_geom("EPSG:4326", crs, mapping(g))), p) for g, p in feats]) for n, feats in layers]
         taken, names = set(), set()
         for name, feats in layers:
             feats = [(g, p) for g, p in feats if g is not None and not g.is_empty]
@@ -171,13 +192,13 @@ def write_gpkg(layers: list[tuple[str, list[tuple]]], out: str | Path) -> Path:
             con.execute(f"CREATE TABLE {_q(table)} (fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, geom {gtype}"
                         + "".join(f", {_q(c)} {types[k]}" for k, c in cols.items()) + ")")
             geoms = [_as_multi(g) if promote else g for g, _ in feats]
-            rows = [[sqlite3.Binary(geometry_blob(g))] + [_value(p.get(k), types[k]) for k in cols] for g, (_, p) in zip(geoms, feats)]
+            rows = [[sqlite3.Binary(geometry_blob(g, srs_id))] + [_value(p.get(k), types[k]) for k in cols] for g, (_, p) in zip(geoms, feats)]
             con.executemany(f"INSERT INTO {_q(table)} (geom{''.join(', ' + _q(c) for c in cols.values())}) "
                             f"VALUES ({', '.join('?' * (len(cols) + 1))})", rows)
             minx, miny, maxx, maxy = shapely.GeometryCollection(geoms).bounds
-            con.execute("INSERT INTO gpkg_contents VALUES (?, 'features', ?, '', ?, ?, ?, ?, ?, 4326)",
-                        (table, ident, _now(), minx, miny, maxx, maxy))
-            con.execute("INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', ?, 4326, 0, 0)", (table, gtype))
+            con.execute("INSERT INTO gpkg_contents VALUES (?, 'features', ?, '', ?, ?, ?, ?, ?, ?)",
+                        (table, ident, _now(), minx, miny, maxx, maxy, srs_id))
+            con.execute("INSERT INTO gpkg_geometry_columns VALUES (?, 'geom', ?, ?, 0, 0)", (table, gtype, srs_id))
         if not taken:
             raise ValueError("No features to save")
         con.commit()
@@ -206,8 +227,9 @@ def _srs_crs(con: sqlite3.Connection, srs_id: int):
     return None if crs.to_epsg() == 4326 else crs
 
 
-def read_gpkg(path: str | Path | bytes) -> list[tuple[str, dict]]:
-    """Every feature table of a GeoPackage as (name, FeatureCollection in EPSG:4326), in the file's order."""
+def read_gpkg(path: str | Path | bytes, ask_crs: bool = False) -> list[tuple[str, dict]]:
+    """Every feature table of a GeoPackage as (name, FeatureCollection in EPSG:4326), in the file's order. A table whose
+    coordinate system is undefined (SRS 0 / −1) is taken as WGS 84, or with ask_crs left as it is, marked crs_missing."""
     from rasterio.warp import transform_geom
 
     tmp = None
@@ -244,7 +266,10 @@ def read_gpkg(path: str | Path | bytes) -> list[tuple[str, dict]]:
                     props = {k: v for i, (k, v) in enumerate(zip(names, row)) if i != gi and k not in pk and not isinstance(v, (bytes, memoryview))}
                     feats.append({"type": "Feature", "geometry": geom, "properties": props})
                 if feats:
-                    out.append((ident, {"type": "FeatureCollection", "features": feats}))
+                    fc = {"type": "FeatureCollection", "features": feats}
+                    if ask_crs and srs_id in (0, -1):
+                        fc["crs_missing"] = "the GeoPackage layer's coordinate system is undefined"
+                    out.append((ident, fc))
             if not out:
                 raise ValueError("The GeoPackage has no vector layers with features (raster tiles aren't read)")
             return out

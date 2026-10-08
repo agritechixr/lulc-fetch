@@ -22,6 +22,7 @@
   "core/cache.js",
   "core/save-to-folder.js",
   "core/save-layer.js",
+  "core/crs.js",
   "core/add-data.js",
   "core/safe-products.js",
   "core/identify.js",

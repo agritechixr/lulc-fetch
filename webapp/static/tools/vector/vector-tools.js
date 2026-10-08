@@ -242,6 +242,101 @@
   });
 
   // the shared wiring: layer pickers, the Run button (a job), the result added to Contents
+  // ---------------- Spatial statistics: kernel density, hot spots (Gi*), Moran's I, nearest neighbour
+  const SS_METHODS = [
+    ["density", "Kernel density (heat map)", "A smooth map of how many points there are per km², e.g. disease reports or wells. Optionally weighted by a field."],
+    ["hotspots", "Hot spots (Getis-Ord Gi*)", "Where high values (hot spots) or low values (cold spots) cluster more than chance would give. Without a field, points are counted in grid cells first: where reports are concentrated."],
+    ["moran", "Moran's I (clustering)", "Is a value clustered, random or dispersed over the area? One number for the whole layer, and a map of local clusters (high-high, low-low) and outliers."],
+    ["nearest", "Nearest neighbour", "Are the points themselves clustered, random or evenly spread? Compares the mean distance to each point's nearest neighbour with random points."],
+  ];
+  LF.tool({ id: "vstats", title: "Spatial statistics", icon: "vstats", kinds: ["spatialstats"],
+    subtitle: "Kernel density (a heat map of points such as disease reports), hot spots (Getis-Ord Gi*), Moran's I and nearest-neighbour analysis",
+    panel: `<div class="card"><h2>Method</h2>
+      <div class="opts" id="ss-methods">${SS_METHODS.map(([v, t, d], i) => `<label class="opt"><input type="radio" name="ss-m" value="${v}" ${i ? "" : "checked"}><span><b>${t}</b><small>${d}</small></span></label>`).join("")}</div></div>
+      <div class="card"><h2>Data ${tip("Points or polygons (polygons and lines are used at their centroids). Distances are measured in metres on the ground.")}</h2>
+      ${layerSel("ss-layer", "Layer")}
+      <label id="ss-field-row"><span id="ss-field-label">Field</span> <select id="ss-field"></select></label>
+      <div data-ss="hotspots moran">
+        <label>Neighbours <select id="ss-nb"><option value="auto">Within a distance that gives each feature at least one (default)</option><option value="dist">Within a distance I choose</option><option value="k">The k nearest</option></select></label>
+        <label id="ss-dist-row" class="hidden">Distance (m) <input type="number" id="ss-dist" min="1" step="any" value="1000"></label>
+        <label id="ss-k-row" class="hidden">k <input type="number" id="ss-k" min="1" max="100" value="8"></label>
+      </div>
+      <div data-ss="hotspots"><label class="check"><input type="checkbox" id="ss-fdr" checked> Correct for many tests (false discovery rate) ${tip("With many features some look significant by chance; the correction keeps only hot / cold spots that stand out across the whole layer. ArcGIS's Optimized Hot Spot Analysis does the same.")}</label></div>
+      <div data-ss="density">
+        <label>Search radius (m) ${tip("How far each point spreads. Empty: chosen from the points' spread (Silverman's rule, as ArcGIS).")}<input type="number" id="ss-bw" min="1" step="any" placeholder="automatic"></label>
+        <label>Kernel <select id="ss-kernel"><option value="quartic">Quartic (as ArcGIS / QGIS)</option><option value="gaussian">Gaussian (smoother)</option></select></label>
+      </div>
+      <div data-ss="density hotspots"><label><span data-ss="density">Pixel size (m)</span><span data-ss="hotspots">Grid cell (m), when counting points</span> <input type="number" id="ss-cell" min="1" step="any" placeholder="automatic"></label></div>
+      <div data-ss="nearest"><label>Study area (optional) ${tip("The area the points could lie in. Empty: the smallest rectangle around them (as ArcGIS). A bigger area makes the same points look more clustered.")}<select id="ss-area"></select></label></div>
+      <label>Name of the result <input type="text" id="ss-name" placeholder="automatic" maxlength="80"></label>
+      <button class="btn primary" id="ss-run">Run</button><p class="hint hidden" id="ss-error" style="color:var(--err)"></p><div id="ss-result" class="hidden"></div></div>`,
+    setup(LF) {
+      const { $, $$, esc, fmt, api, layers, getLayer, fillLayers, runButton, trackJob, addVectorLayer, addRasterFromPath, showResult } = LF;
+      const method = () => $('input[name="ss-m"]:checked').value;
+      const vectors = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.length);
+      const polys = () => vectors().filter((l) => l.geojson.features.some((f) => /Polygon/.test(f.geometry?.type)));
+      function fields() {
+        const l = getLayer($("#ss-layer").value), m = method(), was = $("#ss-field").value;
+        const keys = [...new Set((l?.geojson?.features || []).slice(0, 300).flatMap((f) => Object.entries(f.properties || {}).filter(([, x]) => typeof x === "number").map(([k]) => k)))];
+        const none = { density: "(none: each point counts 1)", hotspots: "(none: count points in grid cells)" }[m];
+        $("#ss-field").innerHTML = (none ? `<option value="">${none}</option>` : keys.length ? "" : `<option value="">No number field</option>`) + keys.map((k) => `<option>${esc(k)}</option>`).join("");
+        if ([...$("#ss-field").options].some((o) => o.value === was)) $("#ss-field").value = was;
+      }
+      function sync() {
+        const m = method();
+        $$("#tab-vstats [data-ss]").forEach((el) => el.classList.toggle("hidden", !el.dataset.ss.split(" ").includes(m)));
+        $("#ss-field-row").classList.toggle("hidden", m === "nearest");
+        $("#ss-field-label").textContent = { density: "Weight field", hotspots: "Value field", moran: "Value field" }[m] || "Field";
+        const nb = $("#ss-nb").value;
+        $("#ss-dist-row").classList.toggle("hidden", nb !== "dist");
+        $("#ss-k-row").classList.toggle("hidden", nb !== "k");
+        fields();
+      }
+      const fill = (pick) => {
+        fillLayers($("#ss-layer"), vectors(), { empty: "No vector layer in Contents", pick });
+        const was = $("#ss-area").value;
+        $("#ss-area").innerHTML = `<option value="">The smallest rectangle around the points</option>` + polys().slice().reverse().map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+        if (getLayer(was)) $("#ss-area").value = was;
+        sync();
+      };
+      $$('input[name="ss-m"]').forEach((r) => r.onchange = sync);
+      $("#ss-layer").addEventListener("change", fields);
+      $("#ss-nb").onchange = sync;
+      const p = (x) => x < 0.001 ? "< 0.001" : fmt(x, 3);
+      runButton("ss", async () => {
+        const l = getLayer($("#ss-layer").value), m = method();
+        if (!l) throw new Error("Choose a vector layer (add one with Insert ▸ Add data)");
+        const field = m === "nearest" ? null : $("#ss-field").value || null;
+        if (m === "moran" && !field) throw new Error("Moran's I needs a number field");
+        const nb = $("#ss-nb").value, area = getLayer($("#ss-area").value);
+        const body = { method: m, layer: l.geojson, field, fdr: $("#ss-fdr").checked, kernel: $("#ss-kernel").value,
+                       bandwidth: +$("#ss-bw").value || null, cell: +$("#ss-cell").value || null,
+                       distance: nb === "dist" ? +$("#ss-dist").value || null : null, k: nb === "k" ? +$("#ss-k").value || null : null,
+                       area: m === "nearest" && area ? area.geojson : null, name: $("#ss-name").value.trim() };
+        const job = await api("/api/vector/spatial-stats", { method: "POST", json: body });
+        const r = (await trackJob(job, { title: job.title })).result;
+        let html;
+        if (m === "density") {
+          await addRasterFromPath(r.path, { zoom: false }).catch(() => {});
+          html = `<b>Density of ${r.points.toLocaleString()} points</b>: up to ${fmt(r.max_per_km2, 2)} per km², search radius ${fmt(r.bandwidth_m, 0)} m, pixels of ${fmt(r.cell_m, 0)} m.`;
+        } else {
+          const fc = await api(`/api/vector/read?path=${encodeURIComponent(r.path)}`);
+          const opts = { path: r.path, zoom: false };
+          if (r.classes) Object.assign(opts, { classes: r.classes, classColors: Object.fromEntries(r.classes.map((c) => [c.name, c.color])), color: r.classes[0]?.color, fillOpacity: 0.7 });
+          if (fc.features?.length) addVectorLayer(fc, r.name, opts);
+          const nbText = r.distance_m ? `neighbours within ${fmt(r.distance_m, 0)} m` : r.k ? `${r.k} nearest neighbours` : "";
+          const counts = r.counts ? `<div class="dist" style="margin-top:6px">${(r.classes || []).map((c) => `<div style="grid-template-columns:minmax(0,2fr) auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${c.color};margin-right:5px"></i>${esc(c.name)}</span><b>${r.counts[c.name]}</b></div>`).join("")}</div>` : "";
+          html = m === "hotspots" ? `<b>Hot spots of ${esc(r.field)}</b> across ${r.features.toLocaleString()} ${r.grid_cell_m ? `grid cells of ${fmt(r.grid_cell_m, 0)} m` : "features"}, ${nbText}${r.fdr ? ", corrected for many tests" : ""}.${counts}`
+            : m === "moran" ? `<b>Moran's I = ${fmt(r.I, 4)}</b> (random would give ${fmt(r.expected, 4)}): <b>${r.pattern}</b>. z = ${fmt(r.z, 2)}, p = ${p(r.p_normal)} (permutations: ${p(r.p_permutation)}); ${nbText}. The layer shows the local clusters (p ≤ 0.05).${counts}`
+            : `<b>${r.pattern[0].toUpperCase() + r.pattern.slice(1)}</b>: nearest neighbour ratio R = ${fmt(r.R, 3)} (1 is random, below 1 clustered, above 1 dispersed). Mean distance ${fmt(r.observed_m, 1)} m, random would be ${fmt(r.expected_m, 1)} m; z = ${fmt(r.z, 2)}, p = ${p(r.p)}. Area: ${fmt(r.area_km2, 3)} km² (${esc(r.area_from)}).`;
+          if (r.no_neighbours) html += ` <span style="color:var(--warn)">${r.no_neighbours} feature${r.no_neighbours === 1 ? " has" : "s have"} no neighbour at this distance.</span>`;
+        }
+        showResult("ss", `${html} <span class="hint">Added to Contents.</span>`);
+      });
+      return { open(arg) { fill(arg?.layer); }, layersChanged() { fill(); } };
+    },
+  });
+
   function wire(LF, p, endpoint, body, selects = [`${p}-layer`], only = null, extra = null) {
     const { $, api, layers, getLayer, fillLayers, runButton, trackJob, addVectorLayer, showResult, esc } = LF;
     const vectors = () => layers.filter((l) => l.type === "vector" && l.geojson?.features?.length && (!only || only(l)));

@@ -28,7 +28,7 @@ def _picture_path(rel: str) -> Path:
 
 
 @router.post("/api/pictures/upload")
-async def upload_picture(files: list[UploadFile] = File(...)):
+async def upload_picture(files: list[UploadFile] = File(...), ask_crs: bool = False):
     """A picture plus optional world file (.jgw / .pgw / .wld) and .prj. Georeferenced → GeoTIFF layer."""
     import shutil
     import uuid
@@ -51,7 +51,7 @@ async def upload_picture(files: list[UploadFile] = File(...)):
         with open(dest_dir / name, "wb") as out:
             shutil.copyfileobj(f.file, out, length=8 << 20)
     try:
-        res = import_picture(dest_dir / pic_name)
+        res = import_picture(dest_dir / pic_name, ask_crs=ask_crs)
     except Exception as e:
         shutil.rmtree(dest_dir, ignore_errors=True)
         raise HTTPException(400, f"Couldn't read {pic_name}: {e}")

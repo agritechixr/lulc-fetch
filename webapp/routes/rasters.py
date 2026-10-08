@@ -79,6 +79,15 @@ async def upload_raster(file: UploadFile = File(...)):
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f, length=8 << 20)
     try:
+        import warnings
+
+        import rasterio
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")   # NotGeoreferencedWarning
+            with rasterio.open(dest) as src:
+                no_crs = src.crs is None and not (src.gcps[0] and src.gcps[1])
+        if no_crs:   # kept: Add data asks for its coordinate system (or control points) before it goes on the map
+            return {"path": ws.rel(dest), "crs_missing": True}
         from lulc_fetch.analysis import inspect
         inspect(dest)
     except Exception as e:

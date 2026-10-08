@@ -43,8 +43,10 @@ def _write_geotiff(data: np.ndarray, out: Path, crs, transform, colormap=None, n
     return out
 
 
-def import_picture(path: Path) -> dict:
-    """Convert a picture to a GeoTIFF if it is georeferenced, otherwise describe it as a plain picture."""
+def import_picture(path: Path, ask_crs: bool = False) -> dict:
+    """Convert a picture to a GeoTIFF if it is georeferenced, otherwise describe it as a plain picture. ask_crs: a
+    picture with a world file but no .prj becomes a GeoTIFF without a coordinate system (kind "needs_crs") for the user
+    to choose one, instead of being taken as WGS 84 or left unplaced."""
     path = Path(path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # NotGeoreferencedWarning is expected for photos
@@ -61,6 +63,12 @@ def import_picture(path: Path) -> dict:
             if georef and crs is None and prj is not None:
                 crs = CRS.from_wkt(prj.read_text(errors="replace"))
             guessed = False
+            if georef and crs is None and ask_crs:
+                data = src.read()
+                cmap = src.colormap(1) if count == 1 and src.colorinterp[0] == ColorInterp.palette else None
+                out = path.with_suffix(".tif")
+                _write_geotiff(data, out, None, transform, cmap)
+                return {"kind": "needs_crs", "path": str(out), "reason": "it has a world file but no .prj (coordinate system)"}
             if georef and crs is None:
                 xs = [transform.c, transform.c + transform.a * w]
                 ys = [transform.f, transform.f + transform.e * h]

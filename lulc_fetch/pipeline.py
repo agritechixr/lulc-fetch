@@ -99,7 +99,8 @@ def export_scene(source: Source, aoi: AOI | None, grid: Grid, start: str, end: s
     tags = {"source": source.name, "date": scene.date, "items": ",".join(scene.ids),
             "units": "surface reflectance (0-1)", "cloud_masked": mask_clouds}
     result = write_s2_outputs(Path(out), arrays, grid, region, indices=indices, preview=preview, tags=tags)
-    return {**result, "date": str(scene.date), "items": scene.ids}
+    cloud = scene.cloud   # the catalogue's cloud cover of the scene's tiles (%), for workflow conditions
+    return {**result, "date": str(scene.date), "items": scene.ids, "cloud_pct": None if cloud is None or cloud != cloud else round(float(cloud), 1)}
 
 
 def export_composite(source: Source, aoi: AOI | None, grid: Grid, start: str, end: str, out: str | Path, *,
@@ -121,7 +122,8 @@ def export_composite(source: Source, aoi: AOI | None, grid: Grid, start: str, en
             "dates": ",".join(dates), "units": "surface reflectance (0-1)"}
     result = write_s2_outputs(Path(out), arrays, grid, region, indices=indices, preview=preview,
                               tags=tags, extra=[("clear_obs_count", count)])
-    return {**result, "dates": dates}
+    clouds = [s.cloud for s in scenes if s.cloud is not None and s.cloud == s.cloud]
+    return {**result, "dates": dates, "scenes": len(scenes), "cloud_pct": round(float(sum(clouds) / len(clouds)), 1) if clouds else None}
 
 
 def export_labels(product: str, year: int, aoi: AOI | None, grid: Grid, out: str | Path) -> dict:

@@ -53,7 +53,7 @@
   const openTool = (id, arg) => switchTool(id, arg);
 
   Object.assign(LF, {
-    $, $$, esc, fmt, prefs, api, toast, status, map, layers, getLayer, addRasterFromPath, addVectorLayer, addOnlineLayer, zoomTo, saveLayers, moveLayer,
+    $, $$, esc, fmt, prefs, api, toast, status, map, layers, getLayer, addRasterFromPath, addVectorLayer, addOnlineLayer, refreshLayer, zoomTo, saveLayers, moveLayer,
     dataItems, addItem, openItem, tablePoints, importFieldZip, trackJob, notCancelled, runJob, runButton, showResult: showRunResult, switchTool, openTool,
     getClip, refreshClipPicker, updateClipHint, startDraw, fillLayers, touched, autoName, limitDevices, stillImproving,
     renderAddon, tipBtn, modelPicker, searchPicker, pickFolder, floatWin,

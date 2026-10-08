@@ -1,6 +1,7 @@
 """Raster and terrain tools (Analysis ▸ Tools ▸ Raster & terrain): slope / aspect / hillshade, contours, reclassify,
-change detection, clip / mask by polygons. Background jobs (progress, History, Workflows, the Assistant) writing to
-analysis/. Logic in lulc_fetch/raster_ops.py."""
+change detection, clip / mask by polygons; and from Imagery: mosaic (join tiles / scenes) and burn severity (dNBR).
+Background jobs (progress, History, Workflows, the Assistant) writing to analysis/. Logic in lulc_fetch/raster_ops.py,
+mosaic.py, burn.py."""
 
 from __future__ import annotations
 
@@ -208,3 +209,70 @@ def raster_clip(req: ClipRasterRequest):
     p = _raster_path(req.raster)
     return jobs.submit("rclip", f"Clip {p.name}", {"invert": req.invert}, lambda job: {
         "path": ws.rel(raster_ops.clip_raster(p, _out_dir() / f"{_safe(req.name)}.tif", req.area, crop=req.crop, invert=req.invert))}).to_dict()
+
+
+class MosaicRequest(BaseModel):
+    rasters: list[str] = Field(min_length=2, max_length=200)   # in order: with first / last on top, the order counts
+    method: str = Field("blend", pattern=r"^(blend|first|last|mean|median|min|max|mode)$")
+    balance: str = Field("overlap", pattern=r"^(overlap|none)$")   # colour balance across overlaps
+    categorical: bool = False                                     # class maps: nearest, no blending (first / last / mode)
+    blend_px: int = Field(64, ge=1, le=2000)                      # width of the smooth seam, in output pixels
+    res: float | None = Field(None, gt=0)                         # output pixel size (default: the first raster's)
+    crs: str | None = Field(None, max_length=200)                 # output CRS (default: the first raster's)
+    resampling: str | None = Field(None, pattern=_METHOD)
+    name: str = Field("mosaic", max_length=80)
+
+
+@router.post("/api/raster/mosaic")
+def raster_mosaic(req: MosaicRequest):
+    """Join neighbouring tiles or scenes into one image: smooth blended seams and colour balance by default, or first /
+    last on top, mean, median, min, max (mode for class maps). Logic in lulc_fetch/mosaic.py."""
+    from lulc_fetch import mosaic
+    paths = [_raster_path(r) for r in req.rasters]
+    if len(set(paths)) < 2:
+        raise HTTPException(400, "Choose at least two different rasters")
+
+    def work(job):
+        r = mosaic.mosaic(paths, _out_dir() / f"{_safe(req.name)}.tif", method=req.method, balance=req.balance, categorical=req.categorical,
+                          blend_px=req.blend_px, res=req.res, crs=req.crs, resampling=req.resampling)
+        return {**r, "path": ws.rel(r["path"])}
+    return jobs.submit("mosaic", f"Mosaic of {len(paths)} rasters ({req.method})", {"method": req.method, "images": len(paths)}, work).to_dict()
+
+
+class BurnRequest(BaseModel):
+    before: str
+    after: str
+    before_bands: dict[str, int] = Field(default_factory=dict)   # band map (B08, B12 …) of each image; empty: detected
+    after_bands: dict[str, int] = Field(default_factory=dict)
+    before_scale: list[float] | None = Field(None, min_length=2, max_length=2)   # [scale, offset] to reflectance; None: detected
+    after_scale: list[float] | None = Field(None, min_length=2, max_length=2)
+    breaks: list[float] | None = Field(None, min_length=6, max_length=6)   # own dNBR class limits (default USGS)
+    min_post_nbr: float | None = Field(None, ge=-1, le=1)                   # burned only where NBR after is below this
+    resampling: str | None = Field(None, pattern=_METHOD)
+    name: str = Field("", max_length=80)
+
+
+@router.post("/api/raster/burn")
+def raster_burn(req: BurnRequest):
+    """Burn severity: dNBR (NBR before − NBR after) and its USGS severity classes, with the burned area. Logic in
+    lulc_fetch/burn.py."""
+    import csv
+
+    from lulc_fetch import burn
+    a, b = _raster_path(req.before), _raster_path(req.after)
+    if a == b:
+        raise HTTPException(400, "Choose two different images: before and after")
+
+    def work(job):
+        r = burn.burn_severity(a, b, _out_dir(), pre_map=req.before_bands or None, post_map=req.after_bands or None,
+                               pre_scale=tuple(req.before_scale) if req.before_scale else None,
+                               post_scale=tuple(req.after_scale) if req.after_scale else None, breaks=req.breaks,
+                               min_post_nbr=req.min_post_nbr, resampling=req.resampling, name=_safe(req.name) if req.name.strip() else None)
+        t = ws.root() / "tables" / f"{_safe(Path(r['paths'][0]).stem)}_{uuid.uuid4().hex[:4]}.csv"
+        t.parent.mkdir(parents=True, exist_ok=True)
+        with open(t, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=["value", "class", "pixels", "area_ha", "pct"], extrasaction="ignore")
+            w.writeheader()
+            w.writerows(r["classes"])
+        return {"outputs": [ws.rel(x) for x in r["paths"]], "csv": ws.rel(t), "classes": r["classes"], "summary": r["summary"]}
+    return jobs.submit("burn", f"Burn severity {a.name} → {b.name}", {}, work).to_dict()

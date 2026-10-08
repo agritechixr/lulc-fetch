@@ -37,15 +37,16 @@
         const fd = new FormData();
         fd.append("file", f);
         const r = await api("/api/rasters/upload", { method: "POST", body: fd });
-        await addRasterFromPath(r.path, { name: f.name });
+        await addRasterAskCrs(r.path, f.name);   // opens it, or first asks for its coordinate system when it has none
       } catch (e) { toast(`${f.name}: ${e.message}`, true); }
     }
     for (const f of pics) {
       try {
         const fd = new FormData();
         [f, ...picSide(f)].forEach((x) => fd.append("files", x));
-        const r = await api("/api/pictures/upload", { method: "POST", body: fd });
-        if (r.kind === "raster") {
+        const r = await api("/api/pictures/upload?ask_crs=true", { method: "POST", body: fd });
+        if (r.kind === "needs_crs") await addRasterAskCrs(r.path, f.name, `It has a world file (its pixel grid) but ${r.reason.replace(/^it has a world file but /, "")}.`);
+        else if (r.kind === "raster") {
           await addRasterFromPath(r.path, { name: f.name });
           if (r.crs_guessed) toast(`${f.name}: no .prj file, so longitude / latitude (WGS 84) was assumed`);
         } else {
@@ -62,19 +63,23 @@
         const it = addItem({ kind: "table", name: r.name, path: r.path }, { open: true });
         // a table with positions (lat / lon columns): its rows also go on the map as points
         if (r.lonlat) await tablePoints(it, "", r.lonlat);
-        else if ((r.columns || []).some((c) => /lat|lon|lng|coord|east|north|^[xy]$/i.test(c))) toast(`${f.name}: added as a table. To show it on the map, right-click it ▸ Show points on map… and choose the longitude / latitude columns`);
+        else if ((r.columns || []).some((c) => /lat|lon|lng|coord|east|north|^[xy]$/i.test(c))) toast(`${f.name}: added as a table. To show it on the map, right-click it ▸ Show points on map… and choose its position columns (longitude / latitude, or X / Y in any coordinate system)`);
       } catch (e) { toast(`${f.name}: ${e.message}`, true); }
     }
     for (const group of [...(shpParts.length ? [shpParts] : []), ...others.map((f) => [f])]) {
       try {
         const fd = new FormData();
         group.forEach((f) => fd.append("files", f));
-        const fc = await api("/api/aoi/upload", { method: "POST", body: fd });
+        const fc = await api("/api/aoi/upload?ask_crs=true", { method: "POST", body: fd });
         const name = (group.find((f) => /\.shp$/i.test(f.name)) || group[0]).name.replace(/\.[^.]+$/, "");
         if (fc.layers?.length > 1) {   // a GeoPackage with several layers: one layer each (the file's first on top)
-          [...fc.layers].reverse().forEach((x, i) => addVectorLayer({ type: "FeatureCollection", features: x.features }, x.name, { zoom: i === fc.layers.length - 1 }));
+          for (const [i, x] of [...fc.layers].reverse().entries()) {
+            if (x.crs_missing) await addVectorAskCrs({ features: x.features, raw_bounds: rawBounds(x.features) }, x.name, `The ${x.crs_missing.replace(/^the /, "")}.`);
+            else addVectorLayer({ type: "FeatureCollection", features: x.features }, x.name, { zoom: i === fc.layers.length - 1 });
+          }
           toast(`${group[0].name}: ${fc.layers.length} layers added`);
-        } else addVectorLayer({ type: "FeatureCollection", features: fc.features }, name);
+        } else if (fc.crs_missing) await addVectorAskCrs(fc, name, `The ${fc.crs_missing.replace(/^the /, "")}, so its coordinates' system isn't known.`);
+        else addVectorLayer({ type: "FeatureCollection", features: fc.features }, name);
         if (fc.warning) toast(`${name}: ${fc.warning}`, true);
       } catch (e) { toast(`${group[0].name}: ${e.message}`, true); }
     }

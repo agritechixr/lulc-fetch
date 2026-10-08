@@ -27,7 +27,7 @@ def _fc(geoms: list[dict], props: list[dict] | None = None) -> dict:
 
 # ------------------------------------------------------------------ shapefile
 
-def _read_shapefile(parts: dict[str, bytes]) -> dict:
+def _read_shapefile(parts: dict[str, bytes], ask_crs: bool = False) -> dict:
     import shapefile  # pyshp
 
     if "shp" not in parts:
@@ -55,7 +55,10 @@ def _read_shapefile(parts: dict[str, bytes]) -> dict:
         raise ValueError("The shapefile has no geometries")
     fc = _fc(geoms, props)
     if not src_crs:
-        fc["warning"] = "No .prj file — assumed coordinates are WGS84 longitude/latitude"
+        if ask_crs:   # the numbers as they are: the user chooses their system (Add data)
+            fc["crs_missing"] = "the shapefile has no .prj file"
+        else:
+            fc["warning"] = "No .prj file — assumed coordinates are WGS84 longitude/latitude"
     return fc
 
 
@@ -122,9 +125,11 @@ def _read_geojson(data: bytes) -> dict:
 
 # ------------------------------------------------------------------ entry point
 
-def parse_upload(files: list[tuple[str, bytes]]) -> dict:
+def parse_upload(files: list[tuple[str, bytes]], ask_crs: bool = False) -> dict:
     """Parse one or more uploaded files into a WGS84 FeatureCollection plus a merged AOI geometry. A GeoPackage with
-    several layers gives its first one, and all of them in "layers" ([{name, features}])."""
+    several layers gives its first one, and all of them in "layers" ([{name, features}]).
+    ask_crs: data without a coordinate system comes back as it is, with crs_missing (why), raw_bounds and no AOI,
+    instead of being taken as WGS 84."""
     shp_parts: dict[str, bytes] = {}
     fc = None
     layers = None
@@ -152,18 +157,22 @@ def parse_upload(files: list[tuple[str, bytes]]) -> dict:
             fc = _read_kml(data)
         elif ext == ".gpkg":
             from lulc_fetch.gpkg import read_gpkg
-            layers = read_gpkg(data)
+            layers = read_gpkg(data, ask_crs=ask_crs)
             fc = layers[0][1]
         else:
             fc = _read_geojson(data)
     if shp_parts:
-        fc = _read_shapefile(shp_parts)
+        fc = _read_shapefile(shp_parts, ask_crs)
     if fc is None:
         raise ValueError("No vector data found in the upload")
-    fc = with_aoi(fc)
     if layers and len(layers) > 1:
-        fc["layers"] = [{"name": n, "features": x["features"]} for n, x in layers]
-    return fc
+        fc["layers"] = [{"name": n, "features": x["features"], **({"crs_missing": x["crs_missing"]} if x.get("crs_missing") else {})}
+                        for n, x in layers]
+    if fc.get("crs_missing"):
+        from lulc_fetch.crs_tools import raw_bounds
+        fc["raw_bounds"] = raw_bounds(fc)
+        return fc
+    return with_aoi(fc)
 
 
 def with_aoi(fc: dict) -> dict:

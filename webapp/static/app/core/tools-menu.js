@@ -6,6 +6,9 @@
   const ICONS = {
     forecast: '<path d="M3 20h18" opacity=".5"/><path d="M4 16l4-5 4 3 3-4"/><path d="M15 10l3-2 3-3" stroke-dasharray="2 2"/><circle cx="15" cy="10" r="1.3" fill="currentColor" stroke="none"/>',
     fcrun: '<path d="M3 20h18" opacity=".5"/><path d="M4 15l4-4 3 2" /><path d="M11 13l3-3 3 1 4-4" stroke-dasharray="2 2"/><path d="M5 4l4 2.5L5 9z" fill="currentColor" stroke="none"/>',
+    rmosaic: '<rect x="3" y="3" width="10" height="10" rx="1"/><rect x="11" y="11" width="10" height="10" rx="1"/><path d="M11 13h2v-2" opacity=".55"/><path d="M6 21h3M3 18v3M21 6V3h-3" opacity=".5"/>',
+    rburn: '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.4-5.4 3.6-8.3.5 1.7 1.4 2.8 2.6 3.3.1-2.8 1.3-5.3 3.4-6.8-.3 3 .9 5 2.3 6.9 1 1.4 1.6 2.9 1.6 4.9 0 3.6-3.1 6.2-7 6.2z"/><path d="M12 21c-1.6 0-2.7-1.1-2.7-2.6 0-1.6 1.5-2.6 2.2-4.2.9 1.3 3.2 2.3 3.2 4.3 0 1.4-1.1 2.5-2.7 2.5z"/>',
+    vstats: '<circle cx="6" cy="17" r="1.6"/><circle cx="9.5" cy="13" r="1.6"/><circle cx="7" cy="9" r="1.6"/><circle cx="17.5" cy="7" r="1.6"/><circle cx="16" cy="17.5" r="1.6"/><circle cx="8" cy="12" r="6" stroke-dasharray="2 2" opacity=".6"/>',
     online: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.8 5.2 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.2-3.8-8.5s1.2-6.1 3.8-8.5z"/>',
     field: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.2"/><path d="M12 15.5s-3-3-3-5.2a3 3 0 0 1 6 0c0 2.2-3 5.2-3 5.2z"/><circle cx="12" cy="10.3" r=".9" fill="currentColor" stroke="none"/><path d="M10.5 19h3" opacity=".6"/>',
     cloud: '<path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.5 1.5A3.3 3.3 0 0 0 7 18z"/><path d="M8 21v-1M12 21v-1M16 21v-1" opacity=".7"/>',
@@ -172,8 +175,8 @@
     });
   }
   // the ribbon groups of the Tools category (tools not named here go in "More")
-  const TOOL_GROUPS = [["Imagery", ["search", "analyze", "timeseries", "pca", "stack"]], ["Training data", ["samples", "raster2table", "patches"]],
-    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve", "vhelpers"]], ["Spatial analysis", ["vzonal", "vlocation", "vsjoin", "vcount", "vgeometry", "vtjoin"]], ["Raster & terrain", ["rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "rcalc"]], ["Assess", ["areastats", "accuracy"]], ["Conversion", ["r2poly", "r2line", "r2point", "rasterize", "vconvert", "georef"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
+  const TOOL_GROUPS = [["Imagery", ["search", "analyze", "timeseries", "pca", "stack", "rmosaic", "rburn"]], ["Training data", ["samples", "raster2table", "patches"]],
+    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve", "vhelpers"]], ["Spatial analysis", ["vzonal", "vlocation", "vsjoin", "vcount", "vgeometry", "vtjoin", "vstats"]], ["Raster & terrain", ["rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "rcalc"]], ["Assess", ["areastats", "accuracy"]], ["Conversion", ["r2poly", "r2line", "r2point", "rasterize", "vconvert", "georef"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
   // one ribbon group: a few tools as big buttons, more as small ones in columns of three
   function ribbonGroup(caption, tools, big = tools.length <= 3) {
     if (!tools.length) return "";

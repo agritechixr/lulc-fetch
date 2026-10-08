@@ -574,6 +574,7 @@
         <span class="vt-count pic-zoom"></span><span class="muted small">${it.width}×${it.height} px · scroll to zoom, drag to pan</span>
         <span class="grow"></span>
         <button class="btn small primary" data-act="place" title="This picture has no coordinates. Stretch it over the current map view to use it as a layer">Place on map</button>
+        <button class="btn small" data-act="georef" title="Place it precisely: click places on the picture and the same places on the map (control points)">Georeference…</button>
         <a class="btn small" href="/api/pictures/file?path=${encodeURIComponent(t.path)}" download title="Download">⬇</a></div>
       <div class="pic-stage"><img src="/api/pictures/file?path=${encodeURIComponent(t.path)}" alt="${esc(t.title)}" draggable="false"></div>`;
     const stage = $(".pic-stage", body), img = $("img", stage);
@@ -598,4 +599,5 @@
       else zoomAt(b.dataset.z === "in" ? 1.4 : 1 / 1.4, r.width / 2, r.height / 2);
     });
     $('[data-act="place"]', body).onclick = () => placePicture(it);
+    $('[data-act="georef"]', body).onclick = () => openTool("georef", { path: t.path, name: it.name });
   }

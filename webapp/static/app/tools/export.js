@@ -10,7 +10,7 @@
     refreshExportLayers(l?.id);
     renderExportForm();
   }
-  const exportable = () => layers.filter((l) => l.type !== "tiles");   // online layers stay on their service
+  const exportable = () => layers.filter((l) => l.type !== "tiles" && l.type !== "unplaced");   // online layers stay on their service
   function refreshExportLayers(selectId) {
     const sel = $("#lx-layer"), cur = selectId || sel.value || selectedId, list = exportable();
     sel.innerHTML = list.length ? list.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")
@@ -72,14 +72,39 @@
       const f = $('input[name="lxf"]:checked')?.value;
       $("#lx-shp").classList.toggle("hidden", f !== "shp" || l.type === "vector");
       $("#lx-gpkg").classList.toggle("hidden", f !== "gpkg");
+      $("#lx-crs-wrap").classList.toggle("hidden", !(l.type === "vector" && (f === "shp" || f === "gpkg")));   // GeoJSON / KML are WGS 84 by definition
       if (f === "gpkg") renderGpkgLayers();
     };
     $$('input[name="lxf"]').forEach((i) => i.onchange = syncShp);
     syncShp();
     refreshClipPicker("lx-area");
+    fillExportCrs();
     $("#lx-area").disabled = l.type === "image";
   }
   $("#lx-layer").onchange = renderExportForm;
+  // the coordinate system of an exported vector file: WGS 84, the layer's own (as it was read), UTM where the map is, or any
+  let lxPick = null;
+  function fillExportCrs(extra = null) {
+    const l = exportLayer(), c = map.getCenter(), zone = (c.lat >= 0 ? 32600 : 32700) + Math.min(Math.max(Math.floor((c.lng + 180) / 6) + 1, 1), 60);
+    const opts = [["", "WGS 84 (longitude / latitude)"], ...(l?.crs && l.crs.epsg !== 4326 ? [[l.crs.crs, `${l.crs.name} (as the layer was read)`]] : []),
+                  [`EPSG:${zone}`, `WGS 84 / UTM zone ${zone % 100}${c.lat >= 0 ? "N" : "S"} (where the map is)`], ...(extra ? [[extra.crs, extra.name]] : []), ["other", "Other… (search)"]];
+    const was = $("#lx-crs").value;
+    $("#lx-crs").innerHTML = [...new Map(opts.map((o) => [o[0], o])).values()].map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+    $("#lx-crs").value = extra ? extra.crs : [...$("#lx-crs").options].some((o) => o.value === was) ? was : "";
+    $("#lx-crs").onchange();
+  }
+  $("#lx-crs").onchange = () => {
+    const other = $("#lx-crs").value === "other";
+    $("#lx-crs-pick").classList.toggle("hidden", !other);
+    if (other && !lxPick) lxPick = crsPicker($("#lx-crs-pick"), {});
+  };
+  const exportCrsValue = () => { const v = $("#lx-crs").value; return v === "other" ? lxPick?.get()?.crs || null : v || null; };
+  /** open Export with a coordinate system chosen (right-click ▸ Coordinate system… ▸ Convert a copy) */
+  function exportCrs(c) {
+    const f = $('input[name="lxf"][value="gpkg"]');
+    if (f) { f.checked = true; f.onchange?.(); }
+    fillExportCrs(c);
+  }
   $("#lx-method").onchange = () => $("#lx-breaks-wrap").classList.toggle("hidden", $("#lx-method").value !== "custom");
   $("#lx-go").onclick = (e) => {
     const l = exportLayer(), fmtSel = $('input[name="lxf"]:checked')?.value, name = safeName($("#lx-name").value);
@@ -95,7 +120,8 @@
         if (l.type === "vector") {
           const more = fmtSel === "gpkg" ? layers.filter((x) => gpkgPick.has(x.id) && x.type === "vector" && x.id !== l.id).reverse()
             .map((x) => ({ name: x.name, geojson: x.geojson })) : [];
-          r = await api("/api/vector/export", { method: "POST", json: { geojson: l.geojson, format: fmtSel, name, clip, folder, layer_name: l.name, more } });
+          const crs = ["shp", "gpkg"].includes(fmtSel) ? exportCrsValue() : null;
+          r = await api("/api/vector/export", { method: "POST", json: { geojson: l.geojson, format: fmtSel, name, clip, folder, layer_name: l.name, more, crs } });
         } else {
           const body = { path: l.path, format: fmtSel, name, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0, ...l.render, clip, folder };
           if (fmtSel === "shp") {

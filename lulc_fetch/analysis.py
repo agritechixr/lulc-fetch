@@ -571,6 +571,9 @@ def _stats(values: np.ndarray, vmin: float, vmax: float, bins: int = 48) -> dict
     v = values[np.isfinite(values)]
     if not v.size:
         raise ValueError("No valid pixels — the result is empty (check band mapping / scaling)")
+    if not vmax - vmin > 1e-6 * max(1.0, abs(vmin), abs(vmax)):   # (about) one value everywhere: a small range around it
+        pad = max(abs(vmin) * 1e-3, 1e-6)
+        vmin, vmax = vmin - pad, vmax + pad
     counts, edges = np.histogram(np.clip(v, vmin, vmax), bins=bins, range=(vmin, vmax))
     p = np.percentile(v, [2, 25, 50, 75, 98])
     return {"count": int(v.size), "min": float(v.min()), "max": float(v.max()), "mean": float(v.mean()),

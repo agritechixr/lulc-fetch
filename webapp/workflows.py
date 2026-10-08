@@ -8,6 +8,16 @@ The settings hold markers the app replaces when it runs a workflow:
   {"$in": "in1"}                               the value of input in1
   {"$step": 0, "ext": ".tif", "nth": 0}        the first .tif that step 0 made
 
+Conditions (optional, per step):
+  "when":   {"all": [condition, …], "otherwise": "skip" | "stop"}       run the step only if every condition holds
+  "checks": [{"if": condition, "then": "warn" | "alert" | "stop", "message": "…"}, …]   after the step ran
+A condition reads a value of an earlier step (or, in checks, of the step itself) and compares it:
+  {"of": {"step": 0, "field": "cloud_pct"}, "op": "<", "value": 20}            a number in the step's result
+  {"of": {"step": 1, "stat": "mean", "band": 1}, "op": "drop", "value": 0.1}  a statistic of its output file
+ops: < <= > >= == != and "drop" / "rise" (fell / grew by at least `value` since the workflow's previous run).
+Stats: mean, min, max, empty_pct (raster band), rows (table), features (vector). evaluate() decides them (the app
+runs the steps; the server reads the values), and the values of every run are kept for the next one ("drop").
+
 One JSON file per workflow in workflows/ of the app's folder, so they are there in every project.
 """
 
@@ -69,8 +79,12 @@ def check(wf: dict) -> dict:
         for ref in _refs(s["body"]):
             if "$step" in ref and not (isinstance(ref["$step"], int) and 0 <= ref["$step"] < i):
                 raise ValueError(f"Step {i + 1} uses the output of a step that doesn't come before it")
-        out_steps.append({"title": str(s.get("title") or f"Step {i + 1}")[:200], "kind": str(s.get("kind") or "")[:60], "endpoint": ep,
-                          "body": s["body"]})
+        step = {"title": str(s.get("title") or f"Step {i + 1}")[:200], "kind": str(s.get("kind") or "")[:60], "endpoint": ep, "body": s["body"]}
+        if s.get("when"):
+            step["when"] = check_when(s["when"], i)
+        if s.get("checks"):
+            step["checks"] = check_checks(s["checks"], i)
+        out_steps.append(step)
     inputs = []
     for p in wf.get("inputs") or []:
         if not re.fullmatch(r"[A-Za-z0-9_]{1,32}", str(p.get("id") or "")):
@@ -81,7 +95,166 @@ def check(wf: dict) -> dict:
     missing = used - {p["id"] for p in inputs}
     if missing:
         raise ValueError(f"The steps use inputs that aren't defined: {', '.join(sorted(missing))}")
-    return {"name": name, "description": str(wf.get("description") or "")[:2000], "inputs": inputs, "steps": out_steps}
+    out = {"name": name, "description": str(wf.get("description") or "")[:2000], "inputs": inputs, "steps": out_steps,
+           "stop_on_critical": bool(wf.get("stop_on_critical", True))}   # a result that can't be right stops the run
+    lay = wf.get("layout")   # where the boxes are in the diagram (the editor's own positions)
+    if isinstance(lay, dict):
+        out["layout"] = {str(k)[:40]: [float(v[0]), float(v[1])] for k, v in list(lay.items())[:200]
+                         if isinstance(v, (list, tuple)) and len(v) == 2 and all(isinstance(x, (int, float)) for x in v)}
+    return out
+
+
+# ------------------------------------------------------------------ conditions
+OPS = ("<", "<=", ">", ">=", "==", "!=", "drop", "rise")
+STATS = ("mean", "min", "max", "empty_pct", "rows", "features")
+FIELD = re.compile(r"[A-Za-z0-9_.\[\]-]{1,120}")
+
+
+def check_condition(c: dict, step: int, own: bool) -> dict:
+    """A condition as saved: what it reads (a field of a step's result, or a statistic of its file), op, value."""
+    if not isinstance(c, dict):
+        raise ValueError(f"Step {step + 1}: a condition must be an object")
+    of = c.get("of") or {}
+    n = of.get("step")
+    if not isinstance(n, int) or not (0 <= n <= step if own else 0 <= n < step):
+        raise ValueError(f"Step {step + 1}: a condition must read {'this step or an earlier one' if own else 'an earlier step'}")
+    src = {"step": n}
+    if of.get("field"):
+        if not FIELD.fullmatch(str(of["field"])):
+            raise ValueError(f"Step {step + 1}: “{of['field']}” isn't a result field (e.g. cloud_pct or summary.mean_change)")
+        src["field"] = str(of["field"])
+    elif of.get("stat") in STATS:
+        src["stat"] = of["stat"]
+        src["band"] = max(1, int(of.get("band") or 1))
+    else:
+        raise ValueError(f"Step {step + 1}: a condition reads a result field or a statistic ({', '.join(STATS)})")
+    if c.get("op") not in OPS:
+        raise ValueError(f"Step {step + 1}: the comparison must be one of {' '.join(OPS)}")
+    try:
+        v = float(c.get("value"))
+    except (TypeError, ValueError):
+        raise ValueError(f"Step {step + 1}: a condition needs a number to compare with") from None
+    if c["op"] in ("drop", "rise") and v < 0:
+        raise ValueError(f"Step {step + 1}: “falls by” and “rises by” take a positive number")
+    return {"of": src, "op": c["op"], "value": v}
+
+
+def check_when(w: dict, step: int) -> dict:
+    conds = w.get("all") if isinstance(w, dict) else None
+    if not conds or not isinstance(conds, list) or len(conds) > 10:
+        raise ValueError(f"Step {step + 1}: “run only if” needs 1 to 10 conditions")
+    return {"all": [check_condition(c, step, False) for c in conds], "otherwise": w.get("otherwise") if w.get("otherwise") in ("skip", "stop") else "skip"}
+
+
+def check_checks(lst: list, step: int) -> list:
+    if not isinstance(lst, list) or len(lst) > 10:
+        raise ValueError(f"Step {step + 1}: up to 10 checks")
+    return [{"if": check_condition(c.get("if") or {}, step, True), "then": c.get("then") if c.get("then") in ("warn", "alert", "stop") else "warn",
+             "message": str(c.get("message") or "")[:300]} for c in lst]
+
+
+def key_of(of: dict) -> str:
+    return f"{of['step']}:{of['field']}" if of.get("field") else f"{of['step']}:{of['stat']}:{of.get('band', 1)}"
+
+
+def label_of(of: dict) -> str:
+    if of.get("field"):
+        return f"step {of['step'] + 1}'s {of['field']}"
+    what = {"mean": "mean", "min": "minimum", "max": "maximum", "empty_pct": "% empty", "rows": "rows", "features": "features"}[of["stat"]]
+    return f"step {of['step'] + 1}'s {what}" + (f" (band {of['band']})" if of["stat"] in ("mean", "min", "max", "empty_pct") and of.get("band", 1) > 1 else "")
+
+
+def _field(obj, path: str):
+    for k in path.replace("[", ".").replace("]", "").split("."):
+        if k == "":
+            continue
+        if isinstance(obj, list):
+            obj = obj[int(k)] if k.lstrip("-").isdigit() and -len(obj) <= int(k) < len(obj) else None
+        elif isinstance(obj, dict):
+            obj = obj.get(k)
+        else:
+            return None
+    return obj
+
+
+def value_of(of: dict, steps: dict, describe=None):
+    """The value a condition reads, from a step's result ({"result", "outs"}) or its first matching file."""
+    st = steps.get(of["step"]) or steps.get(str(of["step"]))
+    if st is None:
+        return None
+    if of.get("field"):
+        v = _field(st.get("result") or {}, of["field"])
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v else None
+    if describe is None:
+        from .assistant_data import describe
+    want = {"rows": "table", "features": "vector"}.get(of["stat"], "raster")
+    for path in st.get("outs") or []:
+        if kind_of(path) != want and not (want == "vector" and path.lower().endswith(".geojson")):
+            continue
+        d = describe(path)
+        if of["stat"] in ("rows", "features"):
+            v = d.get(of["stat"])
+            return float(v) if isinstance(v, (int, float)) else None
+        b = next((x for x in d.get("bands") or [] if x.get("band") == of.get("band", 1)), None)
+        v = (b or {}).get(of["stat"])
+        return float(v) if isinstance(v, (int, float)) else None
+    return None
+
+
+def compare(cur: float, op: str, value: float, prev: float | None = None) -> bool | None:
+    if op in ("drop", "rise"):
+        if prev is None:
+            return None   # no earlier run to compare with
+        return (prev - cur >= value) if op == "drop" else (cur - prev >= value)
+    return {"<": cur < value, "<=": cur <= value, ">": cur > value, ">=": cur >= value, "==": cur == value, "!=": cur != value}[op]
+
+
+def _num(v: float) -> str:
+    return f"{v:.0f}" if abs(v) >= 100 else f"{v:.3g}"
+
+
+def evaluate(conds: list[dict], steps: dict, previous: dict | None = None, describe=None) -> list[dict]:
+    """Each condition decided: {ok: True / False / None (couldn't be decided), value, previous, text}."""
+    out = []
+    for c in conds:
+        of, op, val = c["of"], c["op"], c["value"]
+        cur = value_of(of, steps, describe)
+        prev = (previous or {}).get(key_of(of))
+        name = label_of(of)
+        if cur is None:
+            out.append({"ok": None, "value": None, "previous": prev, "key": key_of(of), "text": f"{name}: not found in its result"})
+            continue
+        ok = compare(cur, op, val, prev)
+        if op in ("drop", "rise"):
+            text = (f"{name} is {_num(cur)}: no earlier run to compare with" if prev is None else
+                    f"{name} {'fell' if cur < prev else 'rose' if cur > prev else 'stayed'} {'' if cur == prev else f'from {_num(prev)} '}to {_num(cur)} "
+                    f"({'a ' + ('fall' if op == 'drop' else 'rise') + ' of at least ' + _num(val) if ok else 'not a ' + ('fall' if op == 'drop' else 'rise') + ' of ' + _num(val)})")
+        else:
+            text = f"{name} = {_num(cur)} ({'' if ok else 'not '}{op} {_num(val)})"
+        out.append({"ok": ok, "value": cur, "previous": prev, "key": key_of(of), "text": text})
+    return out
+
+
+def _values_file(wid: str) -> Path:
+    return folder() / "values" / f"{_file(wid).stem}.json"
+
+
+def previous_values(wid: str) -> dict:
+    try:
+        return json.loads(_values_file(wid).read_text(encoding="utf-8")).get("values", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def record_values(wid: str, values: dict) -> None:
+    """The values this run read, kept for the next run's “falls by / rises by” conditions."""
+    if not values:
+        return
+    f = _values_file(wid)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    old = previous_values(wid)
+    old.update({str(k)[:80]: float(v) for k, v in values.items() if isinstance(v, (int, float))})
+    f.write_text(json.dumps({"values": old, "updated": time.strftime("%Y-%m-%d %H:%M:%S")}, indent=1), encoding="utf-8")
 
 
 def _refs(node):
@@ -317,3 +490,48 @@ def mark_ran(wid: str, ok: bool, message: str = "", alert: bool = False) -> dict
     s["runs"] = ([{"t": now, "ok": bool(ok), "alert": bool(alert), "message": str(message)[:500]}] + s.get("runs", []))[:20]
     _sched_write(data)
     return {"id": wid, **s}
+
+
+# ------------------------------------------------------------------ cautions before running
+def cautions(wf: dict, saved: bool = True) -> list[str]:
+    """What may go wrong when the workflow runs, found from its settings alone (shown before running; nothing is
+    refused): cloudy imagery allowed, very large areas, a step comparing a layer with itself, conditions that can't
+    decide on a first run, outputs nothing uses."""
+    out = []
+    inputs = {i["id"]: i for i in wf.get("inputs") or []}
+
+    def val(v):
+        return inputs[v["$in"]].get("default") if isinstance(v, dict) and "$in" in v and v["$in"] in inputs else v
+    for n, s in enumerate(wf.get("steps") or []):
+        b, ep, name = s.get("body") or {}, s.get("endpoint", ""), f"Step {n + 1} ({s.get('title', '')})"
+        if ep == "/api/jobs" and b.get("kind") in ("scene", "composite"):
+            mc = val(b.get("max_cloud", 40))
+            gated = any(c["of"].get("field") == "cloud_pct" and c["of"]["step"] == n for later in wf["steps"][n + 1:]
+                        for c in (later.get("when") or {}).get("all", []))
+            if isinstance(mc, (int, float)) and mc >= 50 and not gated:
+                out.append(f"{name} accepts imagery up to {mc:g}% cloudy: add “run only if cloud_pct < 20” to the next step, or lower the cloud limit")
+            aoi = val(b.get("aoi"))
+            if isinstance(aoi, dict) and aoi.get("type") in ("Polygon", "MultiPolygon"):
+                try:
+                    from shapely.geometry import shape
+                    g = shape(aoi)
+                    lat = abs(g.centroid.y)
+                    km2 = g.area * 111.32 ** 2 * max(0.05, __import__("math").cos(__import__("math").radians(lat)))
+                    if km2 > 5000:
+                        out.append(f"{name} downloads about {km2:,.0f} km² at {b.get('res', 10)} m: a large, slow download (clip to the area you need)")
+                except Exception:   # noqa: BLE001 (an area that can't be measured is checked when it runs)
+                    pass
+        pair = [b.get(k) for k in ("before", "after")] if "before" in b and "after" in b else None
+        if pair and json.dumps(pair[0], sort_keys=True) == json.dumps(pair[1], sort_keys=True):
+            out.append(f"{name} compares the same file with itself: the result will show no change")
+        for c in (s.get("when") or {}).get("all", []) + [k["if"] for k in s.get("checks") or []]:
+            if c["op"] in ("drop", "rise") and not saved:
+                out.append(f"{name}: “{'falls' if c['op'] == 'drop' else 'rises'} by” compares with the previous run: save the workflow, and the first run only records the value")
+    used = {r["$step"] for s in wf.get("steps") or [] for r in _refs(s.get("body")) if "$step" in r}
+    used |= {c["of"]["step"] for s in wf.get("steps") or [] for c in (s.get("when") or {}).get("all", []) + [k["if"] for k in s.get("checks") or []]}
+    last = len(wf.get("steps") or []) - 1
+    idle = [n + 1 for n in range(last) if n not in used]
+    if idle and last > 0:
+        out.append(f"Step{'s' if len(idle) > 1 else ''} {', '.join(map(str, idle))} make{'' if len(idle) > 1 else 's'} files no later step uses "
+                   "(fine if you want them; tick “Add every step's results” to see them)")
+    return list(dict.fromkeys(out))

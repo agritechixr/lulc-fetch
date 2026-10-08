@@ -38,12 +38,14 @@ def geocode(q: str):
 
 
 @router.post("/api/aoi/upload")
-async def upload_aoi(files: list[UploadFile] = File(...)):
+async def upload_aoi(files: list[UploadFile] = File(...), ask_crs: bool = False):
+    """Vector files → WGS 84 GeoJSON. ask_crs (Add data): data without a coordinate system comes back as it is, marked
+    crs_missing, for the user to choose its system."""
     payload = [(f.filename or "upload", await f.read()) for f in files]
     if sum(len(d) for _, d in payload) > 50 * 2**20:
         raise HTTPException(413, "Upload is larger than 50 MB")
     try:
-        return aoi_io.parse_upload(payload)
+        return aoi_io.parse_upload(payload, ask_crs=ask_crs)
     except Exception as e:
         raise HTTPException(400, str(e))
 

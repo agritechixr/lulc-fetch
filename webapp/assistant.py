@@ -90,6 +90,10 @@ CATALOG = {
     "/api/vector/geometry": "Calculate geometry: adds area_m2, area_ha, perimeter_m (polygons) or length_m (lines) and the centroid "
                             "lon / lat to `layer`. Output: .geojson",
     "/api/vector/count-points": "Count the `points` (a layer) inside each of the `polygons`, and the sum of a points' `sum_field`. Output: .geojson",
+    "/api/vector/spatial-stats": "Spatial statistics of `layer` (points or polygons): method 'density' (kernel density heat map of points "
+                                 "per km², optional weight `field`; Output: .tif), 'hotspots' (Getis-Ord Gi* of a number `field`, or "
+                                 "without one of point counts per grid cell: hot / cold spots), 'moran' (Moran's I of `field`: clustered, "
+                                 "random or dispersed, and local clusters), 'nearest' (average nearest neighbour of points). Output: .geojson",
     "/api/vector/join-table": "Join a table (`table`: a path of a CSV / Excel / Parquet) to `layer` where the layer's `layer_field` "
                               "equals the table's `table_field`. Output: .geojson",
     "/api/raster/terrain": "From a DEM (`dem`: a path): products ['slope', 'aspect', 'hillshade'] (slope in degrees, aspect in degrees "
@@ -101,6 +105,12 @@ CATALOG = {
     "/api/raster/change": "Change between two dates of the same thing: `before` and `after` (paths): the difference and % change, or "
                           "categorical=true for class maps (land cover): from→to map and a table of the area of every change. Output: .tif (+ .csv)",
     "/api/raster/clip": "Cut `raster` to polygons `area` (a GeoJSON area; invert=true keeps the outside). Output: .tif",
+    "/api/raster/mosaic": "Mosaic: join neighbouring tiles or scenes (`rasters`: paths, same bands, the first's grid) into one image. "
+                          "method 'blend' (smooth seams, default), 'first' / 'last' (on top), 'median', 'mean', 'min', 'max'; "
+                          "categorical=true for class maps (method first, last or 'mode'). Leave balance (colour matching) as it is. Output: .tif",
+    "/api/raster/burn": "Burn severity: `before` and `after` images (paths, with NIR B08 and SWIR2 B12, or NBR rasters): dNBR = NBR "
+                        "before − after and its USGS severity classes, with burned hectares. min_post_nbr 0.1 for stubble / crop "
+                        "residue burning (keeps just-harvested fields out). Output: .tif (severity, dNBR) + .csv",
     "/api/convert/raster-to-polygon": "Class areas of `raster` (whole-number classes; reclassify continuous data first) as polygons with "
                                       "value, class, area_ha: values [only these], min_area (m², merges smaller patches), simplify (m), "
                                       "dissolve=true (one per value). Output: .geojson",
@@ -321,6 +331,11 @@ RULES = """How to choose tools:
 - Slope, aspect or a shaded relief of a DEM → ONE /api/raster/terrain step with all of them in `products`; contour lines → /api/raster/contours; ranges of
   values to classes (e.g. NDVI → low / medium / high) → /api/raster/reclassify; what changed between two dates →
   /api/raster/change (categorical for land-cover maps); a raster cut to an area → /api/raster/clip.
+- Several tiles or scenes joined into one image → ONE /api/raster/mosaic step with all of them in `rasters`. Burned
+  areas / burn severity / stubble burning between two dates → /api/raster/burn (images before and after the burning).
+- A heat map of points (reports, incidents) → /api/vector/spatial-stats method 'density'; where values or reports
+  cluster (hot spots) → 'hotspots'; whether a value is spatially clustered → 'moran'; whether points are clustered
+  or evenly spread → 'nearest'.
 - A different pixel size or coordinate system → /api/raster/resample (cubic or lanczos when enlarging imagery,
   average when shrinking values, nearest / mode for class maps). Better contrast, denoising, sharpening, edges,
   texture or a speckle-free class map → /api/raster/enhance. Downloads, Stack, Make training data, embeddings and
@@ -337,7 +352,21 @@ RULES = """How to choose tools:
   /api/convert/raster-to-point; polygons or points into a raster (labels on an image's grid: like = that image) →
   /api/convert/rasterize; polygons ↔ lines, points → a track, points every n m, boxes → /api/convert/features.
 - Centroids, convex hulls, simplifying, merging layers, splitting multipart shapes, a grid of cells, random sample
-  points in polygons → /api/vector/geom-op with its op."""
+  points in polygons → /api/vector/geom-op with its op.
+
+Conditions (only when the request asks for them: "only if", "skip when", "warn / alert me if", "stop if"). A step may
+have "when" (run it only if every condition holds; otherwise "skip" or "stop") and "checks" (after it ran: "warn",
+"alert" or "stop" when the condition holds). A condition reads an earlier step (checks: also the step itself):
+  {"of": {"step": 0, "field": "cloud_pct"}, "op": "<", "value": 20}       a number of that step's result
+  {"of": {"step": 1, "stat": "mean", "band": 1}, "op": "drop", "value": 0.1}   a statistic of its file
+ops: < <= > >= == != , "drop" / "rise" = fell / grew by at least value since the previous run of the workflow.
+stat: mean, min, max, empty_pct (rasters), rows (tables), features (vectors). Result fields: downloads (/api/jobs)
+give cloud_pct and valid_pct (% clear data); change detection summary.mean_change, summary.changed_pct; burn severity
+summary.burned_ha. Examples: "NDVI only if the scene is under 20 % cloudy" → the NDVI step gets
+{"when": {"all": [{"of": {"step": 0, "field": "cloud_pct"}, "op": "<", "value": 20}], "otherwise": "skip"}};
+"alert if NDVI falls by 0.1" → the NDVI step gets {"checks": [{"if": {"of": {"step": 1, "stat": "mean"}, "op": "drop",
+"value": 0.1}, "then": "alert", "message": "NDVI fell"}]}. Put them in conditions_json as one JSON object, or "" (with
+local models: the step's "when" / "checks" fields). No conditions unless asked."""
 
 
 def catalog_text() -> str:
@@ -411,8 +440,9 @@ SCHEMA = {
             "inputs": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["id", "label", "type", "default_json"],
                        "properties": {"id": {"type": "string"}, "label": {"type": "string"}, "type": {"type": "string", "enum": ["file", "area", "value"]},
                                       "default_json": {"type": "string"}}}},
-            "steps": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["title", "endpoint", "body_json"],
-                      "properties": {"title": {"type": "string"}, "endpoint": {"type": "string", "enum": list(CATALOG)}, "body_json": {"type": "string"}}}},
+            "steps": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["title", "endpoint", "body_json", "conditions_json"],
+                      "properties": {"title": {"type": "string"}, "endpoint": {"type": "string", "enum": list(CATALOG)}, "body_json": {"type": "string"},
+                                     "conditions_json": {"type": "string"}}}},
         }},
     },
 }
@@ -427,6 +457,9 @@ def _local_schema() -> dict:
     wf["steps"]["items"]["properties"].pop("body_json")
     wf["steps"]["items"]["properties"]["body"] = {"type": "object"}
     wf["steps"]["items"]["required"] = ["title", "endpoint", "body"]
+    wf["steps"]["items"]["properties"].pop("conditions_json")
+    wf["steps"]["items"]["properties"]["when"] = {"type": "object"}
+    wf["steps"]["items"]["properties"]["checks"] = {"type": "array"}
     wf["steps"]["items"].pop("additionalProperties")
     return sch
 
@@ -449,6 +482,7 @@ def _example(text_fields: bool) -> str:
             i["default_json"] = json.dumps(i.pop("default"))
         for st in wf["steps"]:
             st["body_json"] = json.dumps(st.pop("body"))
+            st["conditions_json"] = ""
     return json.dumps({"plan": "Computes NDVI of Scene X inside the plots, then turns it into a table (one row per pixel).", "questions": [], "remember": [], "workflow": wf})
 
 
@@ -676,7 +710,19 @@ def _to_workflow(out: dict, known_files: set | None = None, prefix: list[dict] |
             body = {}
         _area_names(spec, s.get("endpoint", ""), body)
         probs += [f"step {n + 1}: {p}" for p in _check_body(spec, s.get("endpoint", ""), body, {i["id"]: i["type"] for i in inputs})]
-        steps.append({"title": s.get("title") or s.get("endpoint"), "kind": "", "endpoint": s.get("endpoint", ""), "body": body})
+        step = {"title": s.get("title") or s.get("endpoint"), "kind": "", "endpoint": s.get("endpoint", ""), "body": body}
+        cond = _unwrap(s.get("conditions_json")) if s.get("conditions_json") else {k: s[k] for k in ("when", "checks") if s.get(k)}
+        if isinstance(cond, dict) and cond:   # "run only if" and checks afterwards (see RULES)
+            try:
+                if cond.get("when"):
+                    step["when"] = workflows.check_when(cond["when"], n)
+                if cond.get("checks"):
+                    step["checks"] = workflows.check_checks(cond["checks"], n)
+            except (ValueError, TypeError, AttributeError) as e:
+                probs.append(f"step {n + 1}: conditions: {e}")
+        elif cond not in ({}, None, ""):
+            probs.append(f"step {n + 1}: conditions_json must be a JSON object (or \"\")")
+        steps.append(step)
     _renumber(steps, len(pre))
     used = set(re.findall(r'"\$in":\s*"([^"]+)"', json.dumps([s["body"] for s in steps])))
     unused = {i["id"] for i in inputs} - used   # inputs no step uses (e.g. the map view, given "just in case") are left out
@@ -731,6 +777,10 @@ def plan(messages: list[dict], context: dict, conv_id: str = "", prefix: list[di
     result = {"plan": out.get("plan", ""), "questions": [q for q in out.get("questions") or [] if q], "workflow": wf, "problems": probs,
               "remembered": remembered, "provider": st["provider"], "model": st["model"], "seconds": round(time.time() - t0, 1), "fixes": tries,
               "reply": json.dumps(out, ensure_ascii=False)}
+    try:   # what may go wrong when it runs (cloudy imagery allowed, very large areas …): shown with the plan
+        result["cautions"] = workflows.cautions(workflows.check(wf), saved=False) if wf.get("steps") else []
+    except ValueError:
+        result["cautions"] = []
     if conv_id:
         if not prefix:
             data.log(conv_id, {"role": "user", "text": msgs[-1]["content"] if msgs[-1]["role"] == "user" else first_request})

@@ -385,10 +385,10 @@ def table_stats(path: str):
 
 
 @router.get("/api/tables/points")
-def table_points(path: str, q: str = "", lon: str | None = None, lat: str | None = None):
+def table_points(path: str, q: str = "", lon: str | None = None, lat: str | None = None, crs: str | None = None):
     from lulc_fetch import tableview
 
     try:
-        return tableview.points(_table_path(path), query=q[:200], lon=lon, lat=lat)
-    except ValueError as e:
+        return tableview.points(_table_path(path), query=q[:200], lon=lon, lat=lat, crs=crs)
+    except ValueError as e:   # (a coordinate system that can't be read is one too)
         raise HTTPException(400, str(e))

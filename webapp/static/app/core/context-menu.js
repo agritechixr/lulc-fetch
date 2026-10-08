@@ -4,11 +4,18 @@
   // ------------------------------------------------------------------ context menu
   function showCtx(l, x, y) {
     const isPoly = l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type));
+    if (l.type === "unplaced") return showMenu(l.name, [
+      ["Coordinate system… (place it on the map)", () => openCrsDialog(l)],
+      ["Place with control points…", () => openTool("georef", { layer: l.id })],
+      "-",
+      ["Remove", () => removeLayer(l.id), "danger"],
+    ], x, y);
     const items = [
       ["Zoom to layer", () => zoomTo(l)],
       ["Properties…", () => openProps(l)],
       l.type === "raster" && !l.derived && (l.info?.count || 0) >= 2 ? ["Band combination (RGB)…", () => openBandCombo(l)] : null,
       l.type !== "image" && l.type !== "tiles" ? ["Metadata…", () => openMetadata(l)] : null,
+      l.type === "vector" || (l.type === "raster" && l.path) ? ["Coordinate system…", () => openCrsDialog(l)] : null,
       l.type === "tiles" && l.tiles.url ? ["Copy the service address", () => copyText(l.tiles.url, "Service address copied")] : null,
       l.type === "raster" && !l.derived ? ["Compute indices on this layer", () => analyzeLayer(l)] : null,
       l.type === "vector" ? ["Open attribute table", () => openAttr(l)] : null,

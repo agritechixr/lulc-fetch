@@ -108,7 +108,8 @@ def describe(rel: str) -> dict:
             props = [f.get("properties") or {} for f in feats[:200]]
             fields = sorted({k for pr in props for k in pr})[:30]
             out.update(kind="vector", features=len(feats), geometry=sorted({(f.get("geometry") or {}).get("type") for f in feats[:500]} - {None}),
-                       fields={k: [pr.get(k) for pr in props[:3]] for k in fields})
+                       fields={k: [pr.get(k) for pr in props[:3]] for k in fields},
+                       null_geometries=sum(1 for f in feats if not f.get("geometry")))
             if not feats:
                 out["warnings"] = ["no features"]
         else:
@@ -116,6 +117,65 @@ def describe(rel: str) -> dict:
     except Exception as e:  # noqa: BLE001 — a file that can't be read is described as such
         out["error"] = f"couldn't read it: {str(e)[:200]}"
     return out
+
+
+# indices that must lie between −1 and 1 (a value outside means wrong bands or reflectance scaling)
+INDEX_RE = re.compile(r"(?<![A-Za-z])(NDVI|GNDVI|EVI2?|SAVI|OSAVI|MSAVI2?|NDWI|MNDWI|NDMI|NDRE|NBR2?|NDBI|NDSI|NDTI|BSI)(?![A-Za-z])", re.I)
+
+
+def problems(files: list[dict], result: dict | None = None) -> tuple[list[str], list[str]]:
+    """What looks wrong in a step's files (describe()) and result: (critical, warnings). Critical: the result can't be
+    right (empty, impossible values) — a workflow warns loudly, the Assistant fixes the step. Warnings: worth a look."""
+    crit, warn = [], []
+    for f in files:
+        name = str(f.get("path", "")).split("/")[-1]
+        if f.get("error"):
+            crit.append(f"{name}: {f['error']}")
+            continue
+        if f.get("kind") == "raster":
+            for b in f.get("bands") or []:
+                e = b.get("empty_pct") or 0
+                tag = f"{name}" + (f" band {b['band']}" if (f.get("bands_total") or 1) > 1 else "")
+                if e >= 99.5:
+                    crit.append(f"{tag} is empty (no data)")
+                    continue
+                if e >= 95:
+                    crit.append(f"{tag}: {e:g}% of it has no data")
+                elif e >= 50:
+                    warn.append(f"{tag}: {e:g}% of it has no data")
+                lo, hi = b.get("min"), b.get("max")
+                if lo is not None and lo == hi:
+                    warn.append(f"{tag} has one value only ({lo})")
+                idx = INDEX_RE.search(f"{name} {b.get('name') or ''}")
+                if idx and lo is not None and (lo < -1.01 or hi > 1.01) and not re.search(r"dNBR|diff|change", f"{name} {b.get('name')}", re.I):
+                    crit.append(f"{tag}: {idx.group(1).upper()} runs from {lo} to {hi}, but an index lies between −1 and 1 → wrong bands or reflectance scaling")
+            if not f.get("crs"):
+                warn.append(f"{name} has no coordinate system")
+        elif f.get("kind") == "table":
+            if f.get("rows") == 0:
+                crit.append(f"{name}: the table has no rows")
+            empty = [c for c in (f.get("columns") or {}) if f.get("sample") and all(r.get(c) is None for r in f["sample"])]
+            if empty and f.get("rows"):
+                warn.append(f"{name}: column{'s' if len(empty) > 1 else ''} {', '.join(empty[:5])} {'are' if len(empty) > 1 else 'is'} empty in the first rows")
+        elif f.get("kind") == "vector":
+            if f.get("features") == 0:
+                crit.append(f"{name}: no features")
+            elif f.get("null_geometries"):
+                warn.append(f"{name}: {f['null_geometries']} feature(s) without a geometry")
+    r = result or {}
+    cloud = r.get("cloud_pct")
+    if isinstance(cloud, (int, float)):
+        if cloud >= 80:
+            crit.append(f"the imagery is {cloud:g}% cloudy: the result shows mostly clouds → pick another date or a composite")
+        elif cloud >= 40:
+            warn.append(f"the imagery is {cloud:g}% cloudy (catalogue estimate): check the result for clouds")
+    valid = r.get("valid_pct")
+    if isinstance(valid, (int, float)):
+        if valid < 20:
+            crit.append(f"only {valid:g}% of the area has clear data")
+        elif valid < 60:
+            warn.append(f"only {valid:g}% of the area has clear data")
+    return crit, warn
 
 
 def describe_many(paths: list, limit: int = 8) -> list[dict]:

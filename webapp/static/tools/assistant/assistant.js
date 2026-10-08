@@ -208,10 +208,13 @@
             ${t.workflow.inputs.length ? `<div class="as-sec">Works on</div><ul class="as-list">${t.workflow.inputs.map((i) => `<li><b>${esc(i.label)}</b> <small>${esc(i.type)}</small> ${esc(String(shortVal(i.default)).slice(0, 60))}</li>`).join("")}</ul>` : ""}
             <div class="as-sec">Steps</div><ol class="as-list">${t.workflow.steps.map((s, i) => {
               const r = run?.steps?.[i] || {};
-              return `<li class="as-step ${r.state || ""}"><b>${esc(s.title)}</b> <small>${esc(s.endpoint.replace("/api/", ""))}</small> <span class="as-mark">${r.state === "done" ? "✓" : r.state === "run" ? '<span class="spinner"></span>' : r.state === "fix" ? "↻" : r.state === "fail" ? "✗" : ""}</span>
-                <div class="hint" style="margin:0">${r.obs ? esc(r.obs) : settingsLine(s.body)}</div>${r.note ? `<div class="as-note">${esc(r.note)}</div>` : ""}</li>`;
+              const conds = [s.when?.all?.length ? `⑂ only if ${s.when.all.map((c) => `step ${c.of.step + 1}'s ${c.of.field || c.of.stat} ${c.op} ${c.value}`).join(" and ")}` : "",
+                ...(s.checks || []).map((c) => `${c.then === "alert" ? "🔔" : c.then === "stop" ? "■" : "⚠"} ${c.then} if step ${c.if.of.step + 1}'s ${c.if.of.field || c.if.of.stat} ${c.if.op} ${c.if.value}`)].filter(Boolean);
+              return `<li class="as-step ${r.state || ""}"><b>${esc(s.title)}</b> <small>${esc(s.endpoint.replace("/api/", ""))}</small> <span class="as-mark">${{ done: "✓", run: '<span class="spinner"></span>', fix: "↻", fail: "✗", skip: "⤼", warn: "⚠" }[r.state] || ""}</span>
+                <div class="hint" style="margin:0">${r.obs ? esc(r.obs) : settingsLine(s.body)}</div>${conds.length ? `<div class="as-cond">${conds.map(esc).join("<br>")}</div>` : ""}${r.note ? `<div class="as-note">${esc(r.note)}</div>` : ""}</li>`;
             }).join("")}</ol>
             ${t.problems?.length ? `<div class="warn">The plan may be wrong: ${esc(t.problems.join("; "))}. Check it in Workflows before running.</div>` : ""}
+            ${t.cautions?.length && !run ? `<div class="warn"><b>Before you run:</b><ul style="margin:4px 0 0;padding-left:16px">${t.cautions.map((c) => `<li>${esc(c)}</li>`).join("")}</ul></div>` : ""}
             ${run?.ask ? `<div class="as-approve"><b>New plan for the rest:</b> ${esc(run.ask.plan)}<ol class="as-list">${run.ask.steps.map((s) => `<li>${esc(s.title)} <small>${esc(s.endpoint.replace("/api/", ""))}</small></li>`).join("")}</ol>
                 <div class="row tight" style="gap:6px"><button class="btn small primary" data-approve="yes">Continue with it</button><button class="btn small ghost" data-approve="no">Stop</button></div></div>` : ""}
             ${run?.summary ? `<div class="as-done">${esc(run.summary)}</div>` : ""}
@@ -264,14 +267,13 @@
       }
 
       // ---- running a plan: Plan → Execute → Observe → (fix | replan) → …
-      const failing = (files) => (files || []).flatMap((f) => [...(f.warnings || []).filter((w) => /empty|no rows|no features/.test(w)), ...(f.error ? [f.error] : [])]);
       const changedKeys = (a, b) => [...new Set([...Object.keys(a || {}), ...Object.keys(b || {})])].filter((k) => JSON.stringify(a?.[k]) !== JSON.stringify(b?.[k]));
       async function execute(turn) {
         if (st.running) return;
         st.running = true; st.stop = false;
         const wf = JSON.parse(JSON.stringify(turn.workflow));
         const run = turn.run = { active: true, workflow: wf, steps: wf.steps.map(() => ({})) };
-        const ctx = { inputs: {}, outputs: [] }, done = [], results = [], history = [];
+        const ctx = { inputs: {}, outputs: [] }, done = [], results = [], history = [], doneMap = {}, skipped = new Set(), notes = [];
         wf.inputs.forEach((inp) => { ctx.inputs[inp.id] = inp.default; });   // the plan's own values (a path, an area, a year)
         let replans = 0;
         render();
@@ -282,16 +284,33 @@
             while (true) {
               if (st.stop) throw Object.assign(new Error("Stopped"), { cancelled: true });
               const s = wf.steps[i], rs = run.steps[i];
+              // its conditions first: a step that needs a skipped step, or whose "run only if" doesn't hold, is skipped (or stops the run)
+              const from = LF.wf.usesSteps(s).find((n) => skipped.has(n));
+              const g = from != null ? { run: false, notes: [`it uses step ${from + 1}'s result, which was skipped`] } : await LF.wf.gate(s, i, doneMap, null);
+              if (!g.run) {
+                if (g.stop) { Object.assign(rs, { state: "fail", note: `Its condition isn't met: ${g.notes.join("; ")}` }); throw Object.assign(new Error(`Step ${i + 1} (${s.title}): its condition isn't met`), { soft: true }); }
+                skipped.add(i); ctx.outputs[i] = [];
+                Object.assign(rs, { state: "skip", note: `Skipped: ${g.notes.join("; ")}` });
+                done.push({ title: s.title, endpoint: s.endpoint, body: s.body, observation: [], result: { skipped: g.notes.join("; ") } });
+                logEvent({ role: "event", kind: "step", index: i, title: s.title, ok: true, observation: rs.note });
+                render();
+                break;
+              }
               rs.state = "run"; render();
               let problem = null;
               try {
                 const r = await LF.wf.runStep(s, ctx, i, wf.steps.length, wf.name, "assistant");
-                const obs = (await api("/api/assistant/observe", { method: "POST", json: { paths: r.outs } }).catch(() => ({ files: [] }))).files;
-                const bad = failing(obs);
-                if (bad.length) problem = { warnings: bad, obs };
+                doneMap[i] = { result: r.result && typeof r.result === "object" ? r.result : {}, outs: r.outs };
+                // what it made, checked: critical problems are fixed like a failure; warnings and alerts are shown
+                const a = await LF.wf.afterStep(s, i, doneMap, null, r);
+                const obs = a.files;
+                if (a.critical.length) { problem = { warnings: a.critical, obs }; delete doneMap[i]; }
+                else if (a.stop) { Object.assign(rs, { state: "fail", note: `Stopped by its check: ${a.stop}` }); throw Object.assign(new Error(`Step ${i + 1} (${s.title}): ${a.stop}`), { soft: true }); }
                 else {
                   ctx.outputs[i] = r.outs; results.push(r);
-                  Object.assign(rs, { state: "done", obs: obsLine(obs) || "done" });
+                  const flags = [...a.alerts.map((x) => `🔔 ${x}`), ...a.warnings.map((x) => `⚠ ${x}`)];
+                  flags.forEach((x) => notes.push(`Step ${i + 1}: ${x}`));
+                  Object.assign(rs, { state: flags.length ? "warn" : "done", obs: obsLine(obs) || "done", note: flags.join(" · ") || rs.note });
                   done.push({ title: s.title, endpoint: s.endpoint, body: s.body, observation: obs, result: r.result });
                   if (lastErr) api("/api/assistant/memory/lesson", { method: "POST", json: { endpoint: s.endpoint, error: lastErr.error, body: s.body,
                     fix: `changed ${changedKeys(lastErr.body, s.body).join(", ") || "the step"}` } }).catch(() => {});
@@ -300,7 +319,7 @@
                   break;
                 }
               } catch (e) {
-                if (e?.cancelled) throw e;
+                if (e?.cancelled || e?.soft) throw e;
                 problem = { error: e.message };
               }
               // something went wrong: the model fixes this step (or replans the rest), knowing what failed so far
@@ -339,8 +358,8 @@
           }
           const added = await LF.wf.addResults(results, false);
           run.done = done;
-          run.summary = `Done: ${wf.steps.length} step${wf.steps.length === 1 ? "" : "s"}, ${added} result${added === 1 ? "" : "s"} added to Contents.${history.length ? ` It fixed ${history.length} problem${history.length === 1 ? "" : "s"} on the way.` : ""}`;
-          toast("The Assistant's plan finished");
+          run.summary = `Done: ${wf.steps.length - skipped.size} step${wf.steps.length - skipped.size === 1 ? "" : "s"}${skipped.size ? ` (${skipped.size} skipped by its conditions)` : ""}, ${added} result${added === 1 ? "" : "s"} added to Contents.${history.length ? ` It fixed ${history.length} problem${history.length === 1 ? "" : "s"} on the way.` : ""}${notes.length ? ` Check: ${notes.join(" · ")}` : ""}`;
+          toast(notes.some((x) => x.includes("🔔")) ? "🔔 The Assistant's plan finished with an alert" : notes.length ? "The Assistant's plan finished with warnings" : "The Assistant's plan finished", notes.length > 0);
           logEvent({ role: "event", kind: "finished", text: run.summary });
         } catch (e) {
           run.summary = e?.cancelled ? "Stopped." : `Stopped: ${e.message}`;

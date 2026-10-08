@@ -60,6 +60,72 @@ def workflow_schedule_ran(wid: str, req: RanBody):
         raise HTTPException(404, str(e))
 
 
+class EvaluateBody(BaseModel):
+    conditions: list[dict] = Field(max_length=20)
+    steps: dict = Field(default_factory=dict)        # step number → {"result": the tool's answer, "outs": its files}
+    wid: str | None = Field(None, max_length=64)     # a saved workflow: its previous run's values ("falls by")
+    step: int = Field(0, ge=0, le=49)                # the step the conditions belong to
+    own: bool = False                                # checks after a step (may read the step itself)
+
+
+@router.post("/api/workflows/evaluate")
+def workflow_evaluate(req: EvaluateBody):
+    """Decide a step's conditions from the results so far: each one true, false or undecided, with why."""
+    from .. import workflows
+    try:
+        conds = [workflows.check_condition(c, req.step, req.own) for c in req.conditions]
+        prev = workflows.previous_values(req.wid) if req.wid else {}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"results": workflows.evaluate(conds, req.steps, prev)}
+
+
+class CautionsBody(BaseModel):
+    workflow: dict
+    saved: bool = True
+
+
+@router.post("/api/workflows/cautions")
+def workflow_cautions(req: CautionsBody):
+    """What may go wrong when the workflow runs (from its settings alone): shown before running."""
+    from .. import workflows
+    try:
+        wf = workflows.check(req.workflow)
+    except ValueError as e:
+        return {"cautions": [], "error": str(e)}
+    return {"cautions": workflows.cautions(wf, req.saved)}
+
+
+class ObserveBody(BaseModel):
+    paths: list[str] = Field(max_length=40)
+    result: dict | None = None
+
+
+@router.post("/api/workflows/observe")
+def workflow_observe(req: ObserveBody):
+    """The built-in checks of what a step made: critical problems (an empty image, impossible index values, no rows…)
+    and warnings (mostly cloudy, much of it empty, no coordinate system…)."""
+    from .. import assistant_data
+    files = [assistant_data.describe(p) for p in req.paths[:40]]
+    crit, warn = assistant_data.problems(files, req.result)
+    return {"files": files, "critical": crit, "warnings": warn}
+
+
+class ValuesBody(BaseModel):
+    values: dict = Field(default_factory=dict)
+
+
+@router.post("/api/workflows/{wid}/values")
+def workflow_values(wid: str, req: ValuesBody):
+    """Keep the values a run read, for the next run's “falls by / rises by” conditions."""
+    from .. import workflows
+    try:
+        workflows.record_values(wid, req.values)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
 @router.get("/api/workflows/{wid}")
 def workflow_get(wid: str):
     from .. import workflows

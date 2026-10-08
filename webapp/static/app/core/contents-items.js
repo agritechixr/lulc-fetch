@@ -103,15 +103,17 @@
   }
   // a table's rows as points on the map: the longitude / latitude columns are found by name and value (lat, lon, lng,
   // longitude, Latitude (deg)…, x / y in degrees), or chosen in a dialog when they aren't
-  async function tablePoints(it, q = "", cols = null) {
+  async function tablePoints(it, q = "", cols = null, crs = null) {
     status(`Loading points from ${it.name}…`, true);
     try {
       const p = new URLSearchParams({ path: it.path, q });
       if (cols) { p.set("lon", cols[0]); p.set("lat", cols[1]); }
+      if (crs && crs !== "EPSG:4326") p.set("crs", crs);
       const fc = await api(`/api/tables/points?${p}`);
       const skipped = fc.total - fc.features.length;
-      if (!fc.features.length) { status(""); toast(`No rows of ${it.name} have a valid longitude / latitude${cols ? "" : ": choose the columns"}`, true); return cols ? null : chooseXY(it); }
-      const l = addVectorLayer({ type: "FeatureCollection", features: fc.features }, `${it.name.replace(/\.[^.]+$/, "")} · points`, { tableSource: it.path });
+      if (!fc.features.length) { status(""); toast(`No rows of ${it.name} have a valid position${cols ? (crs && crs !== "EPSG:4326" ? " in this coordinate system" : ": if the columns aren't longitude / latitude, choose their coordinate system") : ": choose the columns"}`, true); return cols ? chooseXY(it, cols) : chooseXY(it); }
+      const l = addVectorLayer({ type: "FeatureCollection", features: fc.features }, `${it.name.replace(/\.[^.]+$/, "")} · points`, { tableSource: it.path,
+                                ...(crs && crs !== "EPSG:4326" ? { tableCrs: crs } : {}) });
       status(`${fc.features.length.toLocaleString()} points added`);
       toast(`${fc.features.length.toLocaleString()} point${fc.features.length === 1 ? "" : "s"} from ${it.name} (${fc.columns[1]} / ${fc.columns[0]})` +
             (fc.sampled ? `: a sample of ${fc.total.toLocaleString()} rows` : skipped > 0 ? `; ${skipped} row${skipped === 1 ? "" : "s"} without a position skipped` : ""));
@@ -123,7 +125,7 @@
     }
   }
   // choose the longitude / latitude columns of a table (numbers first, the likely ones preselected)
-  async function chooseXY(it) {
+  async function chooseXY(it, was = null) {
     let d;
     try { d = await api(`/api/tables/rows?path=${encodeURIComponent(it.path)}&limit=3`); } catch (e) { return toast(e, true); }
     const num = d.columns.filter((c, i) => /int|float|number|double/.test(d.types[i] || ""));
@@ -131,18 +133,36 @@
     const guess = (re) => order.find((c) => re.test(c)) || "";
     const opts = order.map((c) => `<option value="${esc(c)}">${esc(c)}${num.includes(c) ? "" : " (text)"}</option>`).join("");
     $("#xy-lon").innerHTML = opts; $("#xy-lat").innerHTML = opts;
-    $("#xy-lon").value = d.lonlat?.[0] || guess(/lon|lng|long|^x$/i) || num[0] || order[0];
-    $("#xy-lat").value = d.lonlat?.[1] || guess(/lat|^y$/i) || num[1] || order[1] || order[0];
+    $("#xy-lon").value = was?.[0] || d.lonlat?.[0] || guess(/lon|lng|long|^x$|east/i) || num[0] || order[0];
+    $("#xy-lat").value = was?.[1] || d.lonlat?.[1] || guess(/lat|^y$|north/i) || num[1] || order[1] || order[0];
+    // the columns' coordinate system: suggested from the first rows' numbers (degrees → WGS 84, metres → UTM …)
+    let pick = null;
+    const fillCrs = async () => {
+      const i = d.columns.indexOf($("#xy-lon").value), j = d.columns.indexOf($("#xy-lat").value);
+      const xs = d.rows.map((r) => +r[i]).filter(Number.isFinite), ys = d.rows.map((r) => +r[j]).filter(Number.isFinite);
+      const b = xs.length && ys.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] : null;
+      let sug = [];
+      try { sug = (await api("/api/crs/suggest", { method: "POST", json: { bounds: b, ...mapNear() } })).suggestions; } catch {}
+      $("#xy-crs").innerHTML = sug.map((s) => `<option value="${esc(s.crs)}" title="${esc(s.why)}">${esc(s.name)}${s.epsg ? ` (EPSG:${s.epsg})` : ""}</option>`).join("") + `<option value="other">Other… (search)</option>`;
+      $("#xy-crs").onchange();
+    };
+    $("#xy-crs").onchange = () => {
+      const other = $("#xy-crs").value === "other";
+      $("#xy-crs-pick").classList.toggle("hidden", !other);
+      if (other && !pick) pick = crsPicker($("#xy-crs-pick"), {});
+    };
     $("#xy-title").textContent = `Show ${it.name} on the map`;
     const sample = () => {
       const i = d.columns.indexOf($("#xy-lon").value), j = d.columns.indexOf($("#xy-lat").value);
-      $("#xy-sample").textContent = d.rows.length ? `First row: longitude ${d.rows[0][i]}, latitude ${d.rows[0][j]}` : "";
+      $("#xy-sample").textContent = d.rows.length ? `First row: ${d.rows[0][i]}, ${d.rows[0][j]}` : "";
     };
-    $("#xy-lon").onchange = sample; $("#xy-lat").onchange = sample; sample();
+    $("#xy-lon").onchange = () => { sample(); fillCrs(); }; $("#xy-lat").onchange = () => { sample(); fillCrs(); }; sample(); fillCrs();
     $("#xy-go").onclick = () => {
       if ($("#xy-lon").value === $("#xy-lat").value) return toast("Longitude and latitude must be different columns", true);
+      const crs = $("#xy-crs").value === "other" ? pick?.get()?.crs : $("#xy-crs").value;
+      if (!crs) return toast("Choose the columns' coordinate system", true);
       $("#dlg-xy").close();
-      tablePoints(it, "", [$("#xy-lon").value, $("#xy-lat").value]);
+      tablePoints(it, "", [$("#xy-lon").value, $("#xy-lat").value], crs);
     };
     $("#dlg-xy").showModal();
   }

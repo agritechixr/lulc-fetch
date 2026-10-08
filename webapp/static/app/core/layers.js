@@ -118,7 +118,7 @@
       l.leaflet = L.imageOverlay(l.url || l.image, l.bounds, { ...pane, opacity: l.opacity, interactive: false });
     } else if (l.type === "tiles") {
       l.leaflet = tileLeaflet(l, l._pane || onlinePane(l));
-    }
+    }   // "unplaced": vector data without a coordinate system is kept, not drawn (right-click ▸ Coordinate system…)
     if (l.leaflet && l.visible) l.leaflet.addTo(map);
   }
 
@@ -146,6 +146,11 @@
   function onlinePane(l) {
     const i = layers.indexOf(l), own = layers.findIndex((x) => x.type !== "tiles");
     return own < 0 || (i >= 0 && i < own) ? "onlineAbove" : "onlineBelow";
+  }
+  /** a layer changed in place (its type, data or style): drawn again, Contents and Undo updated, zoomed to */
+  function refreshLayer(l, { zoom = true } = {}) {
+    buildLeaflet(l); restack(); renderContents(); saveLayers();
+    if (zoom) zoomTo(l);
   }
   function addOnlineLayer(tiles, name, opts = {}) {
     return addLayer({ type: "tiles", name, tiles, ...opts }, { zoom: false });
@@ -295,6 +300,7 @@
     }
     if (l.type === "image") return "preview image";
     if (l.type === "tiles") return `${l.tiles.kind.toUpperCase()}${l.tiles.time ? ` · ${l.tiles.time}` : ""} · online`;
+    if (l.type === "unplaced") return "no coordinate system · not on the map";
     const r = l.render || {};
     if (r.composite) return state.catalog?.composites[r.composite]?.title || r.composite;
     if (r.pca) return `${l.info?.count || ""} bands · colour view`;
@@ -313,7 +319,8 @@
     if (l.type === "vector" && l.classes?.length) {
       return `<div class="lyr-classes">${l.classes.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span><span>${l.geojson.features.filter((f) => f.properties.class === c.name).length}</span></div>`).join("")}</div>`;
     }
-    if (l.type === "vector") return `<div class="lyr-meta">${displayLabel(l)} · EPSG:4326</div>`;
+    if (l.type === "vector") return `<div class="lyr-meta">${displayLabel(l)} · ${l.crs && l.crs.epsg !== 4326 ? `read as ${esc(l.crs.name)}${l.crs.epsg ? ` (EPSG:${l.crs.epsg})` : ""}, shown in WGS 84` : "EPSG:4326"}</div>`;
+    if (l.type === "unplaced") return `<div class="lyr-meta" style="color:var(--warn)">${(l.geojson?.features || []).length} features without a coordinate system: right-click ▸ Coordinate system… to place them.</div>`;
     if (l.type === "tiles") {
       const t = l.tiles, ti = t.time_info;
       return `<div class="lyr-meta">${esc(t.service || "")}${t.layer ? ` · <code>${esc(t.layer)}</code>` : ""}</div>
@@ -337,6 +344,7 @@
     if (l.type === "vector" && l.symbology?.legend?.length) return `<span class="lyr-ic" style="background:conic-gradient(${l.symbology.legend.slice(0, 6).map((c, i, a) => `${c.color} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(",")})"></span>`;
     if (l.type === "vector") return `<span class="lyr-ic" style="border-color:${l.color};color:${l.color};background:${l.color}22">${svg("vector", 2.2)}</span>`;
     if (l.type === "tiles") return `<span class="lyr-ic">${svg("online")}</span>`;
+    if (l.type === "unplaced") return `<span class="lyr-ic" style="color:var(--warn)" title="No coordinate system">⚠</span>`;
     const g = l.legend;
     if (g?.kind === "continuous") return `<span class="lyr-ic" style="background:linear-gradient(135deg, ${g.colors.join(",")})"></span>`;
     if (g?.kind === "classes") return `<span class="lyr-ic" style="background:conic-gradient(${g.classes.slice(0, 6).map((c, i, a) => `${c.color} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(",")})"></span>`;
@@ -475,7 +483,7 @@
       } else if (d.type === "raster") {
         const l = addLayer(d, { select: false });
         renderRaster(l).catch(() => {});
-      } else if (d.type === "tiles") addLayer(d, { select: false });
+      } else if (d.type === "tiles" || d.type === "unplaced") addLayer(d, { select: false });
     }
     selectedId = null;
     renderContents();

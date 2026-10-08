@@ -40,6 +40,9 @@ TOOLS = {
     "test_embeddings": "Satellite embeddings",
     "test_lightseg": "Light segmentation models",
     "test_online_field_gpkg": "Online layers, GeoPackage & field collection",
+    "test_mosaic_burn_spatial": "Mosaic, burn severity & spatial statistics",
+    "test_crs": "Coordinate systems & georeferencing",
+    "test_workflow_conditions": "Workflows: conditions, checks & diagram",
 }
 
 

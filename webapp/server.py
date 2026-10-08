@@ -44,6 +44,7 @@ from .routes import (
     raster_tools,
     convert_tools,
     analysis_tools,
+    crs,
     field,
     online,
 )
@@ -240,7 +241,7 @@ def test_credentials(provider: str):
 # (shared helpers in webapp/core.py). Included in this order, the order the endpoints had in one file.
 
 for _r in (find_imagery, job_routes, rasters, safe_products, pca, tables, pictures, classical_ml, raster_ml, training_data,
-           deep_learning, history, embeddings, agri, library, interpolation, forecast, unsupervised, stack, export, projects, workflows, assistant, vector_tools, raster_tools, convert_tools, analysis_tools, online, field):
+           deep_learning, history, embeddings, agri, library, interpolation, forecast, unsupervised, stack, export, projects, workflows, assistant, vector_tools, raster_tools, convert_tools, analysis_tools, online, field, crs):
     app.include_router(_r.router)
 
 

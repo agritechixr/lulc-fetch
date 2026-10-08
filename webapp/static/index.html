@@ -1199,6 +1199,10 @@
           <label>Merge patches smaller than (pixels)<input id="lx-sieve" type="number" min="0" value="8"></label>
         </div>
         <div id="lx-gpkg" class="dl-section hidden"></div>
+        <div id="lx-crs-wrap" class="dl-section hidden">
+          <label>Coordinate system of the file <select id="lx-crs"><option value="">WGS 84 (longitude / latitude)</option></select></label>
+          <div id="lx-crs-pick" class="hidden" style="margin-top:6px"></div>
+        </div>
       </div>
       <div class="card">
         <h2>Save to computer</h2>
@@ -1336,12 +1340,14 @@
 <dialog id="dlg-xy" class="modal">
   <div class="modal-head"><h3 id="xy-title">Show a table on the map</h3><button class="x" data-close>×</button></div>
   <div class="modal-body">
-    <p class="hint" style="margin-top:0" id="xy-hint">Choose the columns that hold each row's position, in degrees (WGS 84, as GPS and Google Maps give).</p>
+    <p class="hint" style="margin-top:0" id="xy-hint">Choose the columns that hold each row's position, and their coordinate system.</p>
     <div class="grid2">
-      <label>Longitude (east–west, e.g. 77.59)<select id="xy-lon"></select></label>
-      <label>Latitude (north–south, e.g. 12.97)<select id="xy-lat"></select></label>
+      <label>Longitude or X (east–west, e.g. 77.59)<select id="xy-lon"></select></label>
+      <label>Latitude or Y (north–south, e.g. 12.97)<select id="xy-lat"></select></label>
     </div>
     <p class="hint" id="xy-sample"></p>
+    <label>Coordinate system of these columns <select id="xy-crs"></select></label>
+    <div id="xy-crs-pick" class="hidden" style="margin-top:6px"></div>
   </div>
   <div class="modal-foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="xy-go">Show points</button></div>
 </dialog>

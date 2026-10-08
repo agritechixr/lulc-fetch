@@ -152,6 +152,7 @@ class VectorExportRequest(BaseModel):
     folder: str | None = Field(None, max_length=1000)
     layer_name: str | None = Field(None, max_length=200)   # gpkg: the layer's name inside the file (default: name)
     more: list[VectorLayer] = Field(default_factory=list, max_length=200)   # gpkg: more layers in the same file
+    crs: str | None = Field(None, max_length=20000)   # shp / gpkg: the file's coordinate system (default WGS 84)
 
 
 @router.post("/api/vector/export")
@@ -170,14 +171,18 @@ def export_vector(req: VectorExportRequest):
                 layers.append((m.name, vector_io.clip_features(f, _clip(req.clip)) if req.clip else f))
             except ValueError:   # empty, or nothing inside the area: left out
                 continue
-        out = write_gpkg(layers, _export_target(req.name, "gpkg"))
+        out = write_gpkg(layers, _export_target(req.name, "gpkg"), crs=req.crs)
         res = {**_export_url(out), "features": sum(len(f) for _, f in layers), "layers": len(layers)}
         if req.folder and req.folder.strip():
             res["saved"] = _save_into(out, _report_folder(req.folder))
             res["saved_to"] = str(_report_folder(req.folder))
         return res
     if req.format == "shp":
-        out = vector_io.write_shapefile_zip(feats, "EPSG:4326", _export_target(req.name, "zip"), req.name)
+        if req.crs:   # converted from WGS 84; the .prj says which system
+            from rasterio.warp import transform_geom
+            from shapely.geometry import mapping, shape
+            feats = [(shape(transform_geom("EPSG:4326", req.crs, mapping(g))), p) for g, p in feats]
+        out = vector_io.write_shapefile_zip(feats, req.crs or "EPSG:4326", _export_target(req.name, "zip"), req.name)
     elif req.format == "kml":
         out = vector_io.write_kml(feats, _export_target(req.name, "kml"), req.name)
     elif req.format == "geojson":

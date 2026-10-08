@@ -193,8 +193,10 @@ def detect_lonlat(t: pa.Table) -> list[str] | None:
     return None
 
 
-def points(path: str | Path, *, max_points: int = 20000, query: str = "", lon: str | None = None, lat: str | None = None) -> dict:
-    """Rows with longitude / latitude columns as a GeoJSON FeatureCollection (sampled to max_points)."""
+def points(path: str | Path, *, max_points: int = 20000, query: str = "", lon: str | None = None, lat: str | None = None,
+           crs: str | None = None) -> dict:
+    """Rows with longitude / latitude columns as a GeoJSON FeatureCollection (sampled to max_points). crs: the system of
+    the two columns when they aren't longitude / latitude (e.g. UTM easting / northing), converted to WGS 84."""
     path = Path(path)
     t = load(path)
     ll = [lon, lat] if lon and lat else detect_lonlat(t)
@@ -211,6 +213,13 @@ def points(path: str | Path, *, max_points: int = 20000, query: str = "", lon: s
     sub = t.take(pa.array(idx, type=pa.int64()))
     x = sub[ll[0]].to_numpy(zero_copy_only=False).astype("float64")
     y = sub[ll[1]].to_numpy(zero_copy_only=False).astype("float64")
+    if crs and crs.upper() not in ("EPSG:4326", "WGS84"):
+        from rasterio.warp import transform
+        ok = np.isfinite(x) & np.isfinite(y)
+        if ok.any():
+            tx, ty = transform(crs, "EPSG:4326", x[ok].tolist(), y[ok].tolist())
+            x, y = x.copy(), y.copy()
+            x[ok], y[ok] = tx, ty
     keep = [c for c in t.column_names if c not in ll][:12]
     props = sub.select(keep).to_pydict() if keep else {}
     feats = []

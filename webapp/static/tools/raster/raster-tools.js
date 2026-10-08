@@ -1,7 +1,7 @@
 /* Analysis ▸ Tools ▸ Raster & terrain: Terrain (slope, aspect, hillshade), Contours, Reclassify, Change detection,
-   Clip raster, Resample / reproject and Enhance image. Jobs (progress, History, Workflows, the Assistant); results are
-   added to Contents. Server: /api/raster/terrain, contours, reclassify, change, clip, resample, enhance ·
-   lulc_fetch/raster_ops.py, enhance.py, resample.py. */
+   Clip raster, Resample / reproject and Enhance image; and in Imagery: Mosaic / merge rasters and Burn severity (dNBR). Jobs (progress, History, Workflows, the Assistant); results are
+   added to Contents. Server: /api/raster/terrain, contours, reclassify, change, clip, resample, enhance, mosaic, burn ·
+   lulc_fetch/raster_ops.py, enhance.py, resample.py, mosaic.py, burn.py. */
 (() => {
   "use strict";
   const { tip } = LF.html;
@@ -214,6 +214,107 @@
         return { raster: v.raster("re-raster"), steps: steps.map((s) => ({ ...s })), bands, upscale: up,
           upscale_method: $("#re-up-method").value || "cubic", name: $("#re-name").value.trim() || "enhanced" };
       }, ["re-raster"], (r) => `<b>${r.steps.length} step${r.steps.length === 1 ? "" : "s"} on ${r.bands} band${r.bands === 1 ? "" : "s"}</b>${r.upscale > 1 ? `, enlarged × ${r.upscale}` : ""}.`);
+    },
+  });
+
+  // ---------------- Imagery: Mosaic and Burn severity (dNBR)
+  LF.tool({ id: "rmosaic", title: "Mosaic / merge rasters", icon: "rmosaic", kinds: ["mosaic"],
+    subtitle: "Join neighbouring tiles or scenes into one image. By default the seams are blended smoothly and the colours matched, so no tile edges show",
+    panel: `<div class="card"><h2>Rasters to join ${tip("Rasters with the same bands (e.g. Sentinel-2 tiles or scenes, DEM tiles, class maps). They can be in different coordinate systems: the result uses the first one's (its pixel size too).")}</h2>
+      <div class="mo-list" id="mo-list"></div>
+      <p class="hint" id="mo-hint">In Contents order: the top one is first. Drag layers in Contents to change it.</p></div>
+      <div class="card"><h2>How overlaps are joined</h2>
+      <label class="check"><input type="checkbox" id="mo-cat"> These are class maps (land cover…) ${tip("Classes can't be averaged: nearest-neighbour resampling, no blending or colour matching.")}</label>
+      <label>Method <select id="mo-method"></select></label>
+      <p class="hint" id="mo-about"></p>
+      <label class="check" id="mo-bal-row"><input type="checkbox" id="mo-bal" checked> Match colours across overlaps ${tip("Scenes from different dates or light get a gain and offset per band so they match where they overlap, working outwards from the first image. Untick to keep the values exactly as they are.")}</label>
+      <details><summary class="hint">More options</summary>
+        <label id="mo-zone-row">Blend zone (pixels) ${tip("How wide the smooth fade at each image's edge is. Wider hides differences better; narrower keeps more of each image's own pixels.")}<input type="number" id="mo-zone" value="64" min="1" max="2000"></label>
+        <label>Pixel size (map units, e.g. m) <input type="number" id="mo-res" min="0" step="any" placeholder="the first raster's"></label>
+        ${LF.html.resampling("mo-resamp", { auto: "Default (bilinear; class maps nearest)", only: ["bilinear", "cubic", "lanczos", "average", "nearest"] })}
+      </details>
+      <label>Name of the result <input type="text" id="mo-name" value="mosaic" maxlength="80"></label>
+      ${runRow("mo", "Join")}</div>`,
+    setup(LF) {
+      const { $, $$, esc, layers } = LF;
+      const IMG = [["blend", "Smooth blend (recommended)", "Each image fades out towards its edges, so overlaps are a smooth mix: no seams or tile edges."],
+        ["first", "First on top", "Where images overlap, the first one's pixels; the others only fill gaps. Sharp edges."],
+        ["last", "Last on top", "Where images overlap, the last one's pixels."],
+        ["median", "Median", "The middle value of all images at each pixel: with 3+ scenes it removes clouds and haze seen in only one."],
+        ["mean", "Mean", "The average of all images at each pixel."],
+        ["min", "Minimum", "The lowest value (e.g. the darkest: avoids clouds in visible bands)."],
+        ["max", "Maximum", "The highest value (e.g. greenest NDVI of several dates)."]];
+      const CLS = [["first", "First on top", "Where maps overlap, the first one's classes."], ["last", "Last on top", "Where maps overlap, the last one's classes."],
+        ["mode", "Most common class", "The class most of the maps give at each pixel."]];
+      const picked = new Set();
+      const rasters = () => layers.filter((l) => l.type === "raster" && l.path);
+      function list() {
+        const rs = rasters();
+        if (!picked.size) rs.forEach((l) => picked.add(l.id));
+        $("#mo-list").innerHTML = rs.length ? rs.map((l, i) => `<label class="check"><input type="checkbox" value="${esc(l.id)}" ${picked.has(l.id) ? "checked" : ""}> ${i + 1}. ${esc(l.name)}
+            <small class="hint">${l.info ? `${l.info.count} band${l.info.count === 1 ? "" : "s"} · ${esc(l.info.crs || "")}` : ""}</small></label>`).join("")
+          : `<p class="hint">No raster layer in Contents: add the tiles with Insert ▸ Add data.</p>`;
+        $$("#mo-list input").forEach((c) => c.onchange = () => { c.checked ? picked.add(c.value) : picked.delete(c.value); autoCat(); });
+        autoCat();
+      }
+      function autoCat() {   // all chosen are class maps → tick "class maps"
+        const ch = rasters().filter((l) => picked.has(l.id));
+        if (ch.length && ch.every((l) => l.legend?.kind === "classes") !== $("#mo-cat").checked && !$("#mo-cat").dataset.touched) { $("#mo-cat").checked = !$("#mo-cat").checked; methods(); }
+      }
+      function methods() {
+        const cat = $("#mo-cat").checked, opts = cat ? CLS : IMG, was = $("#mo-method").value;
+        $("#mo-method").innerHTML = opts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
+        if (opts.some(([v]) => v === was)) $("#mo-method").value = was;
+        about();
+      }
+      function about() {
+        const cat = $("#mo-cat").checked, m = $("#mo-method").value;
+        $("#mo-about").textContent = (cat ? CLS : IMG).find(([v]) => v === m)?.[2] || "";
+        $("#mo-bal-row").classList.toggle("hidden", cat);
+        $("#mo-zone-row").classList.toggle("hidden", m !== "blend");
+      }
+      $("#mo-cat").onchange = () => { $("#mo-cat").dataset.touched = "1"; methods(); };
+      $("#mo-method").onchange = about;
+      methods();
+      const hooks = wire(LF, "mo", "/api/raster/mosaic", () => {
+        const chosen = rasters().filter((l) => picked.has(l.id));
+        if (chosen.length < 2) throw new Error("Tick at least two rasters to join");
+        const cat = $("#mo-cat").checked;
+        return { rasters: chosen.map((l) => l.path), method: $("#mo-method").value, categorical: cat, balance: !cat && $("#mo-bal").checked ? "overlap" : "none",
+                 blend_px: +$("#mo-zone").value || 64, res: +$("#mo-res").value || null, resampling: $("#mo-resamp").value || null,
+                 name: $("#mo-name").value.trim() || "mosaic" };
+      }, [], (r) => `<b>${r.images} images joined</b>: ${r.width.toLocaleString()} × ${r.height.toLocaleString()} pixels of ${LF.fmt(r.res, 3)} (${esc(r.crs)}), ${r.covered_pct}% with data.`);
+      return { open(arg) { hooks.open(arg); list(); }, layersChanged() { hooks.layersChanged(); list(); } };
+    },
+  });
+
+  LF.tool({ id: "rburn", title: "Burn severity (dNBR)", icon: "rburn", kinds: ["burn"],
+    subtitle: "Where land burned between two dates and how badly: dNBR and its severity classes with burned hectares, e.g. stubble burning after the harvest",
+    panel: `<div class="card"><h2>Images ${tip("Two images of the same area (Sentinel-2 or Landsat with their NIR and SWIR2 bands, B08 and B12), one before and one after the burning. Or two NBR rasters made with Index analysis. Cloud-free images work best.")}</h2>
+      ${rasterSel("rb-a", "Before (pre-fire)")}${rasterSel("rb-b", "After (post-fire)")}
+      <p class="hint">NBR = (NIR − SWIR2) / (NIR + SWIR2) of each date; dNBR = before − after. Burned land loses NIR and gains SWIR, so it has a high dNBR.</p></div>
+      <div class="card"><h2>Classes</h2>
+      <label class="check"><input type="checkbox" id="rb-stubble" checked> Count only dark, charred land as burned ${tip("A field that was only harvested also loses NBR, but its bare soil stays brighter than ash. With this ticked, a pixel counts as burned only if its NBR after is below the limit (0.1 suits stubble burning; untick for forest fires).")}</label>
+      <label id="rb-lim-row">NBR after below <input type="number" id="rb-lim" value="0.1" step="0.01" min="-1" max="1"></label>
+      <details><summary class="hint">Class limits</summary>
+        <p class="hint">USGS (Key &amp; Benson 2006): below −0.25 high regrowth · −0.1 low regrowth · 0.1 unburned · 0.27 low · 0.44 moderate-low · 0.66 moderate-high · above high severity.</p>
+        <label>Your own 6 limits (dNBR, comma-separated) <input type="text" id="rb-breaks" class="mono" placeholder="-0.25, -0.1, 0.1, 0.27, 0.44, 0.66"></label>
+      </details>
+      <label>Name of the result <input type="text" id="rb-name" placeholder="before_to_after" maxlength="80"></label>
+      ${runRow("rb", "Map burn severity")}</div>`,
+    setup(LF) {
+      const { $, getLayer, esc, fmt } = LF;
+      $("#rb-stubble").onchange = () => $("#rb-lim-row").classList.toggle("hidden", !$("#rb-stubble").checked);
+      const img = (id) => { const l = getLayer($(`#${id}`).value); return { bands: l?.band_map || {}, scale: l?.scale != null ? [l.scale, l.offset ?? 0] : null }; };
+      return wire(LF, "rb", "/api/raster/burn", (v) => {
+        if ($("#rb-a").value === $("#rb-b").value) throw new Error("Choose two different images: before and after");
+        const bt = $("#rb-breaks").value.trim(), breaks = bt ? bt.split(/[\s,;]+/).filter(Boolean).map(Number) : null;
+        if (breaks && (breaks.length !== 6 || breaks.some((x) => !Number.isFinite(x)))) throw new Error("Give 6 numbers for the class limits, or leave it empty");
+        const a = img("rb-a"), b = img("rb-b");
+        return { before: v.raster("rb-a"), after: v.raster("rb-b"), before_bands: a.bands, after_bands: b.bands, before_scale: a.scale, after_scale: b.scale,
+                 breaks, min_post_nbr: $("#rb-stubble").checked ? +$("#rb-lim").value : null, name: $("#rb-name").value.trim() };
+      }, ["rb-a", "rb-b"], (r) => `<b>${r.summary.burned_ha.toLocaleString()} ha burned</b> (${r.summary.burned_pct}% of the area).
+        <div class="dist" style="margin-top:6px">${r.classes.filter((c) => c.pixels).map((c) => `<div style="grid-template-columns:minmax(0,2fr) auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${c.color};margin-right:5px"></i>${esc(c.class)}</span><b>${fmt(c.area_ha, 1)} ha</b></div>`).join("")}</div>`);
     },
   });
 })();

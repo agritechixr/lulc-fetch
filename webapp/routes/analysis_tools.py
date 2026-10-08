@@ -209,8 +209,9 @@ async def georef_upload(file: UploadFile = File(...)):
 
 
 def _georef_file(path: str) -> Path:
+    """A picture or raster in the workspace's data folders (uploaded, downloaded or made by a tool)."""
     p = (ws.root() / path).resolve()
-    if not p.is_relative_to((ws.root() / "uploads").resolve()) or not p.is_file():
+    if not any(p.is_relative_to((ws.root() / d).resolve()) for d in ("uploads", "downloads", "analysis", "imports")) or not p.is_file():
         raise HTTPException(404, "The picture is missing")
     return p
 

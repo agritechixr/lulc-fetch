@@ -1,5 +1,6 @@
 """Vector tools (Analysis ▸ Tools ▸ Vector): find a place by name, buffer, select by attribute, overlay (intersection, union, difference,
-symmetric difference, clip) and dissolve. Each runs as a background job (progress, History, Workflows, the
+symmetric difference, clip) and dissolve; and spatial statistics (kernel density, hot spots, Moran's I, nearest
+neighbour, lulc_fetch/spatial_stats.py). Each runs as a background job (progress, History, Workflows, the
 Assistant) and writes its result as a GeoJSON file in analysis/. A layer is given as GeoJSON, or as a workspace file
 (GeoJSON or a zipped shapefile). Logic in lulc_fetch/geoprocess.py."""
 
@@ -302,3 +303,56 @@ def vector_geom_op(req: GeomOpRequest):
               "fishnet": lambda: g.fishnet(lay(), req.cell, req.clip), "random_points": lambda: g.random_points(lay(), req.count, req.per_feature, req.seed)}[req.op]()
         return _write(fc, req.name or req.op)
     return jobs.submit("vgeomop", req.op.replace("_", " ").capitalize(), {"op": req.op}, work).to_dict()
+
+
+# ------------------------------------------------------------------ spatial statistics (lulc_fetch/spatial_stats.py)
+
+class SpatialStatsRequest(BaseModel):
+    method: str = Field(pattern=r"^(density|hotspots|moran|nearest)$")
+    layer: Layer
+    field: str | None = Field(None, max_length=200)       # density: weight; hot spots: values (none: count points per cell); Moran: values
+    distance: float | None = Field(None, gt=0)            # neighbours within this many metres (default: everyone gets one)
+    k: int | None = Field(None, ge=1, le=100)             # or the k nearest
+    fdr: bool = True                                      # hot spots: correct for many tests (false discovery rate)
+    bandwidth: float | None = Field(None, gt=0)           # density: search radius in metres (default: Silverman's rule)
+    cell: float | None = Field(None, gt=0)                # density: pixel size; hot spots of points: grid cell (metres)
+    kernel: str = Field("quartic", pattern=r"^(quartic|gaussian)$")
+    permutations: int = Field(999, ge=99, le=9999)
+    area: Layer | None = None                             # nearest neighbour: the study area (default: the points' rectangle)
+    name: str = Field("", max_length=80)
+
+
+@router.post("/api/vector/spatial-stats")
+def vector_spatial_stats(req: SpatialStatsRequest):
+    """Kernel density (a heat map raster), hot spots (Getis-Ord Gi*), Moran's I (global, and local clusters) and average
+    nearest neighbour of a point or polygon layer."""
+    from lulc_fetch import spatial_stats as ss
+    titles = {"density": "Kernel density", "hotspots": "Hot spots (Gi*)", "moran": "Moran's I", "nearest": "Nearest neighbour"}
+    if req.method == "moran" and not req.field:
+        raise HTTPException(400, "Moran's I needs a number field")
+
+    def work(job):
+        fc = _layer(req.layer)
+        name = req.name.strip() or {"density": "density", "hotspots": "hot_spots", "moran": "moran_clusters", "nearest": "nearest_neighbour"}[req.method]
+        if req.method == "density":
+            out = ws.root() / "analysis" / uuid.uuid4().hex[:8] / f"{re.sub(r'[^A-Za-z0-9_-]+', '_', name)[:60]}.tif"
+            r = ss.kernel_density(fc, out, weight_field=req.field, bandwidth_m=req.bandwidth, cell_m=req.cell, kernel=req.kernel)
+            return {**r, "path": ws.rel(r["path"]), "method": req.method}
+        if req.method == "hotspots":
+            r = ss.hot_spots(fc, req.field, distance_m=req.distance, k=req.k, fdr=req.fdr, cell_m=req.cell)
+        elif req.method == "moran":
+            r = ss.morans_i(fc, req.field, distance_m=req.distance, k=req.k, permutations=req.permutations)
+        else:
+            r = ss.nearest_neighbour(fc, area=_area_geom(_layer(req.area)) if req.area else None)
+        gj = r.pop("geojson")
+        return {**r, **_write(gj, name), "method": req.method}
+    return jobs.submit("spatialstats", f"{titles[req.method]}{f' of {req.field}' if req.field else ''}", {"method": req.method}, work).to_dict()
+
+
+def _area_geom(fc: dict) -> dict:
+    from shapely.geometry import mapping, shape
+    from shapely.ops import unary_union
+    polys = [shape(f["geometry"]) for f in fc["features"] if f.get("geometry") and "Polygon" in f["geometry"]["type"]]
+    if not polys:
+        raise ValueError("The study area must be a polygon layer")
+    return mapping(unary_union(polys))
