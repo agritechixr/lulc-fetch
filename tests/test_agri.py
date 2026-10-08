@@ -6,6 +6,7 @@ when LULC_AGRI_MODELS points to it, or the disease repo is at ~/Desktop/Farmer_a
 
 import io
 import os
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -50,11 +51,14 @@ def save(img: Image.Image, path: Path, gps=None) -> Path:
 
 def test_schema(client):
     s = ok(client.get("/api/agri/schema"))
-    assert len(s["crops"]) == 42
-    assert {"Mango", "Rice", "Tomato", "Potato", "pomrgranet"} <= set(s["crops"])
+    assert len(s["crops"]) == 43   # 42 of the disease app's, and Wheat from an extra model
+    assert {"Mango", "Rice", "Tomato", "Potato", "pomrgranet", "Wheat"} <= set(s["crops"])
     for k, c in s["crops"].items():
         assert len(c["classes"]) == len(c["labels"]) >= 2, k
-        assert 0.8 < c["accuracy"] <= 1, k
+        assert c["extra"] or 0.8 < c["accuracy"] <= 1, k
+    assert s["crops"]["Wheat"]["extra"] == "fieldcrops-lite" and s["crops"]["Wheat"]["labels"] == ["Brown Rust", "Healthy", "Yellow Rust"]
+    assert s["crops"]["Rice"]["second_opinion"] == ["fieldcrops-lite"] and s["crops"]["Mango"]["second_opinion"] == []
+    assert s["extra_models"]["fieldcrops-lite"]["license"] == "Apache-2.0"
     assert s["detectors"]["original"]["crops"] == 16 and s["detectors"]["new"]["crops"] == 36
     assert s["recognised_only"] == ["Pepper", "Raspberry", "Sorghum", "Squash"]
     assert s["crops"]["Mulberry"]["kind"] == "variety" and s["crops"]["Rice"]["limited_kb"]
@@ -235,3 +239,89 @@ def test_crop_alternatives():
     alts = crop_alternatives("Brinjal", [("Brinjal", 0.91), ("okra", 0.05), ("Apple", 0.02)])
     assert alts[:2] == ["okra", "Apple"] and {"Tomato", "Potato"} <= set(alts) and "Brinjal" not in alts
     assert crop_alternatives("Mango", [("Mango", 0.99)]) == []
+
+
+# ------------------------------------------------------------------ extra models (extra.py)
+
+def test_extra_registry():
+    """Every label of an extra model names a crop and a disease (or null: not a crop photo), and is pinned to one file."""
+    from lulc_fetch.agri import extra
+    for key, m in extra.registry().items():
+        assert {"name", "source", "credit", "license", "download", "format", "arch", "mean", "std", "labels"} <= set(m), key
+        assert len(m["download"]["revision"]) == 40 and len(m["download"]["sha256"]) == 64, key
+        for v in m["labels"].values():
+            assert v is None or (len(v) == 2 and v[0] in knowledge.crops()), v
+    assert extra.crop_models()["Wheat"] == ["fieldcrops-lite"]
+    assert [n for _, n in extra.crop_labels("fieldcrops-lite", "Rice")] == ["Brown Spot", "Healthy", "Blast", "Bacterial Blight", "False Smut"]
+    assert "Wheat" not in disease.find_models(MODELS)["crops"]   # a local models folder never has it…
+    found = disease.hub_models("/nowhere")                        # …the downloaded extra model gives it
+    assert found["crops"]["Wheat"] == found["extra"]["fieldcrops-lite"] == "/nowhere/extra/fieldcrops-lite/model.safetensors"
+
+
+def test_vit_to_timm():
+    """A transformers ViT's weights, renamed for timm, give the same network (qkv = query, key, value stacked)."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("timm")
+    from lulc_fetch.agri import extra
+    g = torch.Generator().manual_seed(0)
+    r = lambda *s: torch.randn(*s, generator=g)   # noqa: E731
+    d, h = 192, 768
+    state = {"vit.embeddings.cls_token": r(1, 1, d), "vit.embeddings.position_embeddings": r(1, 197, d),
+             "vit.embeddings.patch_embeddings.projection.weight": r(d, 3, 16, 16), "vit.embeddings.patch_embeddings.projection.bias": r(d),
+             "vit.layernorm.weight": r(d), "vit.layernorm.bias": r(d), "classifier.weight": r(20, d), "classifier.bias": r(20)}
+    for i in range(12):
+        a = f"vit.encoder.layer.{i}."
+        for n, shape in (("attention.attention.query", (d, d)), ("attention.attention.key", (d, d)), ("attention.attention.value", (d, d)),
+                         ("attention.output.dense", (d, d)), ("intermediate.dense", (h, d)), ("output.dense", (d, h)),
+                         ("layernorm_before", (d,)), ("layernorm_after", (d,))):
+            state[a + n + ".weight"], state[a + n + ".bias"] = r(*shape), r(shape[0])
+    t = extra.vit_to_timm(state)
+    assert torch.equal(t["blocks.3.attn.qkv.weight"][d:2 * d], state["vit.encoder.layer.3.attention.attention.key.weight"])
+    import timm
+    timm.create_model("vit_tiny_patch16_224", pretrained=False, num_classes=20).load_state_dict(t, strict=True)
+
+
+def test_second_opinion_and_wheat():
+    """The extra model: main model for Wheat, a second opinion elsewhere, and recognises wheat leaves the detectors call grass."""
+    from lulc_fetch.agri import extra
+
+    class Fake(disease._ExtraModel):
+        def __init__(self, p):
+            self.key, self.info, self.p = "fieldcrops-lite", extra.registry()["fieldcrops-lite"], p
+
+        def probs(self, img):
+            return self.p
+
+    class Detector:
+        def predict(self, img):
+            return [("Sorghum", 0.7), ("Maize", 0.2), ("Rice", 0.1)]
+
+    m = disease.Models.__new__(disease.Models)
+    m.found = {"crops": {}, "detectors": {"new": "x"}, "extra": {"fieldcrops-lite": "x"}}
+    m.cache = OrderedDict(new=Detector())
+    th = knowledge.meta()["thresholds"]
+    m.cache["extra:fieldcrops-lite"] = Fake({("Wheat", "Yellow Rust"): 0.85, ("Wheat", "Healthy"): 0.05, ("Rice", "Blast"): 0.1})
+    idt = m.identify(leafy(), th)
+    assert idt["detector"] == "extra:fieldcrops-lite" and idt["top"][0] == ("Wheat", pytest.approx(0.9))
+    assert m.get("extra:fieldcrops-lite").predict(leafy(), "Wheat")[0] == ("Yellow Rust", 0.85)
+    m.cache["extra:fieldcrops-lite"] = Fake({("Wheat", "Yellow Rust"): 0.5, ("Rice", "Blast"): 0.5})   # not sure: the detector stays
+    assert m.identify(leafy(), th)["detector"] == "new"
+    r = {"crop": "Rice", "diagnosis": "Blast", "warnings": []}
+    m.cache["extra:fieldcrops-lite"] = Fake({("Rice", "Blast"): 0.7, None: 0.3})
+    disease.second_opinion(m, leafy(), r)
+    assert r["second_opinions"][0]["agrees"] and r["warnings"] == []
+    r = {"crop": "Rice", "diagnosis": "Hispa", "warnings": []}
+    m.cache["extra:fieldcrops-lite"] = Fake({("Rice", "Blast"): 0.2, None: 0.8})
+    disease.second_opinion(m, leafy(), r)
+    assert r["second_opinions"][0]["diagnosis"] == "Not a crop leaf" and r["warnings"] == ["second_opinion"]
+    assert disease._row({"file": "a", "status": "disease", "path": "a", **r})["second_opinion"] == "FieldCrops Lite: Not a crop leaf"
+
+
+@pytest.mark.dl
+@pytest.mark.skipif(not os.environ.get("LULC_NET_TESTS"), reason="downloads 22 MB from Hugging Face (set LULC_NET_TESTS=1)")
+def test_extra_download_and_run(tmp_path):
+    """The real FieldCrops Lite model: downloaded and checked, converted, run on a photo."""
+    m = disease.Models(disease.hub_models(tmp_path), "cpu")
+    x = m.get("extra:fieldcrops-lite")
+    p = x.probs(leafy())
+    assert abs(sum(p.values()) - 1) < 1e-4 and len(x.predict(leafy(), "Wheat")) == 3

@@ -32,7 +32,8 @@
         }
         if (!st.schema) {
           try { st.schema = await LF.agri.schema(); } catch (e) { toast(e, true); return; }
-          const crops = Object.entries(st.schema.crops).sort((a, b) => (a[1].limited_kb - b[1].limited_kb) || a[1].name.localeCompare(b[1].name));
+          const crops = Object.entries(st.schema.crops).filter(([, c]) => !c.extra)   // extra-model crops have no guide
+            .sort((a, b) => (a[1].limited_kb - b[1].limited_kb) || a[1].name.localeCompare(b[1].name));
           st.picker = searchPicker($("#ag-crop"), { value: st.crop, placeholder: "Type a crop: e.g. man, paddy, bhindi…", empty: "No crop matches",
             items: crops.map(([k, c]) => ({ id: k, title: c.name, aliases: c.aliases, keywords: c.labels,
               group: c.limited_kb ? "Symptoms only" : "Full guide: symptoms, treatment, pests",
@@ -41,7 +42,7 @@
           let t = 0;
           $("#ag-q").oninput = () => { clearTimeout(t); t = setTimeout(renderRecords, 250); };
         }
-        if (!st.schema.crops[st.crop]) st.crop = "Mango";
+        if (!st.schema.crops[st.crop] || st.schema.crops[st.crop].extra) st.crop = "Mango";
         st.picker.set(st.crop);
         await loadCrop();
       }

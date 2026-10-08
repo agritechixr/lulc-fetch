@@ -27,30 +27,35 @@ AGRI_HUB_DIR = ws.APP_DIR / "agri_models"   # models downloaded from Hugging Fac
 
 def _agri_models() -> dict:
     """Where the models come from: a chosen local folder, one found in a usual place, or else Hugging Face (downloaded into
-    AGRI_HUB_DIR when first needed)."""
-    from lulc_fetch.agri.disease import find_models, hub_models
+    AGRI_HUB_DIR when first needed). The extra models (lulc_fetch/agri/extra.py) always download into AGRI_HUB_DIR."""
+    from lulc_fetch.agri.disease import find_models, hub_models, with_extra
 
     st = _agri_settings()
     saved = st.get("models")
     if st.get("source") != "hub":
         if saved and Path(saved).is_dir():
-            return {**find_models(saved), "chosen": True, "source": "folder"}
+            return {**with_extra(find_models(saved), AGRI_HUB_DIR), "chosen": True, "source": "folder"}
         if not saved:
             for g in _AGRI_GUESSES:
                 f = find_models(Path.home() / g)
                 if f["crops"] or f["detectors"]:
-                    return {**f, "chosen": False, "source": "folder"}
+                    return {**with_extra(f, AGRI_HUB_DIR), "chosen": False, "source": "folder"}
     return {**hub_models(AGRI_HUB_DIR), "chosen": st.get("source") == "hub", "source": "hub"}
 
 
 def _agri_status() -> dict:
+    from lulc_fetch.agri import knowledge
     from lulc_fetch.agri.disease import HUB_REPO, find_models
     m = _agri_models()
     out = {"source": m["source"], "folder": m["folder"], "chosen": m["chosen"], "crops": sorted(m["crops"]), "detectors": sorted(m["detectors"])}
+    extras = {k: Path(p) for k, p in m.get("extra", {}).items() if Path(p).is_file()}   # downloaded extra models
+    out["extra_downloaded"] = sorted(extras)
     if m["source"] == "hub":
         have = find_models(AGRI_HUB_DIR)
-        out.update(repo=HUB_REPO, url=f"https://huggingface.co/{HUB_REPO}", downloaded=sorted(have["crops"]) + [f"detector:{k}" for k in have["detectors"]],
-                   downloaded_mb=round(sum(Path(p).stat().st_size for p in [*have["crops"].values(), *have["detectors"].values()]) / 1e6))
+        only = sorted(c for c, x in knowledge.crops().items() if x.get("extra") in extras)   # crops only an extra model knows
+        out.update(repo=HUB_REPO, url=f"https://huggingface.co/{HUB_REPO}",
+                   downloaded=sorted(have["crops"]) + only + [f"detector:{k}" for k in have["detectors"]],
+                   downloaded_mb=round(sum(Path(p).stat().st_size for p in [*have["crops"].values(), *have["detectors"].values(), *extras.values()]) / 1e6))
     return out
 
 
@@ -189,7 +194,7 @@ def agri_diagnose(req: DiagnoseRequest):
 
     def run(job):
         res = dlrunner.run("diagnose", photos=photos, models_dir=m["folder"], out_dir=str(job.dir), name=stem, crop=req.crop,
-                           strict=req.strict, device=req.device, hub=m["source"] == "hub")
+                           strict=req.strict, device=req.device, hub=m["source"] == "hub", extra_dir=str(AGRI_HUB_DIR))
         res["geojson"] = _json.loads(Path(res["geojson_path"]).read_text(encoding="utf-8")) if res["geojson_path"] else None
         core.TABLE_DIR.mkdir(exist_ok=True)   # the data viewer opens tables from tables/ (never overwrite an earlier one)
         table = core.unique(core.TABLE_DIR.path, Path(res["csv"]).name)

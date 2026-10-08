@@ -1,0 +1,46 @@
+{
+ "models": {
+  "fieldcrops-lite": {
+   "name": "FieldCrops Lite",
+   "about": "A small ViT model for five field crops: wheat, maize, rice, potato and sugarcane. Its labels come from several datasets, so rice brown spot appears twice (merged here). No published test results.",
+   "source": "https://huggingface.co/LishaV01/agriculture-crop-disease-detection",
+   "credit": "LishaV01/agriculture-crop-disease-detection by Lisha (fine-tuned from WinKawaks/vit-tiny-patch16-224)",
+   "license": "Apache-2.0",
+   "download": {
+    "repo": "LishaV01/agriculture-crop-disease-detection",
+    "revision": "24abe2d06442f62d8168041ec539832cd39d397e",
+    "file": "model.safetensors",
+    "bytes": 22135824,
+    "sha256": "b973c0f908888c3970b142b90822219b5a301c568770b88978d031705dba4b11"
+   },
+   "format": "transformers-vit",
+   "arch": "vit_tiny_patch16_224",
+   "layer_norm_eps": 1e-12,
+   "image_size": 224,
+   "mean": [0.5, 0.5, 0.5],
+   "std": [0.5, 0.5, 0.5],
+   "labels": {
+    "Corn___Common_Rust": ["Maize", "Common Rust"],
+    "Corn___Gray_Leaf_Spot": ["Maize", "Gray Leaf Spot"],
+    "Corn___Healthy": ["Maize", "Healthy"],
+    "Invalid": null,
+    "Potato___Early_Blight": ["Potato", "Early Blight"],
+    "Potato___Healthy": ["Potato", "Healthy"],
+    "Potato___Late_Blight": ["Potato", "Late Blight"],
+    "Rice___Brown_Spot": ["Rice", "Brown Spot"],
+    "Rice___Healthy": ["Rice", "Healthy"],
+    "Rice___Leaf_Blast": ["Rice", "Blast"],
+    "Wheat___Brown_Rust": ["Wheat", "Brown Rust"],
+    "Wheat___Healthy": ["Wheat", "Healthy"],
+    "Wheat___Yellow_Rust": ["Wheat", "Yellow Rust"],
+    "Rice_Bacterial Blight Disease": ["Rice", "Bacterial Blight"],
+    "Rice_Blast Disease": ["Rice", "Blast"],
+    "Rice_Brown Spot Disease": ["Rice", "Brown Spot"],
+    "Rice_False Smut Disease": ["Rice", "False Smut"],
+    "sugarcane_Bacterial Blight": ["Sugarcane", "Bacterial Blight"],
+    "sugarcane_Healthy": ["Sugarcane", "Healthy"],
+    "sugarcane_Red Rot": ["Sugarcane", "Red Rot"]
+   }
+  }
+ }
+}

@@ -89,6 +89,7 @@ CROP_ALIASES = {
     "Coconut": ["nariyal"],
     "Banana": ["kela"],
     "Grape": ["angoor"],
+    "Wheat": ["gehun", "gehu", "kanak"],
 }
 
 # crop-detector spellings that differ from the crop folder names

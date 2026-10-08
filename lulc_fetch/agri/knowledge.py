@@ -1,4 +1,6 @@
-"""The crop list (labels, test results) and the Q&A knowledge base behind the crop disease guide. No PyTorch needed."""
+"""The crop list (labels, test results) and the Q&A knowledge base behind the crop disease guide. No PyTorch needed.
+
+The crops are the disease app's (data/crops.json), plus the crops only an extra model knows (extra.py, e.g. Wheat)."""
 
 from __future__ import annotations
 
@@ -7,7 +9,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from .labels import label_display
+from . import extra
+from .labels import CROP_ALIASES, crop_display, label_display
 
 DATA = Path(__file__).resolve().parent / "data"
 
@@ -35,8 +38,18 @@ def meta() -> dict:
     return json.loads((DATA / "crops.json").read_text(encoding="utf-8"))
 
 
+@lru_cache(maxsize=1)
 def crops() -> dict:
-    return meta()["crops"]
+    """Every crop: the app's own, then those only an extra model diagnoses (marked "extra": that model's key; no test
+    results, no knowledge base)."""
+    out = dict(meta()["crops"])
+    for crop, keys in extra.crop_models().items():
+        if crop not in out:
+            labels = extra.crop_labels(keys[0], crop)
+            out[crop] = {"name": crop_display(crop), "aliases": CROP_ALIASES.get(crop, []), "kind": "disease", "limited_kb": True,
+                         "classes": [n for _, n in labels], "labels": [n for _, n in labels], "accuracy": None, "macro_f1": None,
+                         "test_images": None, "kb_records": 0, "extra": keys[0]}
+    return out
 
 
 @lru_cache(maxsize=64)
@@ -59,7 +72,11 @@ def schema() -> dict:
     m = meta()
     return {
         "crops": {k: {f: c[f] for f in ("name", "aliases", "kind", "limited_kb", "classes", "labels", "accuracy", "macro_f1", "test_images", "kb_records")}
-                  for k, c in m["crops"].items()},
+                  | {"extra": c.get("extra"), "second_opinion": extra.crop_models().get(k, []) if "extra" not in c else []}
+                  for k, c in crops().items()},
+        "extra_models": {k: {f: x[f] for f in ("name", "about", "source", "credit", "license")}
+                         | {"mb": round(x["download"]["bytes"] / 1e6), "crops": sorted({v[0] for v in x["labels"].values() if v})}
+                         for k, x in extra.registry().items()},
         "detectors": {k: {f: d.get(f) for f in ("accuracy", "macro_f1", "test_images")} | {"crops": len(d["classes"])} for k, d in m["detectors"].items()},
         "recognised_only": m["recognised_only"],
         "thresholds": m["thresholds"],

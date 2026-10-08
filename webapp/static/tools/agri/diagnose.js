@@ -7,13 +7,13 @@
 
   LF.tool({
     id: "agridisease", menu: "agri", title: "Diagnose crop disease", icon: "leaf",
-    subtitle: "Find the disease on leaf photos of 42 crops (apple, mango, rice, tomato, maize…): the crop is recognised, then its ConvNeXt model gives the top 3 diseases. Unclear photos are refused; photos with GPS become a disease map",
+    subtitle: "Find the disease on leaf photos of 43 crops (apple, mango, rice, tomato, maize, wheat…): the crop is recognised, then its model gives the top 3 diseases, with a second opinion for maize, rice, potato and sugarcane. Unclear photos are refused; photos with GPS become a disease map",
     kinds: ["diagnose"],
     panel: `
       ${LF.html.addon()}
       <div class="dl-body">
       <div class="card">
-        <h2>Disease models ${tip("The photo models of the Multi-Crop Disease Decision Support System: one ConvNeXt model per crop (42 crops) and two crop detectors. Each one downloads from Hugging Face the first time it's needed (about 95 MB per crop) and is kept, or use your own copy of the disease app (data/<Crop>/convnext_best.pth and master_model/).")}</h2>
+        <h2>Disease models ${tip("The photo models of the Multi-Crop Disease Decision Support System: one ConvNeXt model per crop (42 crops) and two crop detectors. Each one downloads from Hugging Face the first time it's needed (about 95 MB per crop) and is kept, or use your own copy of the disease app (data/<Crop>/convnext_best.pth and master_model/). Extra models by others (FieldCrops Lite: wheat, and a second opinion on maize, rice, potato and sugarcane) always download from Hugging Face.")}</h2>
         <div id="ad-models"></div>
       </div>
       <div class="card">
@@ -54,7 +54,8 @@
       const REASON = { too_small: "Photo too small (under 96 pixels): take it closer", too_dark: "Too dark: take it in daylight", too_bright: "Too bright: avoid direct sun glare",
         no_detail: "No leaf to see (blank or plain surface)", blurry: "Blurry: hold still and tap the leaf to focus", not_leaf: "Not confidently a leaf of a supported crop: one leaf, filling the photo",
         low_confidence: "The disease model is unsure: try a closer, sharper photo of the affected part", unreadable: "Couldn't read the photo",
-        crop_check: "Check the crop: leaves of related crops look alike, and the crop detectors can mix them up" };
+        crop_check: "Check the crop: leaves of related crops look alike, and the crop detectors can mix them up",
+        second_opinion: "The second model disagrees: compare the two, or ask a local expert" };
       const COLORS = { disease: "#dc2626", healthy: "#16a34a", variety: "#16a34a", retake: "#d97706", no_model: "#64748b", error: "#64748b" };
       const thumb = (path, size = 160) => `/api/agri/photo?path=${encodeURIComponent(path)}&size=${size}`;
       const cropName = (c) => st.schema?.crops[c]?.name || c;
@@ -111,7 +112,8 @@
                          group: "Automatic", disabled: !canDetect },
           ...crops.map(([k, c]) => ({ id: k, title: c.name, aliases: c.aliases, keywords: c.labels, group: "Or every photo is of one crop",
                                       sub: !have.has(k) ? "no model in the models folder"
-                                        : sc.models.source === "hub" && !sc.models.downloaded.includes(k) ? [c.aliases.slice(0, 2).join(", "), "downloads 95 MB once"].filter(Boolean).join(" · ")
+                                        : c.extra && !sc.models.extra_downloaded.includes(c.extra) ? [c.aliases.slice(0, 2).join(", "), `downloads ${sc.extra_models[c.extra].mb} MB once`].filter(Boolean).join(" · ")
+                                        : sc.models.source === "hub" && !c.extra && !sc.models.downloaded.includes(k) ? [c.aliases.slice(0, 2).join(", "), "downloads 95 MB once"].filter(Boolean).join(" · ")
                                         : [c.aliases.slice(0, 3).join(", "), `${c.labels.length} classes`].filter(Boolean).join(" · "),
                                       disabled: !have.has(k) }))];
         if (!items.some((it) => it.id === st.crop && !it.disabled)) st.crop = canDetect ? "auto" : (items.find((it) => !it.disabled) || {}).id || "";
@@ -128,9 +130,12 @@
         } else if (!sc.crops[c]) {
           info.textContent = "Choose the models folder first.";
         } else {
-          const k = sc.crops[c];
+          const k = sc.crops[c], x = sc.extra_models[k.extra];
+          const by = (m) => `<a href="${esc(m.source)}" target="_blank" rel="noopener">${esc(m.name)}</a> ${tipBtn(`${m.about} Credit: ${m.credit}. Licence: ${m.license}.`)}`;
           info.innerHTML = `${k.kind === "variety" ? "This model tells <b>varieties</b>, not diseases. " : ""}${k.labels.length} classes: ${k.labels.map(esc).join(", ")}. ` +
-            `Test accuracy ${pct(k.accuracy)} on ${k.test_images?.toLocaleString() || "?"} photos.`;
+            (x ? `Diagnosed by ${by(x)}: no published test results, and no guide for this crop yet.`
+               : `Test accuracy ${pct(k.accuracy)} on ${k.test_images?.toLocaleString() || "?"} photos.` +
+                 (k.second_opinion.length ? ` Second opinion from ${k.second_opinion.map((m) => by(sc.extra_models[m])).join(", ")}.` : ""));
         }
         prefs.set("ad-crop", c);
       }
@@ -273,8 +278,9 @@
         const [stText, stCls] = STATUS[p.status] || [p.status, "c1"];
         const diag = ["disease", "healthy", "variety"].includes(p.status);
         const reasons = [p.reason, ...(p.warnings || [])].filter(Boolean).map((x) => REASON[x] || x);
+        const second = (p.second_opinions || []).map((o) => `<div class="hint">${esc(o.model)}: <b>${o.crop && o.crop !== p.crop ? `${esc(o.crop_name)} · ` : ""}${esc(o.diagnosis)}</b> ${pct(o.conf)} · ${o.agrees ? "agrees ✓" : "differs"}</div>`).join("");
         const top = (p.top || []).map((t, i) => `<div class="ad-bar"><span>${i ? esc(t.name) : `<b>${esc(t.name)}</b>`}</span><span class="rb-track"><span class="rb-fill" style="width:${Math.max(1, 100 * t.conf)}%;${i ? "opacity:.45" : ""}"></span></span><span>${pct(t.conf)}</span></div>`).join("");
-        const crop = p.crop_name ? `${esc(p.crop_name)}${p.crop_conf != null ? ` <small>(${pct(p.crop_conf)} sure${p.crop_top?.[1] && p.crop_top[1].conf > 0.1 ? `; or ${esc(p.crop_top[1].name)} ${pct(p.crop_top[1].conf)}` : ""})</small>` : ""}` : "";
+        const crop = p.crop_name ? `${esc(p.crop_name)}${p.model ? ` <small>· ${esc(p.model)}</small>` : ""}${p.crop_conf != null ? ` <small>(${pct(p.crop_conf)} sure${p.crop_top?.[1] && p.crop_top[1].conf > 0.1 ? `; or ${esc(p.crop_top[1].name)} ${pct(p.crop_top[1].conf)}` : ""})</small>` : ""}` : "";
         // "Wrong crop?": the likely alternatives first, then every crop that has a model
         const have = new Set(st.schema?.models.crops || []), alts = (p.crop_alternatives || []).filter((a) => have.has(a.crop));
         const others = Object.keys(st.schema?.crops || {}).filter((c) => have.has(c) && c !== p.crop && !alts.some((a) => a.crop === c))
@@ -290,10 +296,11 @@
             ${crop ? `<div class="ad-crop">${crop}</div>` : ""}
             ${diag ? `<div class="ad-diag">${esc(p.diagnosis)}</div>` : ""}
             ${top ? `<div class="ad-bars">${top}</div>` : ""}
+            ${second}
             ${reasons.length ? `<div class="hint" style="color:var(--warn)">${reasons.map(esc).join(" · ")}</div>` : ""}
             ${p.note && !reasons.length ? `<div class="hint">${esc(p.note)}</div>` : ""}
             ${recrop}
-            ${diag && p.status !== "variety" ? `<a href="#" class="small" data-ad-guide="${esc(p.diagnosis)}" data-crop="${esc(p.crop)}">${p.status === "healthy" ? `About ${esc(p.crop_name)} in the guide →` : `Symptoms &amp; treatment of ${esc(p.diagnosis)} →`}</a>` : ""}
+            ${diag && p.status !== "variety" && !st.schema?.crops[p.crop]?.extra ? `<a href="#" class="small" data-ad-guide="${esc(p.diagnosis)}" data-crop="${esc(p.crop)}">${p.status === "healthy" ? `About ${esc(p.crop_name)} in the guide →` : `Symptoms &amp; treatment of ${esc(p.diagnosis)} →`}</a>` : ""}
           </div></div>`;
       }
 

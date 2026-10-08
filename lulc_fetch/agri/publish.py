@@ -262,7 +262,7 @@ def build_space(out: Path) -> Path:
     (out / "lulc_fetch" / "agri").mkdir(parents=True)
     (out / "lulc_fetch" / "__init__.py").write_text('"""Just the parts of LULC Fetch this Space needs (lulc_fetch/agri)."""\n')
     shutil.copyfile(pkg.parent / "progress.py", out / "lulc_fetch" / "progress.py")
-    for f in ("__init__.py", "disease.py", "knowledge.py", "labels.py", "import_data.py"):
+    for f in ("__init__.py", "disease.py", "extra.py", "knowledge.py", "labels.py", "import_data.py"):
         shutil.copyfile(pkg / f, out / "lulc_fetch" / "agri" / f)
     shutil.copytree(pkg / "data", out / "lulc_fetch" / "agri" / "data")
     return out

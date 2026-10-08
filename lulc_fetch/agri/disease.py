@@ -4,14 +4,16 @@ Runs in the deep-learning helper process (lulc_fetch.dlrunner, action "diagnose"
 
 1. photo check: too small / dark / blank photos are refused; blurry or very bright ones only when the models are unsure
 2. crop: chosen by you, or detected (the original 16-crop detector; the 36-crop detector when it is sure of an added crop)
-3. disease: that crop's ConvNeXt model, top 3 with confidence
+3. disease: that crop's ConvNeXt model, top 3 with confidence; an extra model (extra.py) gives a second opinion on the crops
+   it knows too, and is the main model for crops only it knows (Wheat, which it also recognises when detecting the crop)
 4. the photo's GPS position and time (EXIF), when it has them
 
 The limits are the disease app's (vision_model.py), calibrated on the models' test sets.
 
 Models: downloaded from Hugging Face (HUB_REPO) into the app's agri_models/ folder the first time each is needed, checked
 against the published SHA-256; or a local copy of the disease repository (data/<Crop>/convnext_best.pth,
-master_model/crop_classifier_best.pth, master_model/new_crop_detector/convnext_best.pth), or its data/ folder.
+master_model/crop_classifier_best.pth, master_model/new_crop_detector/convnext_best.pth), or its data/ folder. The extra
+models always download from their own Hugging Face repositories (pinned revision and SHA-256) into agri_models/extra/.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from .. import progress
-from . import knowledge
+from . import extra, knowledge
 from .import_data import class_names
 from .labels import RECOGNISED_ONLY, VARIETY_MODELS, label_display, match_crop
 
@@ -46,6 +48,7 @@ ISSUE_TEXT = {
     "not_leaf": "not confidently a leaf of a supported crop",
     "low_confidence": "the disease model is unsure",
     "crop_check": "check the crop: it is easily mistaken for a related one",
+    "second_opinion": "the second model disagrees",
     "unreadable": "couldn't read the photo",
 }
 
@@ -76,8 +79,21 @@ def find_models(folder: str | Path) -> dict:
 def hub_models(folder: str | Path) -> dict:
     """Every published model, at the place in the download folder where it is (or will be) kept."""
     root = Path(folder).expanduser()
-    return {"folder": str(root), "hub": True, "crops": {k: str(root / k / HUB_FILE) for k in knowledge.crops()},
-            "detectors": {k: str(root / "detectors" / k / HUB_FILE) for k in ("original", "new")}}
+    found = {"folder": str(root), "hub": True, "crops": {k: str(root / k / HUB_FILE) for k, c in knowledge.crops().items() if "extra" not in c},
+             "detectors": {k: str(root / "detectors" / k / HUB_FILE) for k in ("original", "new")}}
+    return with_extra(found, root)
+
+
+def with_extra(found: dict, folder: str | Path | None) -> dict:
+    """Add the extra models (extra.py), kept in <folder>/extra/ and downloaded when first needed; a crop only an extra model
+    knows gets that model."""
+    if folder is None:
+        return found
+    found["extra"] = {k: str(extra.path(k, folder)) for k in extra.registry()}
+    for crop, c in knowledge.crops().items():
+        if "extra" in c:
+            found["crops"][crop] = found["extra"][c["extra"]]
+    return found
 
 
 def _hub_index(root: Path) -> dict:
@@ -97,9 +113,6 @@ def _hub_index(root: Path) -> dict:
 
 def download(path: Path, root: Path, name: str, index: dict):
     """Download one published model (config.json + model.safetensors) into root, checking its size and SHA-256."""
-    import hashlib
-
-    import requests
     rel_dir = path.parent.relative_to(root).as_posix()
     for fname in ("config.json", HUB_FILE):
         rel = f"{rel_dir}/{fname}"
@@ -109,24 +122,36 @@ def download(path: Path, root: Path, name: str, index: dict):
         dest = root / rel
         if dest.is_file() and dest.stat().st_size == want["bytes"]:
             continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        part = dest.with_name(dest.name + ".part")
-        h, done, mb = hashlib.sha256(), 0, want["bytes"] / 1e6
-        if fname == HUB_FILE:
-            log.info("Downloading the %s model from Hugging Face (%.0f MB, once)", name, mb)
-        with requests.get(HUB_URL + rel, stream=True, timeout=60) as r:
+        fetch(HUB_URL + rel, dest, want, name if fname == HUB_FILE else None)
+
+
+def fetch(url: str, dest: Path, want: dict, name: str | None = None):
+    """Download one file to dest, checking its size and SHA-256 (want: bytes, sha256); name: show the progress."""
+    import hashlib
+
+    import requests
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    h, done, mb = hashlib.sha256(), 0, want["bytes"] / 1e6
+    if name:
+        log.info("Downloading the %s model from Hugging Face (%.0f MB, once)", name, mb)
+    try:
+        with requests.get(url, stream=True, timeout=60) as r:
             r.raise_for_status()
             with open(part, "wb") as out:
                 for chunk in r.iter_content(1 << 20):
                     out.write(chunk)
                     h.update(chunk)
                     done += len(chunk)
-                    if fname == HUB_FILE:
+                    if name:
                         progress.update(None, f"Downloading the {name} model: {done / 1e6:.0f} of {mb:.0f} MB")
-        if done != want["bytes"] or h.hexdigest() != want["sha256"]:
-            part.unlink(missing_ok=True)
-            raise RuntimeError(f"The {name} model download was damaged (size or checksum): try again")
-        part.replace(dest)
+    except Exception:
+        part.unlink(missing_ok=True)
+        raise
+    if done != want["bytes"] or h.hexdigest() != want["sha256"]:
+        part.unlink(missing_ok=True)
+        raise RuntimeError(f"The {name or dest.name} download was damaged (size or checksum): try again")
+    part.replace(dest)
 
 
 def _classes(kind: str, weights: Path) -> list[str]:
@@ -270,6 +295,43 @@ class _Model:
         return [(self.classes[i], float(p[i])) for i in order]
 
 
+class _ExtraModel:
+    """An extra model (extra.py): probabilities per (crop, disease), the same disease's labels added up."""
+
+    def __init__(self, key: str, weights: str, device):
+        self.key, self.info, self.device = key, extra.registry()[key], device
+        self.net = extra.build(key, weights).to(device)
+
+    def probs(self, img) -> dict:
+        """{(crop, disease): probability}, and None: "not a crop photo" (models with such a label)."""
+        import numpy as np
+        import torch
+        from PIL import Image
+
+        size = self.info["image_size"]
+        a = np.asarray(img.resize((size, size), Image.BILINEAR), dtype=np.float32) / 255
+        a = (a - self.info["mean"]) / self.info["std"]
+        x = torch.from_numpy(a.transpose(2, 0, 1).astype(np.float32)).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            p = torch.softmax(self.net(x), 1)[0].float().cpu().numpy()
+        out = {}
+        for v, q in zip(self.info["labels"].values(), p):
+            k = tuple(v) if v else None
+            out[k] = out.get(k, 0.0) + float(q)
+        return out
+
+    def predict(self, img, crop: str, top_k: int = 3) -> list[tuple[str, float]]:
+        """One crop's diseases, best first. Not renormalised: when the model sees another crop, every one is unsure."""
+        return sorted(((k[1], p) for k, p in self.probs(img).items() if k and k[0] == crop), key=lambda x: -x[1])[:top_k]
+
+    def crops(self, img) -> list[tuple[str, float]]:
+        """Which crop the photo shows, best first (each crop's diseases added up)."""
+        out = {}
+        for k, p in self.probs(img).items():
+            out[k[0] if k else None] = out.get(k[0] if k else None, 0.0) + p
+        return sorted(out.items(), key=lambda x: -x[1])
+
+
 def _device(name: str):
     import torch
     if name == "cuda" or (name == "auto" and torch.cuda.is_available()):
@@ -292,22 +354,40 @@ class Models:
 
     @staticmethod
     def _title(key: str) -> str:
+        if key.startswith("extra:"):
+            return extra.registry()[key[6:]]["name"]
         return "crop detector" if key == "original" else "added-crops detector" if key == "new" else knowledge.crops()[key]["name"]
 
-    def get(self, key: str) -> _Model:
+    def get(self, key: str) -> _Model | _ExtraModel:
+        """A model: "original" / "new" (crop detectors), a crop, or "extra:<key>"."""
         if key in self.cache:
             self.cache.move_to_end(key)
             return self.cache[key]
-        path = self.found["detectors"].get(key) if key in ("original", "new") else self.found["crops"].get(key)
+        if key.startswith("extra:"):
+            path = self.found.get("extra", {}).get(key[6:])
+        else:
+            path = self.found["detectors"].get(key) if key in ("original", "new") else self.found["crops"].get(key)
         if not path:
             raise KeyError(key)
-        if self.found.get("hub") and not Path(path).is_file():
-            root = Path(self.found["folder"])
-            if self.index is None:
-                self.index = _hub_index(root)
-            download(Path(path), root, self._title(key), self.index)
-        log.info("Loading the %s model", self._title(key))
-        m = _Model(path, _classes(key, Path(path)), self.device)
+        if key.startswith("extra:"):
+            if not Path(path).is_file():
+                import requests
+                info = extra.registry()[key[6:]]
+                try:
+                    fetch(extra.download_url(key[6:]), Path(path), info["download"], info["name"])
+                except requests.RequestException:
+                    raise RuntimeError(f"Couldn't download the {info['name']} model from Hugging Face ({info['download']['repo']}): "
+                                       "check the internet connection")
+            log.info("Loading the %s model", self._title(key))
+            m = _ExtraModel(key[6:], path, self.device)
+        else:
+            if self.found.get("hub") and not Path(path).is_file():
+                root = Path(self.found["folder"])
+                if self.index is None:
+                    self.index = _hub_index(root)
+                download(Path(path), root, self._title(key), self.index)
+            log.info("Loading the %s model", self._title(key))
+            m = _Model(path, _classes(key, Path(path)), self.device)
         self.cache[key] = m
         crop_keys = [k for k in self.cache if k not in ("original", "new")]
         for k in crop_keys[:max(0, len(crop_keys) - self.keep)]:
@@ -329,6 +409,16 @@ class Models:
         if res is None:
             raise RuntimeError("The models folder has no crop detector (master_model/): choose the crop instead of Detect")
         res["top"] = [(match_crop(c, crops) or c, p) for c, p in res["top"]]
+        # crops the detectors don't know (Wheat): a grass-like leaf, or an unsure detector, is shown to the extra models
+        # that know such a crop; one sure of it wins
+        if res["top"][0][0] in GRASSES or res["top"][0][1] < CROP_UNSURE:
+            for key in dict.fromkeys(c["extra"] for c in crops.values() if "extra" in c):
+                if key not in self.found.get("extra", {}):
+                    continue
+                top = [(c, p) for c, p in self.get(f"extra:{key}").crops(img) if c]
+                if crops.get(top[0][0], {}).get("extra") == key and top[0][1] >= th["new_crop_route"]:
+                    res = {"detector": f"extra:{key}", "top": top[:3]}
+                    break
         return res
 
 
@@ -343,6 +433,7 @@ def _crop_name(c: str) -> str:
 CONFUSABLE = [{"Tomato", "Potato", "Brinjal"}, {"Cucumber", "Cucurbit", "Bitter_gourd", "Bottle_gourd", "Ridge_gourd", "Snake_gourd", "Watermelon"},
               {"Apple", "Pear", "Loquat", "Peach", "Apricot", "Cherry"}]
 CROP_UNSURE = 0.8      # below this crop confidence (or with a runner-up above 0.15) the crop is flagged too
+GRASSES = {"Maize", "Rice", "Sugarcane", "Sorghum"}   # what the crop detectors call a wheat leaf
 
 
 def crop_alternatives(crop: str, top: list) -> list[str]:
@@ -375,7 +466,7 @@ def diagnose_one(models: Models, path: str, crop: str, th: dict, strict: bool = 
         crop, crop_conf = idt["top"][0]
         r["crop_conf"] = round(crop_conf, 4)
         second = idt["top"][1][1] if len(idt["top"]) > 1 else 0
-        if crop_conf < CROP_UNSURE or second > 0.15 or any(crop in g for g in CONFUSABLE):
+        if crop_conf < CROP_UNSURE or second > 0.15 or any(crop in g for g in CONFUSABLE) or idt["detector"].startswith("extra:"):
             r["warnings"].append("crop_check")
             r["crop_alternatives"] = [{"crop": c, "name": _crop_name(c)} for c in crop_alternatives(crop, idt["top"])]
     r["crop"], r["crop_name"] = crop, _crop_name(crop)
@@ -394,7 +485,12 @@ def diagnose_one(models: Models, path: str, crop: str, th: dict, strict: bool = 
     if crop not in models.found["crops"]:
         r.update(status="no_model", note=f"The models folder has no {_crop_name(crop)} model (data/{crop}/{WEIGHTS})")
         return r
-    top = models.get(crop).predict(img)
+    own = knowledge.crops()[crop].get("extra")
+    if own:   # only an extra model knows this crop
+        top = models.get(f"extra:{own}").predict(img, crop)
+        r["model"] = extra.registry()[own]["name"]
+    else:
+        top = models.get(crop).predict(img)
     r["top"] = [{"label": lab, "name": label_display(crop, lab), "conf": round(p, 4)} for lab, p in top]
     label, conf = top[0]
     r.update(label=label, diagnosis=label_display(crop, label), conf=round(conf, 4),
@@ -407,12 +503,29 @@ def diagnose_one(models: Models, path: str, crop: str, th: dict, strict: bool = 
         r["warnings"].append(refused)
     elif issue and issue not in r["warnings"]:
         r["warnings"].append(issue)
+    if not own:
+        second_opinion(models, img, r)
     r["status"] = "variety" if r["kind"] == "variety" else "healthy" if r["healthy"] else "disease"
     return r
 
 
+def second_opinion(models: Models, img, r: dict):
+    """The extra models that know the crop too: their own best answer (any crop they know, or "not a crop leaf"), and
+    whether it agrees with the crop's model. Never changes the diagnosis."""
+    for key in extra.crop_models().get(r["crop"], []):
+        if key not in models.found.get("extra", {}):
+            continue
+        k, p = max(models.get(f"extra:{key}").probs(img).items(), key=lambda x: x[1])
+        crop, name = k if k else (None, "Not a crop leaf")
+        agrees = crop == r["crop"] and name.lower() == r["diagnosis"].lower()
+        r.setdefault("second_opinions", []).append({"model": extra.registry()[key]["name"], "crop": crop, "crop_name": _crop_name(crop) if crop else None,
+                                                    "diagnosis": name, "conf": round(p, 4), "agrees": agrees})
+        if not agrees and "second_opinion" not in r["warnings"]:
+            r["warnings"].append("second_opinion")
+
+
 CSV_COLS = ["file", "status", "crop", "crop_confidence", "diagnosis", "confidence", "second", "second_confidence", "third",
-            "third_confidence", "reason", "lat", "lon", "taken", "path"]
+            "third_confidence", "second_opinion", "second_opinion_confidence", "reason", "lat", "lon", "taken", "path"]
 
 
 def _row(r: dict) -> dict:
@@ -421,17 +534,21 @@ def _row(r: dict) -> dict:
             "diagnosis": r.get("diagnosis", ""), "confidence": r.get("conf", ""),
             "second": top[1]["name"] if len(top) > 1 else "", "second_confidence": top[1]["conf"] if len(top) > 1 else "",
             "third": top[2]["name"] if len(top) > 2 else "", "third_confidence": top[2]["conf"] if len(top) > 2 else "",
+            "second_opinion": "; ".join(f"{o['model']}: {o['crop_name'] + ' ' if o['crop'] and o['crop'] != r.get('crop') else ''}{o['diagnosis']}"
+                                        for o in r.get("second_opinions", [])),
+            "second_opinion_confidence": "; ".join(str(o["conf"]) for o in r.get("second_opinions", [])),
             "reason": "; ".join(ISSUE_TEXT.get(x, x) for x in ([r["reason"]] if r.get("reason") else []) + r.get("warnings", [])) or r.get("note", ""),
             "lat": r.get("lat", ""), "lon": r.get("lon", ""), "taken": r.get("taken", ""), "path": r["path"]}
 
 
 def diagnose(photos: list[str], models_dir: str, out_dir: str, name: str = "diagnosis", crop: str = "auto", strict: bool = True,
-             device: str = "auto", thresholds: dict | None = None, hub: bool = False) -> dict:
+             device: str = "auto", thresholds: dict | None = None, hub: bool = False, extra_dir: str | None = None) -> dict:
     """Diagnose each photo; writes <name>.csv (one row per photo) and <name>.geojson (photos with a GPS position).
-    hub=True: models_dir is the download folder, and models missing there are downloaded from Hugging Face when needed."""
+    hub=True: models_dir is the download folder, and models missing there are downloaded from Hugging Face when needed.
+    extra_dir: where the extra models are kept with a local models folder (with hub, models_dir; None: no extra models)."""
     t0 = time.time()
     th = {**knowledge.meta()["thresholds"], **(thresholds or {})}
-    found = hub_models(models_dir) if hub else find_models(models_dir)
+    found = hub_models(models_dir) if hub else with_extra(find_models(models_dir), extra_dir)
     if crop != "auto" and crop not in knowledge.crops():
         raise ValueError(f"Unknown crop {crop}")
     if crop == "auto" and not found["detectors"]:
