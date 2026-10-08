@@ -27,6 +27,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+
 # ---- an isolated workspace, set before the app is imported (the workspace folder is fixed at import)
 _HOME = Path(tempfile.mkdtemp(prefix="lulc_tests_")).resolve()
 os.environ["LULC_HOME"] = str(_HOME)
@@ -54,7 +55,19 @@ def pytest_addoption(parser):
                      help="how much real data the real-data suite uses: small (default), medium, large")
 
 
+def _one_openmp(config):
+    """One OpenMP runtime on macOS (PyTorch's): with two, XGBoost / LightGBM after the agri tests crash Python. The run
+    starts again with it (output capture off first, or the new run's output would go to the old one's capture files)."""
+    from lulc_fetch import openmp
+    if openmp.needs_restart():
+        cap = config.pluginmanager.getplugin("capturemanager")
+        if cap:
+            cap.stop_global_capturing()
+        openmp.ensure_single_runtime([sys.executable, "-m", "pytest", *sys.argv[1:]])
+
+
 def pytest_configure(config):
+    _one_openmp(config)
     for m, doc in (("network", "needs the internet (skipped unless --network)"),
                    ("dl", "needs the deep-learning add-on (PyTorch)"),
                    ("yolo", "needs the YOLO & SAM add-on (ultralytics)"),

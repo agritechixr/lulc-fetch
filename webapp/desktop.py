@@ -125,6 +125,8 @@ def main():
         runpy.run_module("pip", run_name="__main__")
         return
     _use_addons()
+    from lulc_fetch import openmp
+    openmp.ensure_single_runtime(sys.argv if getattr(sys, "frozen", False) else [sys.executable, "-m", "webapp.desktop", *sys.argv[1:]])
     if len(sys.argv) > 1 and sys.argv[1] == "--lulc-dlrunner":   # deep-learning training / prediction process
         from lulc_fetch import dlrunner
         sys.exit(dlrunner.cli(sys.argv[2:3]))

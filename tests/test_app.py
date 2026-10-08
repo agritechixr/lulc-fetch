@@ -945,3 +945,16 @@ def test_every_loaded_file_is_in_git():
     tracked = set(subprocess.run(["git", "ls-files", "--cached", "webapp/static"], cwd=root, capture_output=True, text=True).stdout.split())
     missing = sorted(f for f in files if f not in tracked)
     assert not missing, f"loaded by the app but not in git (check .gitignore, then git add): {missing}"
+
+
+def test_one_openmp_runtime_on_macos():
+    """PyTorch's libomp and XGBoost / LightGBM's are two OpenMP runtimes: together in one process they crash (agri
+    diagnosis, then XGBoost training). On macOS the process starts again with PyTorch's first on the library path."""
+    import os
+    import sys
+
+    from lulc_fetch import openmp
+    d = openmp.torch_lib_dir()
+    if sys.platform != "darwin" or d is None:
+        pytest.skip("only macOS with PyTorch has two runtimes")
+    assert str(d) in os.environ.get("DYLD_LIBRARY_PATH", "").split(os.pathsep) and not openmp.needs_restart()

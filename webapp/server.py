@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -276,6 +277,8 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
 def main():
+    from lulc_fetch import openmp
+    openmp.ensure_single_runtime([sys.executable, "-m", "webapp.server", *sys.argv[1:]])
     import uvicorn
 
     p = argparse.ArgumentParser(description="lulc-fetch web UI")
