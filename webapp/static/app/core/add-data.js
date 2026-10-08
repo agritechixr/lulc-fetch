@@ -1,4 +1,5 @@
-  // Add data (Insert ▸ Add data, File ▸ Add data, or drop files): rasters, vectors, tables and pictures from the computer.
+  // Add data (Insert ▸ Add data, File ▸ Add data, or drop files): rasters, vectors (a GeoPackage: each of its layers), tables,
+  // pictures, and field collection files (.zip from the phone page: points + photos).
   // (part of app.js: the server joins webapp/static/app/parts.json in order, inside one closure)
 
   // ------------------------------------------------------------------ add data
@@ -12,6 +13,13 @@
     if (safeZips.length) {
       files = files.filter((f) => !safeZips.includes(f));
       for (const f of safeZips) await uploadSafeZip(f);
+      if (!files.length) return;
+    }
+    const fieldZips = [];
+    for (const f of files) if (/\.zip$/i.test(f.name) && await isFieldZip(f)) fieldZips.push(f);
+    if (fieldZips.length) {
+      files = files.filter((f) => !fieldZips.includes(f));
+      for (const f of fieldZips) await importFieldZip(f).catch((e) => toast(`${f.name}: ${e.message}`, true));
       if (!files.length) return;
     }
     const rasters = files.filter((f) => /\.tiff?$/i.test(f.name));
@@ -63,13 +71,37 @@
         group.forEach((f) => fd.append("files", f));
         const fc = await api("/api/aoi/upload", { method: "POST", body: fd });
         const name = (group.find((f) => /\.shp$/i.test(f.name)) || group[0]).name.replace(/\.[^.]+$/, "");
-        addVectorLayer({ type: "FeatureCollection", features: fc.features }, name);
+        if (fc.layers?.length > 1) {   // a GeoPackage with several layers: one layer each (the file's first on top)
+          [...fc.layers].reverse().forEach((x, i) => addVectorLayer({ type: "FeatureCollection", features: x.features }, x.name, { zoom: i === fc.layers.length - 1 }));
+          toast(`${group[0].name}: ${fc.layers.length} layers added`);
+        } else addVectorLayer({ type: "FeatureCollection", features: fc.features }, name);
         if (fc.warning) toast(`${name}: ${fc.warning}`, true);
       } catch (e) { toast(`${group[0].name}: ${e.message}`, true); }
     }
     status(`Added ${files.length} file${files.length > 1 ? "s" : ""}`);
   }
   $("#add-file").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
+
+  // ---- field collection files (the phone page's .zip): field.json is its first entry, so its first bytes tell
+  async function isFieldZip(f) {
+    try {
+      const b = new Uint8Array(await f.slice(0, 64).arrayBuffer());
+      const n = b[26] | (b[27] << 8);
+      return b[0] === 0x50 && b[1] === 0x4b && b[2] === 3 && b[3] === 4 && new TextDecoder().decode(b.slice(30, 30 + n)) === "field.json";
+    } catch { return false; }
+  }
+  /** import a field .zip: its points become a layer (photos linked), and the photos can go to Diagnose crop disease */
+  async function importFieldZip(f) {
+    status(`Importing ${f.name}…`, true);
+    const fd = new FormData();
+    fd.append("file", f);
+    const r = await api("/api/field/import", { method: "POST", body: fd });
+    const l = addVectorLayer(r.geojson, `Field · ${r.name}`, { color: "#ea580c", path: r.geojson_path, field: { photos: r.photos.length } });
+    saveLayers();
+    status(`Imported ${r.points} point${r.points === 1 ? "" : "s"} and ${r.photos.length} photo${r.photos.length === 1 ? "" : "s"} from ${f.name}`);
+    LF.fieldImported?.(r, l);
+    return r;
+  }
 
   // drop files anywhere on the window
   let dragDepth = 0;
@@ -82,7 +114,7 @@
     e.preventDefault();
     dragDepth = 0;
     $("#drop-overlay").classList.add("hidden");
-    if (e.target.closest("#drop, #an-drop, #ad-drop")) return;  // these upload boxes handle their own drops
+    if (e.target.closest("#drop, #an-drop, #ad-drop, #fc-drop")) return;  // these upload boxes handle their own drops
     // entries must be read during the event; folders (e.g. a .SAFE product) only show up this way
     const entries = [...(e.dataTransfer.items || [])].map((i) => i.kind === "file" && i.webkitGetAsEntry ? i.webkitGetAsEntry() : null);
     if (entries.some((x) => x?.isDirectory)) addDropped(entries.filter(Boolean)).catch((err) => toast(err, true));

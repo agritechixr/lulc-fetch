@@ -16,7 +16,7 @@ from shapely.ops import unary_union
 
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "lulc-fetch/0.1 (local LULC data tool)"
-VECTOR_EXTS = {".zip", ".shp", ".shx", ".dbf", ".prj", ".cpg", ".geojson", ".json", ".kml", ".kmz"}
+VECTOR_EXTS = {".zip", ".shp", ".shx", ".dbf", ".prj", ".cpg", ".geojson", ".json", ".kml", ".kmz", ".gpkg"}
 
 
 def _fc(geoms: list[dict], props: list[dict] | None = None) -> dict:
@@ -123,14 +123,16 @@ def _read_geojson(data: bytes) -> dict:
 # ------------------------------------------------------------------ entry point
 
 def parse_upload(files: list[tuple[str, bytes]]) -> dict:
-    """Parse one or more uploaded files into a WGS84 FeatureCollection plus a merged AOI geometry."""
+    """Parse one or more uploaded files into a WGS84 FeatureCollection plus a merged AOI geometry. A GeoPackage with
+    several layers gives its first one, and all of them in "layers" ([{name, features}])."""
     shp_parts: dict[str, bytes] = {}
     fc = None
+    layers = None
     for name, data in files:
         ext = PurePath(name).suffix.lower()
         if ext not in VECTOR_EXTS:
             raise ValueError(f"Unsupported file type {ext!r}. Use a zipped shapefile, .shp+.shx+.dbf+.prj, "
-                             f"GeoJSON, KML or KMZ.")
+                             f"GeoPackage, GeoJSON, KML or KMZ.")
         if ext in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
             shp_parts[ext[1:]] = data
         elif ext == ".zip":
@@ -148,13 +150,20 @@ def parse_upload(files: list[tuple[str, bytes]]) -> dict:
                 fc = _read_kml(z.read(kml))
         elif ext == ".kml":
             fc = _read_kml(data)
+        elif ext == ".gpkg":
+            from lulc_fetch.gpkg import read_gpkg
+            layers = read_gpkg(data)
+            fc = layers[0][1]
         else:
             fc = _read_geojson(data)
     if shp_parts:
         fc = _read_shapefile(shp_parts)
     if fc is None:
         raise ValueError("No vector data found in the upload")
-    return with_aoi(fc)
+    fc = with_aoi(fc)
+    if layers and len(layers) > 1:
+        fc["layers"] = [{"name": n, "features": x["features"]} for n, x in layers]
+    return fc
 
 
 def with_aoi(fc: dict) -> dict:

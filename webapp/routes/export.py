@@ -1,4 +1,4 @@
-"""Export data: GeoTIFF, PNG, Shapefile, GeoJSON, KML. Shared helpers come from webapp/core.py."""
+"""Export data: GeoTIFF, PNG, Shapefile, GeoPackage, GeoJSON, KML. Shared helpers come from webapp/core.py."""
 
 from __future__ import annotations
 
@@ -139,12 +139,19 @@ def _export_to_folder(req: "LayerExportRequest", job, folder: Path | None) -> di
     return res
 
 
+class VectorLayer(BaseModel):
+    name: str = Field("layer", max_length=200)
+    geojson: dict
+
+
 class VectorExportRequest(BaseModel):
     geojson: dict
-    format: str  # shp | geojson | kml
+    format: str  # shp | gpkg | geojson | kml
     name: str = "layer"
     clip: dict | None = None
     folder: str | None = Field(None, max_length=1000)
+    layer_name: str | None = Field(None, max_length=200)   # gpkg: the layer's name inside the file (default: name)
+    more: list[VectorLayer] = Field(default_factory=list, max_length=200)   # gpkg: more layers in the same file
 
 
 @router.post("/api/vector/export")
@@ -154,6 +161,21 @@ def export_vector(req: VectorExportRequest):
     feats = vector_io.features_from_geojson(req.geojson)
     if req.clip:
         feats = vector_io.clip_features(feats, _clip(req.clip))
+    if req.format == "gpkg":   # one file, any number of layers
+        from lulc_fetch.gpkg import write_gpkg
+        layers = [(req.layer_name or req.name, feats)]
+        for m in req.more:
+            try:
+                f = vector_io.features_from_geojson(m.geojson)
+                layers.append((m.name, vector_io.clip_features(f, _clip(req.clip)) if req.clip else f))
+            except ValueError:   # empty, or nothing inside the area: left out
+                continue
+        out = write_gpkg(layers, _export_target(req.name, "gpkg"))
+        res = {**_export_url(out), "features": sum(len(f) for _, f in layers), "layers": len(layers)}
+        if req.folder and req.folder.strip():
+            res["saved"] = _save_into(out, _report_folder(req.folder))
+            res["saved_to"] = str(_report_folder(req.folder))
+        return res
     if req.format == "shp":
         out = vector_io.write_shapefile_zip(feats, "EPSG:4326", _export_target(req.name, "zip"), req.name)
     elif req.format == "kml":

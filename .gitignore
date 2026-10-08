@@ -37,3 +37,4 @@ test_reports/
 # downloaded once by the app: AlphaEarth index (Satellite embeddings), crop disease models (Agri)
 embeddings_cache/
 agri_models/
+site/field/

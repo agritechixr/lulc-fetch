@@ -6,6 +6,8 @@
   const ICONS = {
     forecast: '<path d="M3 20h18" opacity=".5"/><path d="M4 16l4-5 4 3 3-4"/><path d="M15 10l3-2 3-3" stroke-dasharray="2 2"/><circle cx="15" cy="10" r="1.3" fill="currentColor" stroke="none"/>',
     fcrun: '<path d="M3 20h18" opacity=".5"/><path d="M4 15l4-4 3 2" /><path d="M11 13l3-3 3 1 4-4" stroke-dasharray="2 2"/><path d="M5 4l4 2.5L5 9z" fill="currentColor" stroke="none"/>',
+    online: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.8 5.2 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.2-3.8-8.5s1.2-6.1 3.8-8.5z"/>',
+    field: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.2"/><path d="M12 15.5s-3-3-3-5.2a3 3 0 0 1 6 0c0 2.2-3 5.2-3 5.2z"/><circle cx="12" cy="10.3" r=".9" fill="currentColor" stroke="none"/><path d="M10.5 19h3" opacity=".6"/>',
     cloud: '<path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.5 1.5A3.3 3.3 0 0 0 7 18z"/><path d="M8 21v-1M12 21v-1M16 21v-1" opacity=".7"/>',
     interp: '<circle cx="5" cy="17" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="7" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="14" r="1.6" fill="currentColor" stroke="none"/><path d="M3 12c3-5 6-7 9-6s4 5 9 3" opacity=".75"/><path d="M3 20c4-3 8-4 11-3s5 1 7-1" opacity=".45"/>',
     search: '<path d="M4 7l4-4 4 4-4 4z"/><path d="M12 15l4-4 4 4-4 4z"/><path d="M9.5 9.5l5 5"/><path d="M3 21c1.5-3 4-4.5 7-4.5"/>',
@@ -119,7 +121,7 @@
     { id: "detect", title: "Detect object", icon: "detect", subtitle: "Find vehicles, ships, planes, people, storage tanks and more in high-resolution images: YOLO26 (incl. aerial DOTA model), Faster R-CNN, RetinaNet, Mask R-CNN, SAM 2.1 segment-everything, or your own trained models. Boxes or outlines as a vector layer" },
     { id: "traindet", title: "Train detection model", icon: "traindet", subtitle: "Train YOLO26 / YOLO11 to find your own objects (boxes, outlines or rotated boxes) from an image and labelled polygons or points, with early stopping, live curves and an HTML report" },
     { id: "patches", title: "Make training data", icon: "patches", subtitle: "Cut large images and their ground truth into image / label patches for deep-learning training" },
-    { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoJSON, KML" },
+    { id: "export", title: "Export data", icon: "export", subtitle: "Save any layer to your computer: GeoTIFF, PNG, Shapefile, GeoPackage (several layers in one file), GeoJSON, KML" },
     { id: "jobs", title: "Downloads & jobs", icon: "jobs", subtitle: "Background downloads, logs and output files" },
   ];
   LF.tools.forEach(({ id, menu, title, icon, subtitle }) => TOOLS.push({ id, menu, title, icon, subtitle }));
@@ -135,6 +137,7 @@
                 subtitles: { interp: "Make a map from a forecast at stations (Put on the map, then a surface: kriging, IDW…)",
                              ml: "Predict a value from other columns without time (regression / classification on tables)" } },
     library: { el: "#library-menu", label: "", shortcuts: [] },
+    online: { el: "#online-menu", label: "", shortcuts: [] },
   };
   // the Analysis menu: a category on the left (Tools, Agri, Embeddings, Forecast), its tools on the right
   function showAnalysis(cat) {
@@ -186,7 +189,7 @@
     wireEntries($("#tools-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });
     Object.entries(MENUS).forEach(([key, m]) => {
       const el = $(m.el);
-      el.innerHTML = ribbonGroup({ agri: "Agri", embed: "Embeddings", forecast: "Forecast", library: "Library" }[key] || key, TOOLS.filter((t) => t.menu === key)) +
+      el.innerHTML = ribbonGroup({ agri: "Agri", embed: "Embeddings", forecast: "Forecast", library: "Library", online: "Online & field" }[key] || key, TOOLS.filter((t) => t.menu === key)) +
         ribbonGroup(m.label, m.shortcuts.map((id) => TOOLS.find((t) => t.id === id)).filter(Boolean)
           .map((t) => m.subtitles?.[t.id] ? { ...t, subtitle: m.subtitles[t.id] } : t));
       wireEntries(el, "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });

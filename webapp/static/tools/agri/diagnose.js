@@ -60,7 +60,12 @@
       const thumb = (path, size = 160) => `/api/agri/photo?path=${encodeURIComponent(path)}&size=${size}`;
       const cropName = (c) => st.schema?.crops[c]?.name || c;
 
-      async function open() {
+      // arg.photos: photos handed over by another tool (Field collection), added to the list
+      async function open(arg) {
+        if (arg?.photos?.length) {
+          const n = addPhotos(arg.photos);
+          toast(n ? `${n} photo${n === 1 ? "" : "s"} added: choose the crop (or Detect), then Diagnose` : "These photos are in the list already");
+        }
         if (!(await renderAddon($("#tab-agridisease")))) return;
         try { st.schema = await LF.agri.schema(true); } catch (e) { toast(e, true); return; }
         limitDevices($("#ad-device"));

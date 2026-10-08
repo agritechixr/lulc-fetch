@@ -39,6 +39,7 @@ TOOLS = {
     "test_agri": "Agri: Diagnose crop disease & Crop disease guide",
     "test_embeddings": "Satellite embeddings",
     "test_lightseg": "Light segmentation models",
+    "test_online_field_gpkg": "Online layers, GeoPackage & field collection",
 }
 
 

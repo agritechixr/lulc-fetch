@@ -1,4 +1,4 @@
-"""Writing vector layers: zipped ESRI Shapefile, KML and GeoJSON."""
+"""Writing vector layers: zipped ESRI Shapefile, KML and GeoJSON (GeoPackage: lulc_fetch/gpkg.py)."""
 
 from __future__ import annotations
 

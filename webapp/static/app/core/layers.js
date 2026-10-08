@@ -83,8 +83,12 @@
   }
 
   function featurePopup(f, l) {
-    const props = Object.entries(f.properties || {}).filter(([, v]) => v !== null && typeof v !== "object");
-    return `<div class="pxpop"><div><b>${esc(l.name)}</b></div><table>${props.slice(0, 25).map(([k, v]) =>
+    const p = f.properties || {}, props = Object.entries(p).filter(([k, v]) => v !== null && typeof v !== "object" && k !== "photos");
+    // field collection points: their photos (paths in the workspace), click for the full photo
+    const photos = String(p.photos || p.photo || "").split(/;\s*/).filter((x) => /\.(jpe?g|png|webp|heic|heif)$/i.test(x));
+    const pics = photos.length ? `<div class="pop-photos">${photos.slice(0, 6).map((x) => `<a href="/api/agri/photo?path=${encodeURIComponent(x)}&size=0" target="_blank" rel="noopener">
+      <img src="/api/agri/photo?path=${encodeURIComponent(x)}&size=200" alt="" loading="lazy"></a>`).join("")}</div>` : "";
+    return `<div class="pxpop"><div><b>${esc(l.name)}</b></div>${pics}<table>${props.slice(0, 25).map(([k, v]) =>
       `<tr><td>${esc(k)}</td><td>${esc(typeof v === "number" ? fmtv(v) : v)}</td></tr>`).join("") || "<tr><td>No attributes</td></tr>"}</table></div>`;
   }
 
@@ -112,8 +116,39 @@
       });
     } else if ((l.type === "image" && l.url) || (l.type === "raster" && l.image)) {
       l.leaflet = L.imageOverlay(l.url || l.image, l.bounds, { ...pane, opacity: l.opacity, interactive: false });
+    } else if (l.type === "tiles") {
+      l.leaflet = tileLeaflet(l, l._pane || onlinePane(l));
     }
     if (l.leaflet && l.visible) l.leaflet.addTo(map);
+  }
+
+  // ---- online map layers (Insert ▸ Online map layer): l.tiles = { kind: wms | wmts | xyz, url, layer, style, format, version,
+  // time, time_info, matrices, min_zoom, max_zoom, bbox, legend, attribution, service }. The map loads the tiles from the service.
+  const TemplateTiles = L.TileLayer.extend({   // {z} {x} {y} {-y} {s} and {time}; WMTS tile matrices not named after the zoom
+    getTileUrl(c) {
+      const z = c.z, m = this.options.matrices, t = this.options.time;   // c.z: also the tiles of a print at another zoom
+      const data = { x: c.x, y: c.y, z: m ? m[z] ?? z : z, s: this._getSubdomain(c), r: L.Browser.retina ? "@2x" : "", time: t || "default",
+                     "-y": 2 ** z - 1 - c.y };
+      return L.Util.template(this._url, { ...this.options, ...data });
+    },
+  });
+  function tileLeaflet(l, pane) {
+    const t = l.tiles, base = { pane, opacity: l.opacity, attribution: t.attribution || t.service || "", maxZoom: 22,
+                                minNativeZoom: t.min_zoom ?? 0, maxNativeZoom: t.max_zoom ?? 19,
+                                bounds: t.bbox ? L.latLngBounds([t.bbox[1], t.bbox[0]], [t.bbox[3], t.bbox[2]]) : undefined };
+    if (t.kind === "wms") {
+      return L.tileLayer.wms(t.url, { ...base, layers: t.layer, styles: t.style || "", format: t.format || "image/png", transparent: true,
+                                      version: t.version || "1.3.0", uppercase: true, ...(t.time ? { time: t.time } : {}) });
+    }
+    return new TemplateTiles(t.url, { ...base, matrices: t.matrices || null, time: t.time || t.time_info?.default || "" });
+  }
+  /** the pane of an online layer: over the app's own layers when it is above all of them in Contents, else under them */
+  function onlinePane(l) {
+    const i = layers.indexOf(l), own = layers.findIndex((x) => x.type !== "tiles");
+    return own < 0 || (i >= 0 && i < own) ? "onlineAbove" : "onlineBelow";
+  }
+  function addOnlineLayer(tiles, name, opts = {}) {
+    return addLayer({ type: "tiles", name, tiles, ...opts }, { zoom: false });
   }
 
   function addLayer(def, { select = true, zoom = false, below = null } = {}) {
@@ -144,6 +179,7 @@
 
   function restack() {
     map3dChanged();
+    for (const l of layers) if (l.type === "tiles" && !l._pane && l.leaflet && l.leaflet.options.pane !== onlinePane(l)) buildLeaflet(l);
     for (let i = layers.length - 1; i >= 0; i--) {
       const l = layers[i];
       if (l.visible && l.leaflet && map.hasLayer(l.leaflet)) l.leaflet.bringToFront();
@@ -164,6 +200,7 @@
   }
   function layerBounds(l) {
     if (l.type === "vector") return l.leaflet?.getBounds();
+    if (l.type === "tiles") { const b = l.tiles.bbox; return b && b[2] - b[0] < 359 ? L.latLngBounds([b[1], b[0]], [b[3], b[2]]) : null; }
     const b = l.bounds || l.info?.bounds;  // info.bounds works even before the layer has finished drawing
     return b ? L.latLngBounds(b) : null;
   }
@@ -257,6 +294,7 @@
       return `${n} feature${n === 1 ? "" : "s"}`;
     }
     if (l.type === "image") return "preview image";
+    if (l.type === "tiles") return `${l.tiles.kind.toUpperCase()}${l.tiles.time ? ` · ${l.tiles.time}` : ""} · online`;
     const r = l.render || {};
     if (r.composite) return state.catalog?.composites[r.composite]?.title || r.composite;
     if (r.pca) return `${l.info?.count || ""} bands · colour view`;
@@ -276,6 +314,12 @@
       return `<div class="lyr-classes">${l.classes.map((c) => `<div><i style="background:${esc(c.color)}"></i><span>${esc(c.name)}</span><span>${l.geojson.features.filter((f) => f.properties.class === c.name).length}</span></div>`).join("")}</div>`;
     }
     if (l.type === "vector") return `<div class="lyr-meta">${displayLabel(l)} · EPSG:4326</div>`;
+    if (l.type === "tiles") {
+      const t = l.tiles, ti = t.time_info;
+      return `<div class="lyr-meta">${esc(t.service || "")}${t.layer ? ` · <code>${esc(t.layer)}</code>` : ""}</div>
+        ${ti ? `<label class="lyr-time">Date <input type="date" data-tile-time value="${esc(t.time || ti.default || "")}" ${ti.start ? `min="${esc(ti.start)}"` : ""} ${ti.end ? `max="${esc(ti.end)}"` : ""}></label>` : ""}
+        ${t.legend ? `<img class="lyr-legend-img" src="${esc(t.legend)}" alt="Legend" loading="lazy" onerror="this.remove()">` : ""}`;
+    }
     if (!g) return "";
     if (g.kind === "continuous") {
       return `<div class="lyr-legend"><div class="legend" style="background:linear-gradient(to right, ${g.colors.join(",")})"></div>
@@ -292,6 +336,7 @@
   function layerIcon(l) {
     if (l.type === "vector" && l.symbology?.legend?.length) return `<span class="lyr-ic" style="background:conic-gradient(${l.symbology.legend.slice(0, 6).map((c, i, a) => `${c.color} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(",")})"></span>`;
     if (l.type === "vector") return `<span class="lyr-ic" style="border-color:${l.color};color:${l.color};background:${l.color}22">${svg("vector", 2.2)}</span>`;
+    if (l.type === "tiles") return `<span class="lyr-ic">${svg("online")}</span>`;
     const g = l.legend;
     if (g?.kind === "continuous") return `<span class="lyr-ic" style="background:linear-gradient(135deg, ${g.colors.join(",")})"></span>`;
     if (g?.kind === "classes") return `<span class="lyr-ic" style="background:conic-gradient(${g.classes.slice(0, 6).map((c, i, a) => `${c.color} ${i / a.length * 100}% ${(i + 1) / a.length * 100}%`).join(",")})"></span>`;
@@ -338,6 +383,7 @@
       $(".lyr-zoom", el).onclick = (e) => { e.stopPropagation(); selectLayer(l.id); zoomTo(l); };
       $(".lyr-more", el).onclick = (e) => { e.stopPropagation(); selectLayer(l.id); const r = e.currentTarget.getBoundingClientRect(); showCtx(l, r.right, r.bottom); };
       $("[data-op]", el).oninput = (e) => setOpacity(l, e.target.value / 100);
+      $("[data-tile-time]", el)?.addEventListener("change", (e) => { l.tiles.time = e.target.value; buildLeaflet(l); restack(); renderContents(); saveLayers(); });
       // drag to reorder
       el.ondragstart = (e) => { if (e.target.closest("input[type=range]")) { e.preventDefault(); return; } e.dataTransfer.setData("text/layer", l.id); el.classList.add("dragging"); };
       el.ondragend = () => el.classList.remove("dragging");
@@ -429,7 +475,7 @@
       } else if (d.type === "raster") {
         const l = addLayer(d, { select: false });
         renderRaster(l).catch(() => {});
-      }
+      } else if (d.type === "tiles") addLayer(d, { select: false });
     }
     selectedId = null;
     renderContents();

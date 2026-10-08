@@ -1,0 +1,369 @@
+<!doctype html>
+<!-- LULC Fetch · Field: take geotagged points and photos on a phone, offline; send them to the app as one .zip.
+     Published on the website (agritechixr.github.io/lulc-fetch/field/, copied there by .github/workflows/pages.yml):
+     phones only give a page the GPS position over https. Works offline once opened (sw.js), keeps everything on the phone
+     (IndexedDB) until it is sent. The app reads the .zip with Add data or Insert ▸ Field collection (webapp/routes/field.py). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f7a5a">
+<meta name="description" content="Take geotagged points and photos in the field, offline, and load them into LULC Fetch.">
+<title>LULC Fetch Field</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  :root { --bg: #f5f8f6; --panel: #ffffff; --text: #14211b; --muted: #5b6b63; --border: #dde6e1; --accent: #1f7a5a; --accent-2: #e7f4ee;
+          --accent-ink: #ffffff; --warn: #b45309; --err: #b91c1c; --ok: #15803d; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1513; --panel: #16211d; --text: #e7efeb; --muted: #98aaa1; --border: #24332d; --accent: #3fb68b; --accent-2: #173328;
+            --accent-ink: #06130e; --warn: #f59e0b; --err: #f87171; --ok: #4ade80; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         padding: env(safe-area-inset-top) 0 calc(96px + env(safe-area-inset-bottom)); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 16px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+  .brand img { width: 26px; height: 26px; border-radius: 6px; }
+  .brand small { font-weight: 500; color: var(--muted); margin-left: auto; font-size: 13px; }
+  .gps { margin-top: 6px; font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.good { background: var(--ok); } .dot.fair { background: var(--warn); } .dot.bad { background: var(--err); }
+  main { padding: 12px 16px; max-width: 640px; margin: 0 auto; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  input, textarea, select { width: 100%; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+                            padding: 9px 10px; margin-top: 3px; }
+  textarea { min-height: 54px; resize: vertical; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: inherit; font-weight: 600; border-radius: 10px;
+         border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 10px 14px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.small { padding: 6px 10px; font-size: 14px; font-weight: 500; }
+  .btn.danger { color: var(--err); }
+  .btn:disabled { opacity: .5; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--panel); border-top: 1px solid var(--border);
+         padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .bar .btn { padding: 14px 10px; font-size: 16px; }
+  .pt { display: grid; grid-template-columns: 64px 1fr; gap: 10px; }
+  .pt .thumbs { display: grid; gap: 4px; align-content: start; }
+  .pt img, .pt .nophoto { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; background: var(--accent-2); }
+  .pt .nophoto { display: flex; align-items: center; justify-content: center; font-size: 26px; }
+  .pt h3 { margin: 0; font-size: 16px; display: flex; gap: 8px; align-items: baseline; }
+  .pt h3 small { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .meta { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+  .warn { color: var(--warn); }
+  .empty { text-align: center; color: var(--muted); padding: 28px 10px; }
+  .toast { position: fixed; left: 16px; right: 16px; bottom: calc(86px + env(safe-area-inset-bottom)); z-index: 9; background: var(--text);
+           color: var(--bg); border-radius: 10px; padding: 10px 14px; font-size: 15px; opacity: 0; transform: translateY(8px);
+           transition: opacity .2s, transform .2s; pointer-events: none; max-width: 608px; margin: 0 auto; }
+  .toast.on { opacity: 1; transform: none; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+  .count { font-weight: 700; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><img src="icon.png" alt="">LULC Fetch Field<small id="saved-note"></small></div>
+  <div class="gps" id="gps"><span class="dot" id="gps-dot"></span><span id="gps-text">Waiting for the GPS…</span></div>
+</header>
+
+<main>
+  <div class="card">
+    <div class="grid">
+      <label>Survey name<input id="project" placeholder="e.g. Village A, kharif" autocomplete="off"></label>
+      <label>Crop (for new points)<input id="crop" list="crops" placeholder="e.g. Rice" autocomplete="off"></label>
+    </div>
+    <datalist id="crops"><option>Rice</option><option>Wheat</option><option>Maize</option><option>Potato</option><option>Tomato</option>
+      <option>Sugarcane</option><option>Cotton</option><option>Soybean</option><option>Mango</option><option>Banana</option><option>Brinjal</option>
+      <option>Chilli</option><option>Groundnut</option><option>Coconut</option><option>Grape</option><option>Tea</option><option>Coffee</option></datalist>
+    <p class="hint">Points and photos stay on this phone, even offline, until you send them. For crop disease: one leaf filling the photo, in daylight.</p>
+  </div>
+
+  <div class="card">
+    <div class="row" style="margin:0;align-items:center;justify-content:space-between">
+      <div><span class="count" id="count">0 points</span> <span class="meta" id="count-sub"></span></div>
+      <button class="btn primary small" id="send" disabled>Send to LULC Fetch</button>
+    </div>
+    <p class="hint" id="send-hint">Makes one .zip (points and photos). Share it to your computer (Drive, WhatsApp, email, Bluetooth or a cable), then drop it on the LULC Fetch map or use Insert ▸ Field collection.</p>
+  </div>
+
+  <div id="list"></div>
+
+  <details class="card">
+    <summary>More</summary>
+    <div class="row">
+      <button class="btn small" id="install" hidden>Add to home screen</button>
+      <button class="btn small danger" id="clear">Delete all points…</button>
+    </div>
+    <p class="hint">Opens without internet once it has been opened here once (keep it as a home-screen app). Location needs to be allowed for this page. Positions are WGS 84 (latitude / longitude) from the phone's GPS; the ± figure is the phone's own accuracy estimate.</p>
+    <p class="hint" id="storage-note"></p>
+  </details>
+</main>
+
+<div class="bar">
+  <button class="btn" id="add-point">📍 Point</button>
+  <button class="btn primary" id="add-photo">📷 Point + photo</button>
+</div>
+<input type="file" id="cam" accept="image/*" capture="environment" hidden>
+<input type="file" id="more-photo" accept="image/*" capture="environment" hidden>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pref = { get: (k, d) => { try { return localStorage.getItem("field-" + k) ?? d; } catch { return d; } },
+               set: (k, v) => { try { localStorage.setItem("field-" + k, v); } catch {} } };
+let toastT = 0;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 3200); }
+
+// ---------------- storage: points and photos in IndexedDB (kept until sent and deleted)
+let dbp = null;
+function db() {
+  return dbp ||= new Promise((ok, no) => {
+    const r = indexedDB.open("lulc-field", 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore("points", { keyPath: "id" }); r.result.createObjectStore("photos"); };
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => no(r.error);
+  });
+}
+/** run fn(store) in one transaction; resolves when it is written */
+async function tx(store, mode, fn) {
+  const d = await db();
+  return new Promise((ok, no) => {
+    const t = d.transaction(store, mode), r = fn(t.objectStore(store));
+    t.oncomplete = () => ok(r instanceof IDBRequest ? r.result : r);
+    t.onerror = t.onabort = () => no(t.error);
+  });
+}
+const req = (r) => new Promise((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+const allPoints = async () => (await req((await db()).transaction("points").objectStore("points").getAll())).sort((a, b) => b.n - a.n);
+const putPoint = (p) => tx("points", "readwrite", (s) => s.put(p));
+const putPhoto = (k, blob) => tx("photos", "readwrite", (s) => s.put(blob, k));
+const getPhoto = async (k) => req((await db()).transaction("photos").objectStore("photos").get(k));
+async function deletePoint(p) {
+  await tx("points", "readwrite", (s) => s.delete(p.id));
+  await tx("photos", "readwrite", (s) => p.photos.forEach((k) => s.delete(k)));
+}
+
+// ---------------- GPS: watched while the page is open, so a point gets a good fix at once
+const gps = { fix: null, err: null, watch: null, capturing: false };
+function startGps() {
+  if (!("geolocation" in navigator)) { gps.err = "This browser has no GPS access"; return showGps(); }
+  if (!window.isSecureContext) { gps.err = "Open this page over https (the website) for the GPS"; return showGps(); }
+  if (gps.watch != null) return;
+  gps.watch = navigator.geolocation.watchPosition((p) => { gps.fix = p; gps.err = null; showGps(); },
+    (e) => { gps.err = e.code === 1 ? "Location is not allowed for this page: allow it in the browser's site settings" : "No GPS fix yet (go outside, away from buildings)"; showGps(); },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+}
+function stopGps() { if (gps.watch != null) navigator.geolocation.clearWatch(gps.watch); gps.watch = null; }
+function quality(acc) { return acc <= 10 ? "good" : acc <= 30 ? "fair" : "bad"; }
+function showGps() {
+  const f = gps.fix, dot = $("#gps-dot");
+  if (gps.err && !f) { dot.className = "dot bad"; $("#gps-text").textContent = gps.err; return; }
+  if (!f) { dot.className = "dot"; $("#gps-text").textContent = "Waiting for the GPS…"; return; }
+  const c = f.coords, age = (Date.now() - f.timestamp) / 1000;
+  dot.className = "dot " + (age > 60 ? "bad" : quality(c.accuracy));
+  $("#gps-text").textContent = `±${Math.round(c.accuracy)} m · ${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)}${age > 60 ? ` · ${Math.round(age / 60)} min old` : ""}`;
+}
+// off while the page is hidden (saves the battery), except while the camera is open for a photo
+document.addEventListener("visibilitychange", () => document.hidden ? (gps.capturing || stopGps()) : startGps());
+/** the best fix: the current one if fresh and good, else wait up to 20 s for one within 20 m (else the best seen) */
+function bestFix() {
+  return new Promise((ok, no) => {
+    const fresh = (f) => f && Date.now() - f.timestamp < 15000;
+    if (fresh(gps.fix) && gps.fix.coords.accuracy <= 20) return ok(gps.fix);
+    startGps();
+    let best = fresh(gps.fix) ? gps.fix : null;
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      const f = gps.fix;
+      if (fresh(f) && (!best || f.coords.accuracy < best.coords.accuracy)) best = f;
+      if (best && best.coords.accuracy <= 20) { clearInterval(iv); ok(best); }
+      else if (Date.now() - t0 > 20000) { clearInterval(iv); best ? ok(best) : no(new Error(gps.err || "No GPS fix: try again outside")); }
+    }, 400);
+  });
+}
+
+// ---------------- photos: made smaller (2048 px at most, JPEG) so a day's work fits in one .zip
+async function shrink(file) {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const k = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
+    const c = Object.assign(document.createElement("canvas"), { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) });
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close?.();
+    const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.88));
+    if (blob) return blob;
+  } catch {}
+  return file;   // couldn't decode it here (e.g. HEIC): kept as taken
+}
+
+// ---------------- points
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+async function nextN() { return (await allPoints()).reduce((m, p) => Math.max(m, p.n), 0) + 1; }
+async function newPoint(fix, files = []) {
+  const c = fix.coords, n = await nextN();
+  const p = { id: uid(), n, name: `Point ${n}`, lat: +c.latitude.toFixed(7), lon: +c.longitude.toFixed(7), accuracy: Math.round(c.accuracy * 10) / 10,
+              altitude: c.altitude != null ? Math.round(c.altitude * 10) / 10 : null, time: new Date(fix.timestamp).toISOString(),
+              crop: $("#crop").value.trim(), note: "", photos: [] };
+  for (const f of files) { const k = `${p.id}_${p.photos.length + 1}`; await putPhoto(k, await shrink(f)); p.photos.push(k); }
+  await putPoint(p);
+  return p;
+}
+let busy = false;
+async function withFix(label, fn) {
+  if (busy) return;
+  busy = true;
+  toast(`${label}: getting the GPS position…`);
+  try { const fix = await bestFix(); const p = await fn(fix); toast(`${p.name} saved · ±${Math.round(p.accuracy)} m${p.accuracy > 30 ? " (weak GPS)" : ""}`); await render(); }
+  catch (e) { toast(e.message); }
+  finally { busy = false; }
+}
+$("#add-point").onclick = () => withFix("Point", (fix) => newPoint(fix));
+// the camera must open on the tap itself; the GPS keeps running meanwhile, so the fix is ready when the photo is
+$("#add-photo").onclick = () => { gps.capturing = true; startGps(); $("#cam").click(); };
+$("#cam").onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = "";
+  gps.capturing = false;
+  if (files.length) await withFix("Photo", (fix) => newPoint(fix, files));
+};
+let addTo = null;
+$("#more-photo").onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = "";
+  const p = addTo; addTo = null;
+  if (!files.length || !p) return;
+  for (const f of files) { const k = `${p.id}_${p.photos.length + 1}_${uid()}`; await putPhoto(k, await shrink(f)); p.photos.push(k); }
+  await putPoint(p); await render(); toast(`Photo added to ${p.name}`);
+};
+
+const urls = new Map();
+async function thumb(k) {
+  if (!urls.has(k)) { const b = await getPhoto(k); if (b) urls.set(k, URL.createObjectURL(b)); }
+  return urls.get(k) || "";
+}
+async function render() {
+  const pts = await allPoints(), list = $("#list"), nPhotos = pts.reduce((a, p) => a + p.photos.length, 0);
+  $("#count").textContent = `${pts.length} point${pts.length === 1 ? "" : "s"}`;
+  $("#count-sub").textContent = nPhotos ? `· ${nPhotos} photo${nPhotos === 1 ? "" : "s"}` : "";
+  $("#send").disabled = !pts.length;
+  const sent = pref.get("sent-at", "");
+  $("#saved-note").textContent = sent ? `last sent ${new Date(+sent).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}` : "";
+  if (!pts.length) { list.innerHTML = `<div class="empty">No points yet.<br>Tap <b>📷 Point + photo</b> to photograph a leaf or a field where you stand, or <b>📍 Point</b> for a position only.</div>`; return; }
+  list.innerHTML = pts.map((p) => `<div class="card pt" data-id="${esc(p.id)}">
+      <div class="thumbs">${p.photos.length ? p.photos.slice(0, 3).map((k) => `<img data-k="${esc(k)}" alt="">`).join("") : `<div class="nophoto">📍</div>`}</div>
+      <div>
+        <h3>${esc(p.name)} <small>${new Date(p.time).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</small></h3>
+        <div class="meta">${p.lat.toFixed(6)}, ${p.lon.toFixed(6)} · <span class="${p.accuracy > 30 ? "warn" : ""}">±${Math.round(p.accuracy)} m</span>${p.photos.length > 3 ? ` · ${p.photos.length} photos` : ""}</div>
+        <div class="grid" style="margin-top:6px">
+          <label>Crop<input data-f="crop" list="crops" value="${esc(p.crop)}"></label>
+          <label>Name<input data-f="name" value="${esc(p.name)}"></label>
+        </div>
+        <label>Note<textarea data-f="note" placeholder="What you see: symptoms, stage, variety…">${esc(p.note)}</textarea></label>
+        <div class="row"><button class="btn small" data-act="photo">+ Photo</button><button class="btn small danger" data-act="del">Delete</button></div>
+      </div></div>`).join("");
+  for (const img of list.querySelectorAll("img[data-k]")) img.src = await thumb(img.dataset.k);
+  list.querySelectorAll(".pt").forEach((el) => {
+    const p = pts.find((x) => x.id === el.dataset.id);
+    el.querySelectorAll("[data-f]").forEach((i) => i.onchange = async () => { p[i.dataset.f] = i.value.trim(); await putPoint(p); });
+    el.querySelector('[data-act="photo"]').onclick = () => { addTo = p; $("#more-photo").click(); };
+    el.querySelector('[data-act="del"]').onclick = async () => { if (confirm(`Delete ${p.name}${p.photos.length ? " and its photos" : ""}?`)) { await deletePoint(p); render(); } };
+  });
+}
+
+// ---------------- the .zip for the app: field.json (first), points.geojson, photos/
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xffffffff; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+/** a zip without compression (photos are JPEG already): [{name, data: Uint8Array}] → Blob */
+function zip(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  const d = new Date(), time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1),
+        date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  let offset = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name), crc = crc32(f.data), size = f.data.length;
+    const h = new DataView(new ArrayBuffer(30));
+    [[0, 0x04034b50, 4], [4, 20, 2], [6, 0x0800, 2], [8, 0, 2], [10, time, 2], [12, date, 2], [14, crc, 4], [18, size, 4], [22, size, 4], [26, name.length, 2], [28, 0, 2]]
+      .forEach(([o, v, n]) => n === 4 ? h.setUint32(o, v, true) : h.setUint16(o, v, true));
+    parts.push(h, name, f.data);
+    const c = new DataView(new ArrayBuffer(46));
+    [[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0x0800, 2], [10, 0, 2], [12, time, 2], [14, date, 2], [16, crc, 4], [20, size, 4], [24, size, 4],
+     [28, name.length, 2], [30, 0, 2], [32, 0, 2], [34, 0, 2], [36, 0, 2], [38, 0, 4], [42, offset, 4]]
+      .forEach(([o, v, n]) => n === 4 ? c.setUint32(o, v, true) : c.setUint16(o, v, true));
+    central.push(c, name);
+    offset += 30 + name.length + size;
+  }
+  const csize = central.reduce((a, x) => a + x.byteLength, 0), e = new DataView(new ArrayBuffer(22));
+  [[0, 0x06054b50, 4], [4, 0, 2], [6, 0, 2], [8, files.length, 2], [10, files.length, 2], [12, csize, 4], [16, offset, 4], [20, 0, 2]]
+    .forEach(([o, v, n]) => n === 4 ? e.setUint32(o, v, true) : e.setUint16(o, v, true));
+  return new Blob([...parts, ...central, e], { type: "application/zip" });
+}
+const slug = (s) => (s || "field").normalize("NFKD").replace(/[^\w-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "field";
+async function makeZip() {
+  const pts = (await allPoints()).sort((a, b) => a.n - b.n), enc = new TextEncoder(), files = [], project = $("#project").value.trim();
+  const feats = [];
+  for (const p of pts) {
+    const names = [];
+    for (const [i, k] of p.photos.entries()) {
+      const b = await getPhoto(k);
+      if (!b) continue;
+      const name = `photos/${slug(p.name)}_${p.n}${p.photos.length > 1 ? `_${i + 1}` : ""}.jpg`;
+      files.push({ name, data: new Uint8Array(await b.arrayBuffer()) });
+      names.push(name);
+    }
+    feats.push({ type: "Feature", geometry: { type: "Point", coordinates: p.altitude != null ? [p.lon, p.lat, p.altitude] : [p.lon, p.lat] },
+                 properties: { name: p.name, crop: p.crop, note: p.note, time: p.time, accuracy_m: p.accuracy, altitude_m: p.altitude, photos: names } });
+  }
+  const meta = { app: "LULC Fetch Field", format: 1, project, made: new Date().toISOString(), points: pts.length, photos: files.length };
+  files.unshift({ name: "points.geojson", data: enc.encode(JSON.stringify({ type: "FeatureCollection", name: project || "Field points", features: feats })) });
+  files.unshift({ name: "field.json", data: enc.encode(JSON.stringify(meta)) });   // first: how the app recognises the file
+  const day = new Date().toISOString().slice(0, 10);
+  return new File([zip(files)], `field_${slug(project)}_${day}.zip`, { type: "application/zip" });
+}
+$("#send").onclick = async () => {
+  const b = $("#send"); b.disabled = true;
+  try {
+    const f = await makeZip();
+    if (navigator.canShare?.({ files: [f] })) {
+      try { await navigator.share({ files: [f], title: f.name }); }
+      catch (e) { if (e.name === "AbortError") return; throw e; }
+    } else {
+      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(f), download: f.name });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    }
+    pref.set("sent-at", Date.now());
+    toast(`${f.name} (${(f.size / 1e6).toFixed(1)} MB) ready. Your points stay here until you delete them (More ▸ Delete all).`);
+    render();
+  } catch (e) { toast(`Couldn't make the file: ${e.message}`); }
+  finally { b.disabled = false; }
+};
+$("#clear").onclick = async () => {
+  const pts = await allPoints();
+  if (!pts.length) return toast("No points to delete");
+  if (!confirm(`Delete all ${pts.length} points and their photos from this phone?${pref.get("sent-at", "") ? "" : " They were never sent."}`)) return;
+  for (const p of pts) await deletePoint(p);
+  render(); toast("All points deleted");
+};
+
+// ---------------- settings remembered, offline, home screen
+$("#project").value = pref.get("project", "");
+$("#crop").value = pref.get("crop", "");
+$("#project").onchange = (e) => pref.set("project", e.target.value.trim());
+$("#crop").onchange = (e) => pref.set("crop", e.target.value.trim());
+if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("sw.js").catch(() => {});
+navigator.storage?.persist?.().then((ok) => { $("#storage-note").textContent = ok ? "This phone keeps the points even when space runs low." : ""; }).catch(() => {});
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; $("#install").hidden = false; });
+$("#install").onclick = () => { installEvt?.prompt(); installEvt = null; $("#install").hidden = true; };
+startGps();
+render().catch((e) => { $("#list").innerHTML = `<div class="card warn">This browser can't keep data here (${esc(e.message)}). Use Chrome or Safari, not a private window.</div>`; });
+</script>
+</body>
+</html>

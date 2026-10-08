@@ -93,8 +93,10 @@
             <button data-cmd="add-workspace" class="rb-small"><span class="ic" data-ic="raster"></span>GeoTIFF from workspace…</button>
             <button data-cmd="open-safe" class="rb-small"><span class="ic" data-ic="safe"></span>Sentinel product (.SAFE)…</button>
           </div></div><div class="rb-cap">Add data</div></div>
-        <!-- Library (ready-made GIS data) and Bookmarks (saved map views): filled by their scripts -->
+        <!-- Library (ready-made GIS data), Online & field (WMS / WMTS / XYZ layers, phone field collection) and Bookmarks
+             (saved map views): filled by their scripts -->
         <div class="rb-slot" id="library-menu"></div>
+        <div class="rb-slot" id="online-menu"></div>
         <div class="rb-slot bm-menu" id="bookmarks-menu"></div>
       </div>
     </div>
@@ -235,7 +237,7 @@
       </div>
     </div>
     <div class="pane-foot">Drag to reorder · double-click to zoom / open · right-click for options</div>
-    <input type="file" id="add-file" multiple hidden accept=".tif,.tiff,.jpg,.jpeg,.png,.bmp,.gif,.webp,.jgw,.jpgw,.pgw,.pngw,.wld,.zip,.shp,.shx,.dbf,.prj,.cpg,.geojson,.json,.kml,.kmz,.csv,.tsv,.txt,.parquet,.xlsx,.xlsm">
+    <input type="file" id="add-file" multiple hidden accept=".tif,.tiff,.jpg,.jpeg,.png,.bmp,.gif,.webp,.jgw,.jpgw,.pgw,.pngw,.wld,.zip,.shp,.shx,.dbf,.prj,.cpg,.gpkg,.geojson,.json,.kml,.kmz,.csv,.tsv,.txt,.parquet,.xlsx,.xlsm">
     <div class="vresize right" id="rz-contents" title="Drag to resize · double-click to reset"></div>
   </aside>
 
@@ -1196,6 +1198,7 @@
           </div>
           <label>Merge patches smaller than (pixels)<input id="lx-sieve" type="number" min="0" value="8"></label>
         </div>
+        <div id="lx-gpkg" class="dl-section hidden"></div>
       </div>
       <div class="card">
         <h2>Save to computer</h2>
@@ -1677,6 +1680,8 @@
 <script src="/static/tools/agri/diagnose.js"></script>
 <script src="/static/tools/agri/guide.js"></script>
 <script src="/static/tools/library/browse.js"></script>
+<script src="/static/tools/online/online-layers.js"></script>
+<script src="/static/tools/online/field.js"></script>
 <script src="/static/tools/interpolation/interpolate.js"></script>
 <script src="/static/tools/forecast/common.js"></script>
 <script src="/static/tools/forecast/getdata.js"></script>

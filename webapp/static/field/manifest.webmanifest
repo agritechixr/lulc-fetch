@@ -1,0 +1,11 @@
+{
+ "name": "LULC Fetch Field",
+ "short_name": "LULC Field",
+ "description": "Geotagged points and photos in the field, offline, for LULC Fetch",
+ "start_url": "./",
+ "scope": "./",
+ "display": "standalone",
+ "background_color": "#f5f8f6",
+ "theme_color": "#1f7a5a",
+ "icons": [{ "src": "icon.png", "sizes": "256x256", "type": "image/png", "purpose": "any" }]
+}

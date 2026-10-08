@@ -1,4 +1,4 @@
-  // Export data tool and the export dialog: GeoTIFF, PNG, Shapefile, GeoJSON, KML.
+  // Export data tool and the export dialog: GeoTIFF, PNG, Shapefile, GeoPackage (one file, several layers), GeoJSON, KML.
   // (part of app.js: the server joins webapp/static/app/parts.json in order, inside one closure)
 
   // ------------------------------------------------------------------ export dialog
@@ -10,11 +10,28 @@
     refreshExportLayers(l?.id);
     renderExportForm();
   }
+  const exportable = () => layers.filter((l) => l.type !== "tiles");   // online layers stay on their service
   function refreshExportLayers(selectId) {
-    const sel = $("#lx-layer"), cur = selectId || sel.value || selectedId;
-    sel.innerHTML = layers.length ? layers.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")
+    const sel = $("#lx-layer"), cur = selectId || sel.value || selectedId, list = exportable();
+    sel.innerHTML = list.length ? list.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")
       : `<option value="">No layers in Contents</option>`;
-    if (cur && getLayer(cur)) sel.value = cur;
+    if (cur && list.some((l) => l.id === cur)) sel.value = cur;
+    if ($('input[name="lxf"]:checked')?.value === "gpkg") renderGpkgLayers();
+  }
+  // GeoPackage: the other vector layers that go into the same file (ticked ones are remembered while the tool is open)
+  const gpkgPick = new Set();
+  function renderGpkgLayers() {
+    const l = exportLayer(), others = layers.filter((x) => x.type === "vector" && x.id !== l?.id && x.geojson?.features?.length);
+    const box = $("#lx-gpkg");
+    box.innerHTML = others.length ? `<b>Also in this GeoPackage</b> <span class="small"><a href="#" data-gp-all>all</a> · <a href="#" data-gp-none>none</a></span>
+      <div class="lx-gpkg-list">${others.map((x) => `<label class="inline"><input type="checkbox" value="${esc(x.id)}" ${gpkgPick.has(x.id) ? "checked" : ""}> ${esc(x.name)}
+        <small>${x.geojson.features.length.toLocaleString()} features</small></label>`).join("")}</div>
+      <p class="hint" style="margin-top:4px">Each layer becomes a table of the one .gpkg file, with its attributes (WGS 84).</p>`
+      : `<p class="hint" style="margin:0">Only this layer: add more vector layers to Contents to save them all in one GeoPackage.</p>`;
+    $$("input[type=checkbox]", box).forEach((c) => c.onchange = () => c.checked ? gpkgPick.add(c.value) : gpkgPick.delete(c.value));
+    const all = (on) => (e) => { e.preventDefault(); $$("input[type=checkbox]", box).forEach((c) => { c.checked = on; on ? gpkgPick.add(c.value) : gpkgPick.delete(c.value); }); };
+    $("[data-gp-all]", box)?.addEventListener("click", all(true));
+    $("[data-gp-none]", box)?.addEventListener("click", all(false));
   }
   const exportLayer = () => getLayer($("#lx-layer").value);
   function renderExportForm() {
@@ -24,6 +41,7 @@
     let formats;
     if (l.type === "vector") {
       formats = [["shp", "Shapefile (.zip)", "Polygons / lines / points with attributes, WGS 84. Opens in QGIS, ArcGIS."],
+                 ["gpkg", "GeoPackage (.gpkg)", "One file for several layers, with attributes, WGS 84. Opens in QGIS, ArcGIS."],
                  ["geojson", "GeoJSON", "Web-friendly vector format"],
                  ["kml", "KML", "Google Earth"]];
     } else if (l.type === "image") {
@@ -50,7 +68,12 @@
     $("#lx-shp-note").textContent = classMap ? "Each map class becomes polygons and keeps its name." :
       "Pixel values are grouped into classes, then neighbouring pixels of the same class are merged into polygons.";
     $("#lx-shp-classes").classList.toggle("hidden", classMap);
-    const syncShp = () => $("#lx-shp").classList.toggle("hidden", $('input[name="lxf"]:checked')?.value !== "shp");
+    const syncShp = () => {
+      const f = $('input[name="lxf"]:checked')?.value;
+      $("#lx-shp").classList.toggle("hidden", f !== "shp" || l.type === "vector");
+      $("#lx-gpkg").classList.toggle("hidden", f !== "gpkg");
+      if (f === "gpkg") renderGpkgLayers();
+    };
     $$('input[name="lxf"]').forEach((i) => i.onchange = syncShp);
     syncShp();
     refreshClipPicker("lx-area");
@@ -70,7 +93,9 @@
         const folder = exportFolder() || null;
         if ($('[data-save="export"] [data-save-on]').checked && !folder) return err("Choose the folder to save in (Browse…), or untick “Save to a folder”.");
         if (l.type === "vector") {
-          r = await api("/api/vector/export", { method: "POST", json: { geojson: l.geojson, format: fmtSel, name, clip, folder } });
+          const more = fmtSel === "gpkg" ? layers.filter((x) => gpkgPick.has(x.id) && x.type === "vector" && x.id !== l.id).reverse()
+            .map((x) => ({ name: x.name, geojson: x.geojson })) : [];
+          r = await api("/api/vector/export", { method: "POST", json: { geojson: l.geojson, format: fmtSel, name, clip, folder, layer_name: l.name, more } });
         } else {
           const body = { path: l.path, format: fmtSel, name, band_map: l.band_map || {}, scale: l.scale ?? 1, offset: l.offset ?? 0, ...l.render, clip, folder };
           if (fmtSel === "shp") {
@@ -92,7 +117,7 @@
           return;
         }
         download(r.url, r.name);
-        toast(`Exported ${r.name}${r.features ? ` · ${r.features.toLocaleString()} features` : ""}${r.size_mb ? ` · ${fmt(r.size_mb)} MB` : ""}`);
+        toast(`Exported ${r.name}${r.layers > 1 ? ` · ${r.layers} layers` : ""}${r.features ? ` · ${r.features.toLocaleString()} features` : ""}${r.size_mb ? ` · ${fmt(r.size_mb)} MB` : ""}`);
         status(`Exported ${r.name}`);
       } catch (ex) { err(ex.message); }
     });

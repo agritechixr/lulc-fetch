@@ -18,7 +18,7 @@
    setup(LF) receives the app's shared helpers (filled in by static/app/core/universe.js):
      $ $$ esc fmt prefs                    DOM lookup, HTML escaping, numbers, per-browser settings
      api toast status                      server calls, messages
-     map layers getLayer addRasterFromPath addVectorLayer saveLayers   the map and Contents
+     map layers getLayer addRasterFromPath addVectorLayer addOnlineLayer zoomTo saveLayers   the map and Contents
      dataItems addItem openItem            tables and pictures in Contents
      trackJob notCancelled runJob runButton   background jobs (progress, ⓘ details, History, error log)
      switchTool openTool                   open a tool (openTool passes an argument to its open hook)

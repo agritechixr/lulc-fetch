@@ -21,26 +21,35 @@
     ctx.fillStyle = getComputedStyle($("#map")).backgroundColor || "#fff";
     ctx.fillRect(0, 0, W, H);
     const P = (ll) => map.project(ll, Z).subtract(origin);
-    // basemap (and place labels) tiles
-    const tileSets = [basemap, map.hasLayer(placeLabels) ? placeLabels : null].filter(Boolean);
-    for (const tl of tileSets) {
-      const tz = Math.max(0, Math.min(tl.options.maxZoom || 19, Math.round(Z))), s = 2 ** (Z - tz), ts = 256 * s, n = 2 ** tz;
+    // tiles (basemap, place labels, online layers) at the zoom nearest Z: urlOf(x, y, z), within their zoom levels
+    const tiles = async (urlOf, maxZoom = 19, alpha = 1, minZoom = 0) => {
+      const tz = Math.max(minZoom, Math.min(maxZoom, Math.round(Z))), s = 2 ** (Z - tz), ts = 256 * s, n = 2 ** tz;
       const jobs = [];
       for (let ty = Math.floor(origin.y / ts); ty <= Math.floor((origin.y + H) / ts); ty++) {
         if (ty < 0 || ty >= n) continue;
         for (let tx = Math.floor(origin.x / ts); tx <= Math.floor((origin.x + W) / ts); tx++) {
-          const url = L.Util.template(tl._url, { s: "abc"[Math.abs(tx + ty) % 3], z: tz, x: ((tx % n) + n) % n, y: ty, r: "" });
-          jobs.push(loadImg(url, true).then((im) => im && [im, tx * ts - origin.x, ty * ts - origin.y]));
+          jobs.push(loadImg(urlOf(((tx % n) + n) % n, ty, tz), true).then((im) => im && [im, tx * ts - origin.x, ty * ts - origin.y]));
         }
       }
+      ctx.globalAlpha = alpha;
       (await Promise.all(jobs)).filter(Boolean).forEach(([im, x, y]) => ctx.drawImage(im, x, y, ts + 0.5, ts + 0.5));
-      if (tl === basemap) await drawLayers2d(ctx, P);   // the layers go between the basemap and its labels
+      ctx.globalAlpha = 1;
+    };
+    const tileSets = [basemap, map.hasLayer(placeLabels) ? placeLabels : null].filter(Boolean);
+    for (const tl of tileSets) {
+      await tiles((x, y, z) => L.Util.template(tl._url, { s: "abc"[Math.abs(x + y) % 3], z, x, y, r: "" }), tl.options.maxZoom || 19);
+      if (tl === basemap) await drawLayers2d(ctx, P, tiles);   // the layers go between the basemap and its labels
     }
-    if (!tileSets.includes(basemap)) await drawLayers2d(ctx, P);
+    if (!tileSets.includes(basemap)) await drawLayers2d(ctx, P, tiles);
     return { canvas: cv, Z, center: c };
   }
-  async function drawLayers2d(ctx, P) {
-    for (const l of layers.slice().reverse().filter((x) => x.visible)) {   // bottom first
+  async function drawLayers2d(ctx, P, tiles) {
+    // bottom first; online layers only where their service allows a page to read its tiles (CORS), as for the basemap
+    for (const l of layers.slice().reverse().filter((x) => x.visible)) {
+      if (l.type === "tiles" && l.leaflet && tiles) {
+        await tiles((x, y, z) => l.leaflet.getTileUrl({ x, y, z }), l.tiles.max_zoom ?? 19, l.opacity ?? 1, l.tiles.min_zoom ?? 0);
+        continue;
+      }
       if ((l.type === "raster" && l.image) || (l.type === "image" && l.url)) {
         const im = await loadImg(l.image || l.url, false), b = l.bounds;
         if (!im || !b) continue;

@@ -1,10 +1,11 @@
 # Publishes the product website (the site/ folder) on GitHub Pages: https://agritechixr.github.io/lulc-fetch/
+# plus the phone page for field collection (webapp/static/field/ → /field/: phones give a page GPS only over https).
 name: Website
 
 on:
   push:
     branches: [main]
-    paths: ["site/**", ".github/workflows/pages.yml"]
+    paths: ["site/**", "webapp/static/field/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -25,6 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - run: cp -r webapp/static/field site/field
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

@@ -35,7 +35,7 @@ lulc-fetch-app = "webapp.desktop:main"
 packages = ["lulc_fetch", "lulc_fetch.agri", "lulc_fetch.embeddings", "lulc_fetch.lightseg", "webapp", "webapp.routes"]
 
 [tool.setuptools.package-data]
-webapp = ["static/*", "static/tools/*/*", "static/app/*", "static/app/*/*", "static/app/*/*/*"]
+webapp = ["static/*", "static/tools/*/*", "static/app/*", "static/app/*/*", "static/app/*/*/*", "static/field/*"]
 "lulc_fetch.agri" = ["data/*.json", "data/kb/*.json"]
 
 [tool.pytest.ini_options]

@@ -6,6 +6,9 @@
   const map = L.map("map", { zoomControl: true, zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 90 }).setView(savedView.center, savedView.zoom);
   map.on("moveend", () => { const c = map.getCenter(); prefs.set("view", { center: [+c.lat.toFixed(5), +c.lng.toFixed(5)], zoom: +map.getZoom().toFixed(2) }); });
   map.createPane("labels").style.zIndex = 650;
+  // online map layers (WMS / WMTS / XYZ): under the app's own layers, or over them when on top of Contents (see restack)
+  map.createPane("onlineBelow").style.zIndex = 350;
+  map.createPane("onlineAbove").style.zIndex = 450;
   map.getPane("labels").style.pointerEvents = "none";
   const BASEMAPS = {
     streets: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" }),
