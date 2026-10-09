@@ -2,6 +2,8 @@
 features, time series and change (flooding), and the SAR workflow on a processed raster. Synthetic speckled images
 whose answers are known; the GRD chain itself needs a real product (checked by hand against Planetary Computer RTC)."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import rasterio
@@ -126,3 +128,83 @@ def test_workflow_on_a_processed_raster(client, home):
     assert client.post("/api/sar/process", json={"sources": [{"scene": "not a scene"}]}).status_code == 400
     assert client.post("/api/sar/process", json={"sources": [{"raster": "uploads/s1_2026-08-01_VV_VH.tif"}], "change": True}).status_code == 400
     assert client.post("/api/sar/process", json={"sources": [{"raster": "uploads/s1_2026-08-01_VV_VH.tif"}], "steps": ["nope"]}).status_code == 400
+
+
+def test_multitemporal_filter_keeps_changes():
+    N = 6
+    st = np.stack([speckled(np.full((H, W), 0.05)) for _ in range(N)])
+    st[3, :, W // 2:] *= 4                                                       # one date changes on the right half
+    f = SP.quegan(st, 7)
+    left = (slice(None), slice(0, W // 2 - 8))
+    assert SP.enl(f[0][left]) > 0.7 * N * 4.4                                    # ≈ N × the looks
+    assert np.mean(f[3][:, W // 2 + 8:]) / np.mean(f[3][left]) == pytest.approx(4, rel=0.1)   # the change stays
+    assert np.mean(f[0][:, W // 2 + 8:]) / np.mean(f[0][left]) == pytest.approx(1, rel=0.1)   # and doesn't leak
+    with pytest.raises(ValueError):
+        SP.quegan(st[:1], 7)
+
+
+def test_area_flattening_geometry():
+    # flat ground: the gamma projection is cos θ, and the illuminated area per radar pixel is its ground area × cos θ
+    from lulc_fetch.sar import pipeline as PL
+    lat, lon = np.array([[28.0]]), np.array([[76.0]])
+    P_ = G.ecef(lat, lon, np.zeros_like(lat))
+    up = P_ / np.linalg.norm(P_, axis=-1, keepdims=True)
+    east = np.cross([0, 0, 1.0], up); east /= np.linalg.norm(east, axis=-1, keepdims=True)
+    S = P_ + 700e3 * (np.cos(np.radians(35)) * up + np.sin(np.radians(35)) * east)   # seen at 35° from the east
+    assert G.gamma_projection(lat, lon, S, P_)[0, 0] == pytest.approx(np.cos(np.radians(35)), abs=1e-5)   # (a geocentric "up" here)
+    assert G.gamma_projection(lat, lon, S, P_, (np.array([[-0.2]]), np.array([[0.0]])))[0, 0] > np.cos(np.radians(35))   # facing the sensor
+    yy, xx = np.mgrid[0:60, 0:60].astype("float32")
+    acc = PL._splat(yy / 2, xx / 2, np.full((60, 60), 0.8), 100.0, (30, 30))          # 2 × 2 cells of 100 m² per radar pixel
+    assert acc.sum() == pytest.approx(60 * 60 * 100 * 0.8, rel=0.02)
+    assert np.allclose(acc[3:-3, 3:-3], 4 * 100 * 0.8, rtol=0.02)                    # no holes, no ripple inside
+    assert G.normalise_factor(np.array([40.0, 30.0]), 40, 2)[0] == pytest.approx(1)
+    assert G.normalise_factor(np.array([30.0]), 40, 2)[0] == pytest.approx((np.cos(np.radians(40)) / np.cos(np.radians(30))) ** 2)
+
+
+def test_quality_layer_normalisation_and_frames(tmp_path):
+    from lulc_fetch.sar import pipeline as PL
+    th = np.linspace(30, 45, W)[None].repeat(H, 0)
+    vv = 0.1 * np.cos(np.radians(th)) ** 2                                       # Lambert: brighter at near range
+    p = tmp_path / "gee_s1.tif"
+    prof = dict(driver="GTiff", width=W, height=H, count=3, dtype="float32", crs="EPSG:32643", transform=from_origin(700000, 1400000, 20, 20), nodata=np.nan)
+    with rasterio.open(p, "w", **prof) as d:
+        for i, (b, n) in enumerate(((10 * np.log10(vv), "VV"), (10 * np.log10(vv / 5), "VH"), (th, "angle")), 1):
+            d.write(b.astype("float32"), i)
+            d.set_band_description(i, n)
+        d.update_tags(units="dB")
+    assert {s["step"]: s["status"] for s in P.inspect_raster(p)["steps"]}["normalise"] == "optional"
+    r = PL.process(str(p), tmp_path / "o", {"steps": ["normalise"], "normalise_ref": 40, "db": True})
+    with rasterio.open(r["paths"]["linear"]) as d:
+        v = d.read(1)
+    assert np.allclose(v, 0.1 * np.cos(np.radians(40)) ** 2, rtol=1e-4)           # every column as if seen at 40°
+    with rasterio.open(r["paths"]["quality"]) as d:
+        assert np.all(d.read(1) == 1) and "Valid" in d.tags()["classes"]
+    # two halves of one image (frames of a pass) join into the whole
+    a, b = vv.copy(), vv.copy()
+    a[H // 2:], b[:H // 2 - 5] = np.nan, np.nan
+    halves = [PL.process(scene(tmp_path / f"f{k}.tif", x, x / 5), tmp_path / "f", {"steps": [], "name": f"f{k}"}) for k, x in enumerate((a, b))]
+    j = PL.join_frames(halves, tmp_path / "f", "joined")
+    with rasterio.open(j["paths"]["linear"]) as d:
+        assert np.isfinite(d.read(1)).all()
+    assert not Path(halves[0]["paths"]["linear"]).exists()
+
+
+def test_workflow_multitemporal_and_hyp3_routes(client, home):
+    up = home / "uploads"
+    up.mkdir(exist_ok=True)
+    for k in range(4):
+        scene(up / f"mt_2026-08-{1 + 9 * k:02d}.tif", speckled(np.full((H, W), 0.05)), speckled(np.full((H, W), 0.01)))
+    r = run(client, "/api/sar/process", {"sources": [{"raster": f"uploads/mt_2026-08-{1 + 9 * k:02d}.tif"} for k in range(4)], "steps": ["db"],
+                                         "multitemporal": True, "mt_size": 7, "name": "mt"})
+    assert r["multitemporal"]["dates"] == 4 and r["multitemporal"]["enl_gain"] > 2.5
+    assert sum(o.endswith("_quality.tif") for o in r["outputs"]) == 4
+    s = run(client, "/api/sar/series", {"rasters": [f"uploads/mt_2026-08-{1 + 9 * k:02d}.tif" for k in range(4)], "stats": ["mean"], "multitemporal": True})
+    assert s["multitemporal"]["enl_gain"] > 2.5 and sum("_mtf" in o for o in s["outputs"]) == 8   # dB + linear of each date
+    # HyP3: pairs, and the routes say plainly what's missing
+    from lulc_fetch.sar import hyp3 as H3
+    sc = [{"name": f"S{d}", "date": f"2026-09-{d:02d}", "path": 27, "frame": 89, "orbit_direction": "ascending"} for d in (5, 17, 29)]
+    assert [p["days"] for p in H3.pairs(sc)] == [12, 12] and len(H3.pairs(sc, step=2)) == 3
+    assert client.get("/api/sar/hyp3/user").status_code == 401
+    bad = client.post("/api/sar/hyp3/submit", json={"job_type": "INSAR_GAMMA", "pairs": [["S1A_nope", "x"]]})
+    assert bad.status_code == 400
+    assert client.post("/api/sar/hyp3/submit", json={"job_type": "RTC_GAMMA", "granules": []}).status_code == 400

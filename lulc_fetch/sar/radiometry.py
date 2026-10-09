@@ -97,15 +97,21 @@ def border_mask(dn: np.ndarray, min_dn: float = 30, width: int = 2000) -> np.nda
 
 
 def read_window(prod, pol: str, window: tuple[int, int, int, int], looks: tuple[int, int] = (1, 1), *, thermal: bool = True,
-                border: bool = False, kind: str = "sigma0", progress_cb=None) -> np.ndarray:
+                border: bool = False, kind: str = "sigma0", progress_cb=None, nesz: bool = False):
     """Linear backscatter (σ⁰ / β⁰ / γ⁰, or DN² uncalibrated with kind "dn") of window (row0, col0, rows, cols) of the
-    product's image, multilooked by looks (azimuth, range): power averaged, then calibrated. NaN where there is no data."""
+    product's image, multilooked by looks (azimuth, range): power averaged, then calibrated. NaN where there is no data.
+
+    After thermal noise removal the darkest surfaces (calm water, smooth sand, tarmac) can come out at or below zero:
+    they are kept at 1 % of the noise power (−20 dB under it) instead of zero or negative, so dB stays defined. With
+    nesz=True the noise-equivalent sigma zero (the noise power, calibrated alike) comes back too, so pixels weaker than
+    the noise can be flagged: (image, nesz)."""
     r0, c0, nr, nc = window
     la, lr = looks
     nr, nc = nr // la * la, nc // lr * lr
     cal = calibration_lut(prod.text(prod.calibration[pol]), "sigma0" if kind == "dn" else kind)
     nz = noise_luts(prod.text(prod.noise[pol])) if thermal and pol in prod.noise else None
     out = np.full((nr // la, nc // lr), np.nan, "float32")
+    nout = np.full(out.shape, np.nan, "float32") if nesz else None
     cols = c0 + np.arange(nc // lr) * lr + (lr - 1) / 2
     with rasterio.open(prod.measurement[pol]) as src:
         step = max(la, 2048 // la * la)
@@ -118,13 +124,18 @@ def read_window(prod, pol: str, window: tuple[int, int, int, int], looks: tuple[
             p = (dn.astype("float64") ** 2).reshape(n // la, la, nc // lr, lr).mean(axis=(1, 3))
             ok = valid.reshape(n // la, la, nc // lr, lr).all(axis=(1, 3))
             rows = r0 + rr + np.arange(n // la) * la + (la - 1) / 2
-            if nz is not None:
-                p = np.maximum(p - noise_power(*nz, rows, cols), 0)
+            npow = noise_power(*nz, rows, cols) if nz is not None else None
+            if npow is not None:
+                p = np.maximum(p - npow, 0.01 * npow)
             if kind != "dn":
                 a = interp(cal, rows, cols)
                 p = p / a ** 2
+                if npow is not None:
+                    npow = npow / a ** 2
             p = np.where(ok, p, np.nan)
             out[rr // la: rr // la + n // la] = p
+            if nout is not None and npow is not None:
+                nout[rr // la: rr // la + n // la] = np.where(ok, npow, np.nan)
             if progress_cb:
                 progress_cb((rr + n) / nr)
-    return out
+    return (out, nout) if nesz else out

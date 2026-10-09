@@ -7,7 +7,7 @@ there. The same geometry gives the incidence angles (ellipsoid and local), layov
 (the angular volume model of Vollrath et al. 2020, as in GEE's slope correction).
 
     Orbit(state vectors)              position / velocity / acceleration at any time
-    precise_orbit(mission, t0, t1)    ESA's precise orbit (POEORB) state vectors, when published (~20 days after)
+    precise_orbit(mission, t0, t1)    ESA's orbit state vectors: precise (POEORB, ~20 days after), else restituted (RESORB)
     geoid(lon, lat)                   EGM96 undulation (m): ellipsoidal height = DEM height + geoid
     dem_for(grid)                     Copernicus DEM GLO-30 (Planetary Computer) or a DEM file, on a grid
     RangeDoppler(geometry, orbit)     .locate(lat, lon, h) → line, pixel, satellite position
@@ -73,47 +73,65 @@ class Orbit:
         return (np.stack([p(tt) for p in self.p], -1), np.stack([v(tt) for v in self.v], -1), np.stack([a(tt) for a in self.a], -1))
 
 
-def precise_orbit(mission: str, t0: float, t1: float, cache: Path | None = None) -> np.ndarray | None:
-    """ESA's precise orbit (POEORB) state vectors covering [t0, t1] (epoch seconds), or None when not (yet) published
-    or not reachable. Files are listed by the month they were made in (~20 days after): that month and the next."""
+def precise_orbit(mission: str, t0: float, t1: float, cache: Path | None = None, kinds=("POEORB", "RESORB")):
+    """ESA's orbit state vectors covering [t0, t1] (epoch seconds): precise (POEORB, ~20 days after acquisition, ~5 cm)
+    first, else restituted (RESORB, within hours, ~10 cm), as (vectors, kind); None when neither is published or ESA
+    isn't reachable. POEORB files are listed by the month they were made in (that month and the next), RESORB by
+    their start (that month, or the one before at a month's start)."""
     import datetime as dt
 
     import requests
     day = dt.datetime.fromtimestamp(t0, dt.timezone.utc)
     fmt = "%Y%m%dT%H%M%S"
-    for k in (0, 1):
-        m, y = (day.month - 1 + k) % 12 + 1, day.year + (day.month - 1 + k) // 12
-        folder = ORBIT_URL.format(sat=mission, y=y, m=m)
+    for kind in kinds:
+        months = (0, 1) if kind == "POEORB" else (0, -1)
+        for k in months:
+            m, y = (day.month - 1 + k) % 12 + 1, day.year + (day.month - 1 + k) // 12
+            folder = ORBIT_URL.replace("POEORB", kind).format(sat=mission, y=y, m=m)
+            try:
+                r = requests.get(folder, timeout=30)
+            except requests.RequestException:
+                return None
+            if not r.ok:
+                continue
+            fits = []
+            for name in set(re.findall(rf'href="([^"/]*{kind}[^"]*\.EOF\.zip)"', r.text)):
+                a, b = (dt.datetime.strptime(x, fmt).replace(tzinfo=dt.timezone.utc).timestamp() for x in re.search(r"_V(\d{8}T\d{6})_(\d{8}T\d{6})", name).groups())
+                if a <= t0 - 60 and b >= t1 + 60:
+                    fits.append(name)
+            for name in sorted(fits, reverse=True):   # the newest (its creation time comes first in the name)
+                sv = _read_eof(folder, name, cache, t0, t1)
+                if sv is not None:
+                    return sv, kind
+    return None
+
+
+def _read_eof(folder: str, name: str, cache: Path | None, t0: float, t1: float):
+    import datetime as dt
+
+    import requests
+    f = cache / name if cache else None
+    if f and f.is_file():
+        data = f.read_bytes()
+    else:
         try:
-            r = requests.get(folder, timeout=30)
+            rr = requests.get(folder + name, timeout=180)
         except requests.RequestException:
             return None
-        if not r.ok:
-            continue
-        for name in sorted(set(re.findall(r'href="([^"/]*POEORB[^"]*\.EOF\.zip)"', r.text))):
-            a, b = (dt.datetime.strptime(x, fmt).replace(tzinfo=dt.timezone.utc).timestamp() for x in re.search(r"_V(\d{8}T\d{6})_(\d{8}T\d{6})", name).groups())
-            if not (a <= t0 - 60 and b >= t1 + 60):
-                continue
-            f = cache / name if cache else None
-            if f and f.is_file():
-                data = f.read_bytes()
-            else:
-                rr = requests.get(folder + name, timeout=180)
-                if not rr.ok:
-                    return None
-                data = rr.content
-                if f:
-                    f.parent.mkdir(parents=True, exist_ok=True)
-                    f.write_bytes(data)
-            with zipfile.ZipFile(io.BytesIO(data)) as z:
-                xml = z.read(next(n for n in z.namelist() if n.endswith(".EOF"))).decode()
-            rows = []
-            for osv in re.findall(r"<OSV>(.*?)</OSV>", xml, re.S):
-                tt = dt.datetime.fromisoformat(re.search(r"<UTC>UTC=([^<]+)</UTC>", osv).group(1)).replace(tzinfo=dt.timezone.utc).timestamp()
-                if t0 - 120 <= tt <= t1 + 120:
-                    rows.append([tt] + [float(re.search(rf"<{k}[^>]*>([^<]+)</{k}>", osv).group(1)) for k in ("X", "Y", "Z", "VX", "VY", "VZ")])
-            return np.array(rows) if len(rows) >= 9 else None
-    return None
+        if not rr.ok:
+            return None
+        data = rr.content
+        if f:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_bytes(data)
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        xml = z.read(next(n for n in z.namelist() if n.endswith(".EOF"))).decode()
+    rows = []
+    for osv in re.findall(r"<OSV>(.*?)</OSV>", xml, re.S):
+        tt = dt.datetime.fromisoformat(re.search(r"<UTC>UTC=([^<]+)</UTC>", osv).group(1)).replace(tzinfo=dt.timezone.utc).timestamp()
+        if t0 - 120 <= tt <= t1 + 120:
+            rows.append([tt] + [float(re.search(rf"<{k}[^>]*>([^<]+)</{k}>", osv).group(1)) for k in ("X", "Y", "Z", "VX", "VY", "VZ")])
+    return np.array(rows) if len(rows) >= 9 else None
 
 
 _GEOID = {}
@@ -160,7 +178,7 @@ def dem_for(crs, transform, shape, dem_path: str | None = None, cache: Path | No
     import pystac_client
     from rasterio.transform import array_bounds
     w, s_, e, n = transform_bounds(crs, "EPSG:4326", *array_bounds(*shape, transform))
-    cat = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1", modifier=pc.sign_inplace)
+    cat = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1", modifier=pc.sign_inplace, timeout=60)
     items = list(cat.search(collections=["cop-dem-glo-30"], bbox=[w - 0.02, s_ - 0.02, e + 0.02, n + 0.02]).items())
     if not items:
         raise ValueError("No Copernicus DEM tiles for this area")
@@ -245,6 +263,27 @@ def angles(lat, lon, S, P, slope: tuple | None = None):
     nt /= np.linalg.norm(nt, axis=-1, keepdims=True)
     theta_loc = np.degrees(np.arccos(np.clip(nt[..., 0] * le + nt[..., 1] * ln + nt[..., 2] * lz, -1, 1)))
     return theta, theta_loc, alpha_r
+
+
+def gamma_projection(lat, lon, S, P, slope: tuple | None = None) -> np.ndarray:
+    """How much of a DEM cell's map area the radar sees, projected onto the plane perpendicular to the look direction
+    (Small 2011): n · l̂ with n = (−dz/dx, −dz/dy, 1) the cell's upward normal scaled to its map area and l̂ the unit
+    look vector towards the sensor. cos θ on flat ground; above that on slopes facing the sensor; ≤ 0 facing away."""
+    los = S - P
+    los /= np.linalg.norm(los, axis=-1, keepdims=True)
+    e, n, u = enu_basis(lat, lon)
+    le, ln, lz = (los * e).sum(-1), (los * n).sum(-1), (los * u).sum(-1)
+    if slope is None:
+        return lz
+    dzdx, dzdn = slope
+    return lz - dzdx * le - dzdn * ln
+
+
+def normalise_factor(theta: np.ndarray, ref: float = 40.0, n: float = 2.0) -> np.ndarray:
+    """Incidence-angle normalisation (cosine law): backscatter × (cos θ_ref / cos θ)^n, as if seen at θ_ref. n = 2
+    (Lambert's law) suits σ⁰; γ⁰ (already divided by cos θ) needs about n = 1."""
+    with np.errstate(all="ignore"):
+        return (math.cos(math.radians(ref)) / np.cos(np.radians(theta))) ** n
 
 
 def flatten_factor(theta: np.ndarray, alpha_r: np.ndarray) -> np.ndarray:

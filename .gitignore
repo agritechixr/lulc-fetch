@@ -38,3 +38,4 @@ test_reports/
 embeddings_cache/
 agri_models/
 site/field/
+/sar_cache/

@@ -159,7 +159,7 @@ def pc_item(item_or_id) -> dict:
     if isinstance(item_or_id, dict):
         import pystac
         return pc.sign(pystac.Item.from_dict(item_or_id)).to_dict()
-    cat = pystac_client.Client.open(PC_STAC, modifier=pc.sign_inplace)
+    cat = pystac_client.Client.open(PC_STAC, modifier=pc.sign_inplace, timeout=60)
     for col in ("sentinel-1-grd", "sentinel-1-rtc"):
         found = list(cat.search(collections=[col], ids=[item_or_id]).items())
         if found:
@@ -202,13 +202,14 @@ def open_product(src) -> Product:
 # ------------------------------------------------------------------ what it is, and what it still needs
 STEPS = [
     ("validate", "Product check", "Read the product's metadata and check it can be processed"),
-    ("orbit", "Precise orbit", "Precise orbit (POEORB) from ESA, for exact positions in terrain correction"),
+    ("orbit", "Precise orbit", "ESA's orbit file for exact positions in terrain correction: precise (POEORB, after ~20 days), else restituted (RESORB, within hours)"),
     ("border", "Border noise removal", "Remove the noisy strips at the image's near and far edges"),
     ("thermal", "Thermal noise removal", "Subtract the receiver's thermal noise (noise vectors of the product)"),
     ("calibrate", "Radiometric calibration", "Digital numbers → backscatter coefficient (σ⁰, β⁰ or γ⁰)"),
     ("speckle", "Speckle filtering", "Reduce speckle (Lee, Refined Lee, Lee Sigma, Frost, Gamma MAP …): optional, it also blurs details"),
-    ("flatten", "Terrain flattening", "Radiometric terrain correction: backscatter of slopes made comparable (γ⁰ flattened)"),
+    ("flatten", "Terrain flattening", "Radiometric terrain correction: backscatter of slopes made comparable (γ⁰ flattened; area-based, Small 2011, or angular)"),
     ("terrain", "Terrain correction", "Range-Doppler orthorectification with a DEM (Copernicus DEM 30 m)"),
+    ("normalise", "Incidence angle normalisation", "Backscatter as if seen at one angle (40°): near and far range, and different orbit tracks, become comparable"),
     ("db", "Convert to dB", "10·log10 of the power (the linear values are kept too)"),
     ("reproject", "Reproject", "Into a projected system (UTM of the area by default)"),
     ("resample", "Resample / align", "A pixel size, or the grid of another layer (pixel-aligned with optical / DEM)"),
@@ -242,9 +243,13 @@ def inspect(src) -> dict:
         info["relative_orbit"] = (f["absolute_orbit"] - off) % 175 + 1
     done, needed, optional, na = {"validate"}, set(), set(), {}
     if rtc:
-        done |= {"orbit", "border", "thermal", "calibrate", "flatten", "terrain", "reproject"}
+        done |= {"orbit", "border", "calibrate", "flatten", "terrain", "reproject"}
         optional |= {"speckle", "db", "resample", "clip"}
-        info.update(units="γ⁰ terrain-flattened, linear power", summary="Analysis-ready (RTC): calibrated, noise-removed, terrain-flattened and terrain-corrected. Those steps will be skipped.")
+        na["thermal"] = ("not removed by the producer: Planetary Computer's RTC keeps the thermal noise (it matches this app's GRD processing without "
+                         "noise removal within 0.1 dB), so dark surfaces in VH (water, smooth fields) read up to ~1 dB too bright. It can't be "
+                         "removed afterwards: for water and flooding in VH, process the GRD scene of the same date instead")
+        na["normalise"] = "RTC scenes have no incidence-angle layer (and γ⁰ flattened varies little with the angle)"
+        info.update(units="γ⁰ terrain-flattened, linear power", summary="Analysis-ready (RTC): calibrated, terrain-flattened and terrain-corrected (thermal noise not removed). Those steps will be skipped.")
     elif typ == "GRD":
         try:
             g = p.geometry
@@ -255,7 +260,7 @@ def inspect(src) -> dict:
         ipf = p.ipf
         info["ipf"] = ipf
         needed |= {"thermal", "calibrate", "terrain", "reproject"}
-        optional |= {"orbit", "speckle", "flatten", "db", "resample", "clip"}
+        optional |= {"orbit", "speckle", "flatten", "normalise", "db", "resample", "clip"}
         if ipf and tuple(int(x) for x in ipf.split(".")[:2]) >= (2, 90):
             done.add("border")
             na["border"] = f"already done by the processor (IPF {ipf} ≥ 2.90 removes border noise)"
@@ -265,12 +270,12 @@ def inspect(src) -> dict:
         if orb == "POEORB":
             done.add("orbit")
         else:
-            na["orbit"] = f"the product has {'a restituted (RESORB)' if orb == 'RESORB' else 'its predicted / restituted'} orbit: precise orbits come ~20 days after acquisition"
+            na["orbit"] = f"the product has {'a restituted (RESORB)' if orb == 'RESORB' else 'its predicted / restituted'} orbit: ESA's precise one comes ~20 days after acquisition, a restituted one within hours (used when there is no precise one)"
         info.update(units="digital numbers (not calibrated)", summary="Level-1 GRD: detected, multilooked, in ground range, but not calibrated, noise-corrected or terrain-corrected. Those steps are needed.")
     elif typ == "SLC":
-        info["summary"] = ("Single Look Complex (SLC): keeps the phase, for InSAR (interferograms, coherence, deformation). It needs a different chain "
-                           "(TOPS deburst, co-registration, interferogram, phase unwrapping) which this version doesn't do: use ESA SNAP or ISCE, "
-                           "or a GRD product of the same date for backscatter.")
+        info["summary"] = ("Single Look Complex (SLC): keeps the phase, for InSAR (interferograms, coherence, ground movement). This app doesn't "
+                           "process SLC itself: Analysis ▸ SAR ▸ InSAR & RTC on demand (ASF HyP3) makes the interferogram for you, free with a NASA "
+                           "Earthdata login. For backscatter, use the GRD product of the same date.")
         info["supported"] = False
     elif typ == "RAW":
         info["summary"] = "Level-0 raw data: it must be focused into SLC / GRD first (ESA's processor). Use the GRD product of the same date."
@@ -311,10 +316,18 @@ def inspect_raster(path) -> dict:
     if crs and not crs.endswith("4326"):
         done.add("reproject")
     optional = {"speckle", "db", "resample", "clip", "reproject"} - done
+    with rasterio.open(path) as s:
+        has_angle = any((d or "").lower() in ("angle", "incidence", "local_incidence", "incidence_angle") for d in s.descriptions)
+    has_angle = has_angle or Path(str(path).replace("_linear", "_angles").replace("_dB", "_angles")).exists() and "_angles" not in Path(path).name
+    if "normalise" not in done:
+        if has_angle and sar:
+            optional.add("normalise")
     own_orbit = tags.get("orbit") and "POEORB" not in tags["orbit"].upper()   # made here before the precise orbit was out
     if own_orbit:
         done.discard("orbit")
     na = {k: "can't be redone on a processed raster (it needs the original product)" for k in ("orbit", "border", "thermal", "calibrate", "terrain", "flatten") if k not in done}
+    if "normalise" not in done and "normalise" not in optional:
+        na["normalise"] = "needs the incidence angles: a band named 'angle' (GEE exports it), or this app's _angles.tif beside the file"
     if own_orbit:
         na["orbit"] = "the product's own orbit was used (the precise one wasn't published yet): process the product again ~20 days after its date for it"
     return {"name": name, "source": src or "a SAR raster", "type": "processed raster", "polarisations": sorted(set(p[:2] for p in pols)), "sar": sar,

@@ -190,6 +190,25 @@ def filter_image(x: np.ndarray, method: str, size: int = 5, looks: float = 4.4) 
     return gamma_map(x, size, looks)
 
 
+def quegan(stack: np.ndarray, size: int = 7, spatial: str = "boxcar", looks: float = 4.4) -> np.ndarray:
+    """Multi-temporal speckle filter (Quegan & Yu 2001) of N co-registered dates [N × rows × cols] of linear power:
+    J_k = E[I_k] / N · Σ_i I_i / E[I_i], with E[·] a local mean (boxcar, or another filter of this module). Each date
+    keeps its own mean level (changes stay), while its speckle is averaged with the other dates': up to N times the
+    looks. Dates missing at a pixel (NaN) are left out of its sum."""
+    stack = np.asarray(stack, "float64")
+    if stack.ndim != 3 or stack.shape[0] < 2:
+        raise ValueError("The multi-temporal filter needs at least two dates")
+    means = np.stack([_local(x, size)[0] if spatial == "boxcar" else filter_image(x, spatial, size, looks) for x in stack])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ratio = stack / means
+    ok = np.isfinite(ratio)
+    n = ok.sum(0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        s = np.where(ok, ratio, 0).sum(0) / n
+        out = means * s
+    return np.where(np.isfinite(stack) & (n > 0), out, np.nan)
+
+
 def enl(x: np.ndarray) -> float:
     """The equivalent number of looks of a homogeneous-looking area: mean² / variance (median over 9 × 9 windows)."""
     m, v, _ = _local(np.asarray(x, float), 9)

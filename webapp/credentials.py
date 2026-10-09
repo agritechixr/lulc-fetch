@@ -38,6 +38,15 @@ PROVIDERS = {
         "fields": {"username": "ERS username", "token": "M2M application token"},
         "secret": {"token"},
     },
+    "earthdata": {
+        "title": "NASA Earthdata (ASF HyP3: InSAR & RTC on demand)",
+        "help": "Free. Lets Analysis ▸ SAR ▸ InSAR & RTC on demand send Sentinel-1 jobs to ASF HyP3 (interferograms, coherence, ground "
+                "movement; RTC). Best: a token (urs.earthdata.nasa.gov ▸ Generate Token; it lasts 60 days). Or your username and password.",
+        "signup": "https://urs.earthdata.nasa.gov/users/new",
+        "fields": {"token": "Earthdata token", "username": "Username", "password": "Password"},
+        "secret": {"token", "password"},
+        "optional": True,
+    },
     "anthropic": {
         "title": "Anthropic (Claude) — optional, for the Assistant",
         "help": "Not required: the Assistant works with a free local model. With your own Anthropic API key it can plan with "

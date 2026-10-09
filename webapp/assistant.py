@@ -121,10 +121,12 @@ CATALOG = {
                          "class, the hard class and an uncertainty map (mixed pixels). Output: .tif files",
     "/api/sar/process": "SAR (Sentinel-1) workflow: `sources` [{scene: a Planetary Computer Sentinel-1 id (GRD, or ending _rtc), or "
                         "raster: the path of a SAR layer}] (several = a time series, processed alike), `aoi` (a GeoJSON area; needed for "
-                        "scenes), steps from validate, orbit, border, thermal, calibrate, speckle, terrain, flatten, db, reproject, clip "
+                        "scenes), steps from validate, orbit, border, thermal, calibrate, speckle, terrain, flatten, normalise, db, reproject, clip "
                         "(steps the data already had are skipped; RTC scenes are already calibrated and terrain-flattened), speckle "
-                        "{method 'refined_lee' (default choice), size 5}, res metres (20), db true; optional features ['ratio','rvi','ndpi'], "
-                        "temporal ['mean','median','std','trend'] and change true (first → last date, flooding, water_db -18). Output: .tif files",
+                        "{method 'refined_lee' (default choice), size 5}, flatten_method 'area' (default) or 'angular', res metres (20), db true; "
+                        "frames of one pass are found and joined (join_frames true); several dates: multitemporal true for Quegan's "
+                        "multi-temporal speckle filter; optional features ['ratio','rvi','ndpi'], temporal ['mean','median','std','trend'] and "
+                        "change true (first → last date, flooding, water_db -18). Output: .tif files with a quality layer and a metadata .json",
     "/api/sar/series": "SAR time series of several SAR layers (`rasters`: paths, one track): stats mean, median, min, max, std, count, "
                        "trend (dB/yr); change true for first → last (log-ratio, ±threshold_db classes, new water below water_db = flooding). Output: .tif",
     "/api/raster/burn": "Burn severity: `before` and `after` images (paths, with NIR B08 and SWIR2 B12, or NBR rasters): dNBR = NBR "
@@ -359,8 +361,10 @@ RULES = """How to choose tools:
   /api/fuzzy/boundary of a 0–1 map. Mixed pixels, soft classes with memberships → /api/fuzzy/cmeans.
 - Radar / SAR / Sentinel-1, through clouds, flooding from radar, soil moisture or crop structure from VV / VH → ONE
   /api/sar/process step (all the dates in `sources`; steps validate, calibrate, speckle, terrain, flatten, db, reproject, clip;
-  change true for flooding between the first and last date). SAR layers already processed (GEE, RTC) → only speckle / db,
-  never calibrate or terrain again. Several SAR layers already in Contents over time → /api/sar/series.
+  change true for flooding between the first and last date; multitemporal true when there are several dates). SAR layers
+  already processed (GEE, RTC) → only speckle / db / normalise, never calibrate or terrain again. Several SAR layers
+  already in Contents over time → /api/sar/series. InSAR / interferograms / ground movement need ASF HyP3 (the user sends
+  those jobs from Analysis ▸ SAR ▸ InSAR & RTC on demand: they spend the user's credits, so never plan them).
 - A heat map of points (reports, incidents) → /api/vector/spatial-stats method 'density'; where values or reports
   cluster (hot spots) → 'hotspots'; whether a value is spatially clustered → 'moran'; whether points are clustered
   or evenly spread → 'nearest'.
