@@ -453,4 +453,135 @@
       return { open() { loadUser(); } };
     },
   });
+
+  // ---------------- SAR + optical fusion (what radar adds to an optical map)
+  LF.tool({ id: "sarfusion", menu: "sar", title: "SAR + optical fusion", icon: "rasterml", kinds: [],
+    subtitle: "Map crops or land cover from Sentinel-2 and Sentinel-1 together: compares optical only, SAR only, early fusion (stacked) and late fusion (combined, SAR alone under clouds) on spatial blocks, then maps with the best",
+    panel: `<div class="card"><h2>1 · Data ${tip("The optical image sets the grid (pixel size and extent): the SAR layers are put onto it. Process the SAR with the SAR workflow first (terrain-flattened γ⁰; several dates of one track, ideally with the multi-temporal filter).")}</h2>
+        <label>Optical image ${tip("A Sentinel-2 (or other optical) image with band names (B02, B03, B04, B08, B11 …) so indices can be computed. Its SCL band, if present, marks clouds.")} <select id="fu-opt"></select></label>
+        <div class="home-label">SAR layers ${tip("One date: its VV, VH, ratio and RVI. Several dates: per-date values plus their mean, std, min and max: the change over the season is what separates crops best.")}</div><div id="fu-sars" class="sf-list"></div>
+        <label class="check"><input type="checkbox" id="fu-scl" checked> Mask clouds with the optical image's SCL band ${tip("Sentinel-2 L2A's scene classification: cloud shadow, medium / high cloud and cirrus pixels lose their optical values, so only the SAR speaks there.")}</label>
+        <label>Or a cloud mask layer ${tip("Any raster where non-zero means cloud (e.g. from s2cloudless or Fmask).")} <select id="fu-cloud"></select></label>
+        <label>Embedding to compare (optional) ${tip("E.g. Google AlphaEarth (already a learned blend of optical, radar and more): added as its own column in the comparison, not into the fusion.")} <select id="fu-emb"></select></label></div>
+      <div class="card"><h2>2 · Features</h2>
+        <div class="sf-ticks">${["NDVI", "EVI", "NDRE", "NDWI", "MNDWI", "NDMI"].map((v) => `<label class="check"><input type="checkbox" data-fi="${v}" checked> ${v}</label>`).join("")}</div>
+        <label class="check"><input type="checkbox" id="fu-dates" checked> Each SAR date as its own features ${tip("Off: only the statistics over the dates (fewer features, faster). On: the model also sees when things changed.")}</label>
+        <label class="check"><input type="checkbox" id="fu-tex"> SAR texture ${tip("Local variation of VV over 7 × 7 pixels: helps separate forests, orchards and towns.")}</label></div>
+      <div class="card"><h2>3 · Ground truth ${tip("Labelled examples: polygons or points with a class attribute (crop, land cover…), or a class raster. Spread them over the area: validation leaves whole blocks out.")}</h2>
+        <select id="fu-gt"></select><div id="fu-gt-v" class="hidden"><label>Class attribute <select id="fu-gt-field"></select></label></div>
+        <div id="fu-gt-r" class="hidden"><label>Band <input type="number" id="fu-gt-band" value="1" min="1"></label></div></div>
+      <div class="card"><h2>4 · Model &amp; validation</h2>
+        <div class="grid2"><label>Model ${tip("LightGBM: fast and accurate, handles missing optical values itself (recommended). Random Forest: robust, the classic. XGBoost: similar to LightGBM.")} <select id="fu-model"><option value="lgbm">LightGBM</option><option value="rf">Random Forest</option><option value="xgb">XGBoost</option></select></label>
+          <label>Map with ${tip("Best: the fusion (early or late) with the higher F1 in validation. Or force one, e.g. late fusion for a very cloudy image.")} <select id="fu-map"><option value="best">The best fusion</option><option value="early">Early fusion</option><option value="late">Late fusion</option><option value="optical">Optical only</option><option value="sar">SAR only</option></select></label></div>
+        <div class="grid3"><label>Block (m) ${tip("Validation leaves whole squares of this size out (and whole polygons), so the score isn't inflated by neighbouring, near-identical pixels. About 5–10 × a field's width; smaller if the ground truth is in a small area.")} <input type="number" id="fu-block" value="1000" min="20" step="100"></label>
+          <label>Folds ${tip("How many times the blocks are split into training and test.")} <input type="number" id="fu-folds" value="5" min="2" max="10"></label>
+          <label>Pixels / class ${tip("At most this many training pixels per class (sampled evenly).")} <input type="number" id="fu-pc" value="3000" min="50" step="500"></label></div>
+        <label>Name <input type="text" id="fu-name" value="fusion" maxlength="80"></label>${runRow("fu", "Compare & map")}</div>`,
+    setup(LF) {
+      const { $, $$, esc, api, layers, getLayer, fillLayers, runButton, trackJob, showResult } = LF;
+      const isSar = (l) => sarLayers(LF).includes(l);
+      const fill = () => {
+        const rasters = layers.filter((l) => l.type === "raster" && l.path);
+        fillLayers($("#fu-opt"), rasters.filter((l) => !isSar(l)), { empty: "No optical image in Contents" });
+        const was = new Set($$("#fu-sars input:checked").map((c) => c.value));
+        const ls = sarLayers(LF);
+        $("#fu-sars").innerHTML = ls.length ? ls.map((l) => `<label class="check"><input type="checkbox" value="${esc(l.id)}" ${was.has(l.id) || !was.size ? "checked" : ""}> ${esc(l.name)}</label>`).join("")
+          : `<p class="hint" style="margin:0">No SAR layer: process Sentinel-1 with the SAR workflow first.</p>`;
+        const opts = (sel, first) => { const w = sel.value; sel.innerHTML = `<option value="">${first}</option>` + rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join(""); if (getLayer(w)) sel.value = w; };
+        opts($("#fu-cloud"), "(none)"); opts($("#fu-emb"), "(none)");
+        const gw = $("#fu-gt").value;
+        const gts = layers.filter((l) => (l.type === "vector" && l.geojson?.features?.length) || (l.type === "raster" && l.path));
+        $("#fu-gt").innerHTML = `<option value="">Choose…</option>` + gts.map((l) => `<option value="${esc(l.id)}">${l.type === "vector" ? "▢" : "▦"} ${esc(l.name)}</option>`).join("");
+        if (getLayer(gw)) $("#fu-gt").value = gw;
+        gtChanged();
+      };
+      function gtChanged() {
+        const l = getLayer($("#fu-gt").value);
+        $("#fu-gt-v").classList.toggle("hidden", l?.type !== "vector");
+        $("#fu-gt-r").classList.toggle("hidden", l?.type !== "raster");
+        if (l?.type === "vector") {
+          const keys = [...new Set(l.geojson.features.flatMap((f) => Object.keys(f.properties || {})))];
+          const w = $("#fu-gt-field").value;
+          $("#fu-gt-field").innerHTML = keys.map((k) => `<option>${esc(k)}</option>`).join("") || `<option value="">(no attributes: one class)</option>`;
+          const guess = keys.find((k) => /class|crop|type|label|lc|name/i.test(k));
+          $("#fu-gt-field").value = keys.includes(w) ? w : (guess || keys[0] || "");
+        }
+      }
+      $("#fu-gt").onchange = gtChanged;
+      const pct = (v) => `${(100 * v).toFixed(1)} %`;
+      runButton("fu", async () => {
+        const o = getLayer($("#fu-opt").value);
+        if (!o) throw new Error("Choose the optical image");
+        const sars = $$("#fu-sars input:checked").map((c) => getLayer(c.value)?.path).filter(Boolean);
+        if (!sars.length) throw new Error("Tick at least one SAR layer");
+        const g = getLayer($("#fu-gt").value);
+        if (!g) throw new Error("Choose the ground truth");
+        const ground_truth = g.type === "raster" ? { type: "raster", path: g.path, band: +$("#fu-gt-band").value || 1 } : { type: "vector", geojson: g.geojson, field: $("#fu-gt-field").value || null };
+        const j = await api("/api/sar/fusion", { method: "POST", json: { optical: o.path, sars, ground_truth, cloud: getLayer($("#fu-cloud").value)?.path || null, scl: $("#fu-scl").checked,
+          indices: $$("[data-fi]:checked").map((c) => c.dataset.fi), sar_dates: $("#fu-dates").checked, texture: $("#fu-tex").checked, embedding: getLayer($("#fu-emb").value)?.path || null,
+          model: $("#fu-model").value, block_m: +$("#fu-block").value || 1000, folds: +$("#fu-folds").value || 5, per_class: +$("#fu-pc").value || 3000, map_with: $("#fu-map").value,
+          name: $("#fu-name").value.trim() || "fusion" } });
+        const r = (await trackJob(j, { title: j.title })).result;
+        await addOutputs(LF, r.outputs.slice(0, 2));
+        const top = Math.max(...r.table.map((t) => t.f1));
+        const sets = r.table.map((t) => t.set);
+        showResult("fu", `<b>${esc(r.table.find((t) => t.set === r.best).title)}</b> is best: macro F1 ${r.table.find((t) => t.set === r.best).f1.toFixed(3)}${r.gain.vs_optical_f1 != null ? ` (${r.gain.vs_optical_f1 >= 0 ? "+" : ""}${(100 * r.gain.vs_optical_f1).toFixed(1)} points over optical only)` : ""}.
+          <table class="kv" style="margin-top:6px"><tr><td></td><td><b>OA</b></td><td><b>κ</b></td><td><b>F1</b></td><td><b>Covers</b></td></tr>
+          ${r.table.map((t) => `<tr${t.set === r.best ? ' style="font-weight:600"' : ""}><td>${esc(t.title)}</td><td>${pct(t.oa)}</td><td>${t.kappa.toFixed(3)}</td><td><span style="display:inline-block;height:8px;width:${Math.round(60 * t.f1 / top)}px;background:var(--accent);border-radius:2px;vertical-align:middle"></span> ${t.f1.toFixed(3)}</td><td>${t.coverage} %</td></tr>`).join("")}</table>
+          <p class="hint" style="margin:4px 0 0">${r.pixels.toLocaleString()} pixels, ${r.folds}-fold validation on ${r.blocks} blocks of ${r.block_m} m (whole blocks left out). Covers: the share of the test pixels that set could classify (optical alone can't under clouds).</p>
+          <div class="home-label">F1 per class</div><table class="kv"><tr><td></td>${sets.map((s) => `<td><b>${esc({ optical: "Opt", sar: "SAR", embedding: "Emb", early: "Early", late: "Late" }[s])}</b></td>`).join("")}</tr>
+          ${r.classes.map((c) => `<tr><td>${esc(c)}</td>${sets.map((s) => `<td>${(r.per_class[s]?.[c] ?? 0).toFixed(2)}</td>`).join("")}</tr>`).join("")}</table>
+          ${(r.warnings || []).map((w) => `<div class="warn">${esc(w)}</div>`).join("")}
+          ${r.areas ? `<div class="home-label">Area mapped (${esc(r.mapped_with)})</div><div class="dist">${Object.entries(r.areas).map(([k, v]) => `<div style="grid-template-columns:minmax(0,2fr) auto"><span>${esc(k)}</span><b>${v.ha != null ? `${LF.fmt(v.ha, 1)} ha` : v.pixels}</b></div>`).join("")}</div>` : ""}
+          <span class="hint">Class map and confidence added to Contents; the stack and a report (.json) are in ${esc(r.report.split("/").slice(0, -1).join("/"))}.</span>`);
+      });
+      return { open: fill, layersChanged: fill };
+    },
+  });
+
+  // ---------------- fill cloud gaps from SAR
+  LF.tool({ id: "sargapfill", menu: "sar", title: "Fill clouds from SAR", icon: "renhance", kinds: [],
+    subtitle: "Fill the cloudy pixels of an optical image from Sentinel-1 (and a same-day coarse image such as MODIS, or a clear image of another date): learned on the image's own clear pixels, no training data needed",
+    panel: `<div class="card"><h2>Images ${tip("Everything goes onto the cloudy image's grid. The SAR should be within a few days of it. A same-day coarse optical image (MODIS, Sentinel-3) adds the colour radar can't see.")}</h2>
+        <label>Cloudy optical image <select id="gf-opt"></select></label>
+        <label>Cloud mask ${tip("Where to fill: non-zero = cloud. Leave on 'the image's SCL band' for Sentinel-2 L2A.")} <select id="gf-mask"></select></label>
+        <div class="home-label">SAR ${tip("Sentinel-1 of about the same date, any units (dB, linear or rescaled). Several dates are fine.")}</div><div id="gf-sars" class="sf-list"></div>
+        <div class="home-label">Helper images (optional) ${tip("Coarse optical of the same day (MODIS), or a clear image of another date: the model learns how they relate to the cloudy image where it is clear.")}</div><div id="gf-helpers" class="sf-list"></div>
+        <label>Clear image to score against (optional) ${tip("If you have the same scene without clouds (e.g. a test dataset), the result is scored where the clouds were: PSNR, SSIM, MAE, spectral angle and NDVI error.")} <select id="gf-truth"></select></label></div>
+      <div class="card"><div class="grid2"><label>Model ${tip("LightGBM: accurate and fast (recommended). Random Forest: robust. Linear: a quick baseline.")} <select id="gf-model"><option value="lgbm">LightGBM</option><option value="rf">Random Forest</option><option value="linear">Linear</option></select></label>
+        <label>Training pixels ${tip("How many clear pixels to learn from (sampled at random).")} <input type="number" id="gf-samples" value="60000" min="2000" step="10000"></label></div>
+        <label class="check"><input type="checkbox" id="gf-res" checked> Correct with the clear surroundings ${tip("The model's error on the clear pixels around each cloud is carried into it, so filled areas join their surroundings without a visible edge.")}</label>
+        <label>Name <input type="text" id="gf-name" value="filled" maxlength="80"></label>${runRow("gf", "Fill clouds")}</div>`,
+    setup(LF) {
+      const { $, $$, esc, api, layers, getLayer, fillLayers, runButton, trackJob, showResult } = LF;
+      const fill = () => {
+        const rasters = layers.filter((l) => l.type === "raster" && l.path);
+        const opt = fillLayers($("#gf-opt"), rasters.filter((l) => !sarLayers(LF).includes(l)), { empty: "No optical image in Contents" });
+        const sel = (el, first) => { const w = el.value; el.innerHTML = `<option value="">${first}</option>` + rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join(""); if (getLayer(w)) el.value = w; };
+        sel($("#gf-mask"), "The image's SCL band"); sel($("#gf-truth"), "(none)");
+        const box = (el, list, all) => { const was = new Set($$(`#${el} input:checked`).map((c) => c.value)); $(`#${el}`).innerHTML = list.length ? list.map((l) => `<label class="check"><input type="checkbox" value="${esc(l.id)}" ${was.has(l.id) || (all && !was.size) ? "checked" : ""}> ${esc(l.name)}</label>`).join("") : `<p class="hint" style="margin:0">None in Contents.</p>`; };
+        box("gf-sars", sarLayers(LF), true);
+        const taken = new Set([$("#gf-mask").value, $("#gf-truth").value].filter(Boolean));
+        box("gf-helpers", rasters.filter((l) => l !== opt && !sarLayers(LF).includes(l) && !taken.has(l.id)), false);
+      };
+      ["#gf-opt", "#gf-mask", "#gf-truth"].forEach((q) => $(q).addEventListener("change", fill));
+      runButton("gf", async () => {
+        const o = getLayer($("#gf-opt").value);
+        if (!o) throw new Error("Choose the cloudy image");
+        const ids = (el) => $$(`#${el} input:checked`).map((c) => getLayer(c.value)?.path).filter(Boolean);
+        const sars = ids("gf-sars"), helpers = ids("gf-helpers").filter((p) => p !== o.path);
+        if (!sars.length && !helpers.length) throw new Error("Tick at least one SAR layer or helper image");
+        const j = await api("/api/sar/gapfill", { method: "POST", json: { optical: o.path, mask: getLayer($("#gf-mask").value)?.path || null, sars, helpers,
+          truth: getLayer($("#gf-truth").value)?.path || null, model: $("#gf-model").value, residual: $("#gf-res").checked, samples: +$("#gf-samples").value || 60000, name: $("#gf-name").value.trim() || "filled" } });
+        const r = (await trackJob(j, { title: j.title })).result;
+        await addOutputs(LF, r.outputs.slice(0, 1));
+        const sc = r.score;
+        showResult("gf", `<b>Filled ${r.cloud_pct} %</b> of the image from ${r.inputs.sar} SAR and ${r.inputs.helpers} helper image${r.inputs.helpers === 1 ? "" : "s"} (${r.features} features, learned on ${r.trained_on.toLocaleString()} clear pixels).
+          ${sc ? `<table class="kv" style="margin-top:6px"><tr><td>PSNR (whole image / where filled)</td><td>${sc.psnr} / ${sc.psnr_gap} dB</td></tr><tr><td>SSIM</td><td>${sc.ssim}</td></tr><tr><td>Mean absolute error (filled)</td><td>${sc.mae}</td></tr>
+            <tr><td>Spectral angle (filled)</td><td>${sc.sam_deg}°</td></tr>${sc.ndvi_mae != null ? `<tr><td>NDVI error (filled)</td><td>${sc.ndvi_mae} (R² ${sc.ndvi_r2})</td></tr>` : ""}</table>` : ""}
+          ${r.score_note ? `<p class="hint">${esc(r.score_note)}</p>` : ""}<span class="hint">The filled image is in Contents; a mask of the filled pixels is saved beside it.</span>`);
+      });
+      return { open: fill, layersChanged: fill };
+    },
+  });
 })();

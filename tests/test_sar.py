@@ -2,6 +2,7 @@
 features, time series and change (flooding), and the SAR workflow on a processed raster. Synthetic speckled images
 whose answers are known; the GRD chain itself needs a real product (checked by hand against Planetary Computer RTC)."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -208,3 +209,100 @@ def test_workflow_multitemporal_and_hyp3_routes(client, home):
     bad = client.post("/api/sar/hyp3/submit", json={"job_type": "INSAR_GAMMA", "pairs": [["S1A_nope", "x"]]})
     assert bad.status_code == 400
     assert client.post("/api/sar/hyp3/submit", json={"job_type": "RTC_GAMMA", "granules": []}).status_code == 400
+
+
+def test_sar_optical_fusion(client, home):
+    """Two classes look alike optically but not to the radar: fusion beats optical only; clouds leave the SAR to answer."""
+    rng = np.random.default_rng(5)
+    up = home / "uploads"
+    up.mkdir(exist_ok=True)
+    yy, xx = np.mgrid[0:H, 0:W]
+    cls = 1 + ((xx // 40 + yy // 40) % 3)
+    tr = from_origin(700000, 1400000, 20, 20)   # (the SAR from scene() is on 20 m pixels too)
+    prof = dict(driver="GTiff", width=W, height=H, crs="EPSG:32643", transform=tr, dtype="float32")
+    with rasterio.open(up / "fu_s2.tif", "w", count=5, **prof) as o:
+        for i, (b, v) in enumerate({"B02": [0.04, 0.04, 0.1], "B03": [0.07, 0.07, 0.12], "B04": [0.05, 0.05, 0.15], "B08": [0.35, 0.35, 0.22]}.items(), 1):
+            o.write((np.choose(cls - 1, v) * (1 + 0.08 * rng.standard_normal((H, W))) * 10000).astype("float32"), i)
+            o.set_band_description(i, b)
+        scl = np.full((H, W), 4.0)
+        scl[:, 120:] = 9
+        o.write(scl.astype("float32"), 5)
+        o.set_band_description(5, "SCL")
+    for d in ("2026-08-01", "2026-08-13"):
+        scene(up / f"fu_s1_{d}.tif", np.choose(cls - 1, [0.03, 0.12, 0.06]) * rng.gamma(4.4, 1 / 4.4, (H, W)),
+              np.choose(cls - 1, [0.006, 0.03, 0.012]) * rng.gamma(4.4, 1 / 4.4, (H, W)), date=d)
+    # ground truth: a polygon inside each 40-pixel field (the class attribute in words)
+    from shapely.geometry import box, mapping
+    from rasterio.warp import transform_geom
+    feats = []
+    for r in range(0, H, 40):
+        for c in range(0, W, 40):
+            x0, y0 = 700000 + c * 20 + 100, 1400000 - (r + 40) * 20 + 100
+            g = transform_geom("EPSG:32643", "EPSG:4326", mapping(box(x0, y0, x0 + 600, y0 + 600)))
+            feats.append({"type": "Feature", "geometry": g, "properties": {"crop": ["rice", "sugarcane", "fallow"][int(cls[r + 5, c + 5]) - 1]}})
+    r = run(client, "/api/sar/fusion", {"optical": "uploads/fu_s2.tif", "sars": [f"uploads/fu_s1_{d}.tif" for d in ("2026-08-01", "2026-08-13")],
+                                        "ground_truth": {"type": "vector", "geojson": {"type": "FeatureCollection", "features": feats}, "field": "crop"},
+                                        "block_m": 800, "folds": 4, "per_class": 800, "name": "fu"})
+    t = {x["set"]: x for x in r["table"]}
+    assert set(t) == {"optical", "sar", "early", "late"} and sorted(r["classes"]) == ["fallow", "rice", "sugarcane"]
+    assert t["optical"]["coverage"] < 85 and t["early"]["coverage"] == 100                       # clouds over a quarter of the image
+    assert t["early"]["f1"] > t["optical"]["f1"] + 0.2 and r["best"] in ("early", "late") and r["gain"]["vs_optical_f1"] > 0.2
+    assert r["stack"]["cloud_pct"] == pytest.approx(100 * (W - 120) / W, abs=0.5) and r["stack"]["sar_dates"] == 2
+    with rasterio.open(home / r["outputs"][0]) as m:
+        a = m.read(1)
+        names = json.loads(m.tags()["classes"])
+    want = np.array([sorted(["rice", "sugarcane", "fallow"]).index(["rice", "sugarcane", "fallow"][c - 1]) + 1 for c in range(1, 4)])[cls - 1]
+    assert (a == want).mean() > 0.85 and set(names.values()) == {"fallow", "rice", "sugarcane"}
+    bad = client.post("/api/sar/fusion", json={"optical": "uploads/fu_s2.tif", "sars": ["uploads/fu_s1_2026-08-01.tif"], "ground_truth": {"type": "vector", "geojson": {}}})
+    assert bad.status_code == 400
+
+
+DATA_CR = Path(__file__).resolve().parent.parent / "data" / "sar_optic" / "d3" / "TestData"
+
+
+@pytest.mark.skipif(not (DATA_CR / "Mask").is_dir(), reason="the Landsat / Sentinel-1 / MODIS cloud-removal test data isn't in data/")
+def test_fill_clouds_on_real_patches():
+    """Two real cloudy patches: filling from SAR + MODIS beats filling from the clear surroundings alone."""
+    from lulc_fetch.sar import gapfill as GF
+    rd = lambda p: rasterio.open(p).read().astype("float64")   # noqa: E731
+    for f, floor in (("Fall_Scene_176_29.tif", 33.0), ("City_Scene_46_15.tif", 32.0)):
+        cl, tr = rd(DATA_CR / "CloudLandsat_2020" / f), rd(DATA_CR / "Landsat-8_2020" / f)
+        mo, s1 = rd(DATA_CR / "MODIS_2020" / f), rd(DATA_CR / "Sentinel-1_2020-De" / f)
+        m = rasterio.open(DATA_CR / "Mask" / f).read(1) > 0
+        out, info = GF.fill(cl, m, sar=[s1], helpers=[mo], samples=30000)
+        sc = GF.score(out, tr, m)
+        assert np.array_equal(out[:, ~m], cl[:, ~m])                       # clear pixels untouched
+        assert sc["psnr"] > floor and sc["sam_deg"] < 6 and info["cloud_pct"] > 30
+        # the baseline: the clear surroundings spread into the gap (normalised Gaussian interpolation)
+        base, w = cl.copy(), GF.gaussian_filter((~m).astype(float), 60)
+        for b in range(cl.shape[0]):
+            with np.errstate(all="ignore"):
+                base[b][m] = (GF.gaussian_filter(np.where(m, 0, cl[b]), 60) / w)[m]
+        assert sc["psnr_gap"] > GF.score(base, tr, m)["psnr_gap"] + 1
+
+
+def test_fill_clouds_route(client, home):
+    rng = np.random.default_rng(2)
+    up = home / "uploads"
+    up.mkdir(exist_ok=True)
+    yy, xx = np.mgrid[0:H, 0:W]
+    field = (xx // 20 + yy // 20) % 2
+    truth = np.stack([np.where(field, 0.05, 0.12), np.where(field, 0.08, 0.15), np.where(field, 0.06, 0.2), np.where(field, 0.4, 0.25)]) * (1 + 0.03 * rng.standard_normal((4, H, W)))
+    cloud = (np.hypot(yy - 60, xx - 80) < 35)
+    cl = truth.copy()
+    cl[:, cloud] = 0.6
+    prof = dict(driver="GTiff", width=W, height=H, crs="EPSG:32643", transform=from_origin(700000, 1400000, 20, 20), dtype="float32")
+    for nm, a in (("gf_cloudy", cl), ("gf_truth", truth)):
+        with rasterio.open(up / f"{nm}.tif", "w", count=4, **prof) as d:
+            d.write(a.astype("float32"))
+            for i, b in enumerate(("B02", "B03", "B04", "B08"), 1):
+                d.set_band_description(i, b)
+    with rasterio.open(up / "gf_mask.tif", "w", count=1, **{**prof, "dtype": "uint8"}) as d:
+        d.write(cloud.astype("uint8")[None])
+    scene(up / "gf_s1.tif", np.where(field, 0.12, 0.03) * rng.gamma(4.4, 1 / 4.4, (H, W)), np.where(field, 0.03, 0.006) * rng.gamma(4.4, 1 / 4.4, (H, W)))
+    r = run(client, "/api/sar/gapfill", {"optical": "uploads/gf_cloudy.tif", "mask": "uploads/gf_mask.tif", "sars": ["uploads/gf_s1.tif"], "truth": "uploads/gf_truth.tif", "samples": 5000})
+    assert r["cloud_pct"] == pytest.approx(100 * cloud.mean(), abs=0.1)
+    assert r["score"]["mae"] < 0.03 and r["score"]["ndvi_mae"] < 0.15                  # the fields under the cloud come back from the radar
+    with rasterio.open(home / r["outputs"][0]) as d:
+        assert d.count == 4 and d.descriptions[3] == "B08"
+    assert client.post("/api/sar/gapfill", json={"optical": "uploads/gf_cloudy.tif"}).status_code == 400

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import re
 import uuid
+
+import numpy as np
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -450,3 +452,151 @@ def hyp3_download(req: Hyp3Download):
         tifs.sort(key=lambda p: next((i for i, k in enumerate(order) if k in Path(p).name), 99))
         return {"outputs": [ws.rel(t) for t in tifs], "folder": ws.rel(d), "type": j["job_type"]}
     return jobs.submit("sar", f"HyP3 {j['job_type']} · download", {}, work).to_dict()
+
+
+# ------------------------------------------------------------------ SAR + optical fusion (what radar adds to an optical map)
+class FusionRequest(BaseModel):
+    optical: str                                                  # a Sentinel-2 (or other optical) image in the workspace
+    sars: list[str] = Field(min_length=1, max_length=60)          # processed SAR layers (one or several dates)
+    ground_truth: dict                                            # {"type": "raster", "path", "band"} | {"type": "vector", "geojson", "field"}
+    cloud: str | None = None                                      # a cloud mask layer (non-zero = cloud); the optical SCL band is used too
+    scl: bool = True
+    indices: list[str] = Field(default_factory=lambda: ["NDVI", "EVI", "NDRE", "NDWI", "MNDWI", "NDMI"], max_length=20)
+    sar_dates: bool = True                                        # several SAR dates: each one as features too (else only their statistics)
+    texture: bool = False
+    embedding: str | None = None                                  # e.g. AlphaEarth: compared as its own column
+    model: str = Field("lgbm", pattern="^(lgbm|rf|xgb)$")
+    block_m: float = Field(1000, ge=20, le=50000)
+    folds: int = Field(5, ge=2, le=10)
+    per_class: int = Field(3000, ge=50, le=50000)
+    map_with: str = Field("best", pattern="^(best|early|late|optical|sar|embedding)$")
+    class_colors: dict | None = None
+    name: str = Field("fusion", max_length=80)
+
+
+@router.post("/api/sar/fusion")
+def sar_fusion(req: FusionRequest):
+    """Stack optical + SAR on the optical grid, then compare optical only, SAR only, early and late fusion on spatial
+    blocks, and map the area with the best (or the chosen) one."""
+    from lulc_fetch import progress
+    from lulc_fetch.sar import fusion as FU
+    opt = str(_raster_path(req.optical))
+    sars = [str(_raster_path(p)) for p in req.sars]
+    gt = dict(req.ground_truth)
+    if gt.get("type") == "raster":
+        gt["path"] = str(_raster_path(gt["path"]))
+    elif gt.get("type") != "vector" or not (gt.get("geojson") or {}).get("features"):
+        raise HTTPException(400, "Choose the ground truth: a class raster, or polygons / points with a class attribute")
+    cloud = str(_raster_path(req.cloud)) if req.cloud else None
+    emb = str(_raster_path(req.embedding)) if req.embedding else None
+    nm = _safe(req.name) or "fusion"
+
+    def work(job):
+        out = _out()
+        with progress.span(0, 0.25):
+            st = FU.build_stack(opt, sars, out / f"{nm}_stack.tif", indices=req.indices, cloud=cloud, scl=req.scl,
+                                sar_dates=req.sar_dates, texture=req.texture, embedding=emb)
+        with progress.span(0.25, 1):
+            r = FU.compare(st["path"], gt, out, model=req.model, block_m=req.block_m, folds=req.folds, per_class=req.per_class,
+                           map_with=req.map_with, name=nm, class_colors=req.class_colors)
+        outs = [r["map"]["classes_path"], r["map"]["confidence_path"], st["path"]] if r.get("map") else [st["path"]]
+        return {**{k: v for k, v in r.items() if k not in ("map", "report")}, "stack": {k: st[k] for k in ("groups", "cloud_pct", "sar_dates")},
+                "areas": (r.get("map") or {}).get("areas"), "outputs": [ws.rel(o) for o in outs], "report": ws.rel(r["report"])}
+    return jobs.submit("sar", f"SAR + optical fusion · {req.model}", {}, work).to_dict()
+
+
+# ------------------------------------------------------------------ filling cloud gaps from SAR (and a helper image)
+class GapfillRequest(BaseModel):
+    optical: str                                                   # the cloudy optical image
+    mask: str | None = None                                        # a cloud mask layer (non-zero = cloud); else the image's SCL band
+    sars: list[str] = Field(default_factory=list, max_length=12)   # SAR of about the same date (any units)
+    helpers: list[str] = Field(default_factory=list, max_length=6)  # e.g. MODIS of the same day, or a clear image of another date
+    truth: str | None = None                                       # a clear image of the same date, to score the result
+    model: str = Field("lgbm", pattern="^(lgbm|rf|linear)$")
+    residual: bool = True
+    samples: int = Field(60000, ge=2000, le=500000)
+    name: str = Field("filled", max_length=80)
+
+
+def _onto_grid(path: str, like: str) -> np.ndarray:
+    """A raster's bands on another raster's grid: reprojected when both are georeferenced, as they are when they have
+    the same size, resized otherwise (non-georeferenced patches, e.g. training datasets)."""
+    import rasterio
+    from rasterio.warp import Resampling, reproject
+    with rasterio.open(like) as L, rasterio.open(path) as s:
+        if s.crs and L.crs:
+            out = np.full((s.count, L.height, L.width), np.nan, "float32")
+            for i in range(s.count):
+                reproject(rasterio.band(s, i + 1), out[i], dst_transform=L.transform, dst_crs=L.crs, dst_nodata=np.nan, resampling=Resampling.bilinear)
+            return out
+        a = s.read(masked=True).astype("float32").filled(np.nan)
+        if a.shape[1:] == (L.height, L.width):
+            return a
+        from scipy.ndimage import zoom
+        return np.stack([zoom(b, (L.height / b.shape[0], L.width / b.shape[1]), order=1)[:L.height, :L.width] for b in a])
+
+
+@router.post("/api/sar/gapfill")
+def sar_gapfill(req: GapfillRequest):
+    """Fill the cloudy pixels of an optical image from SAR (and helper images), learned on its own clear pixels."""
+    import rasterio
+
+    from lulc_fetch import progress
+    from lulc_fetch.sar import gapfill as GF
+    opt = str(_raster_path(req.optical))
+    if not req.sars and not req.helpers:
+        raise HTTPException(400, "Choose at least one SAR layer (or a helper image) to fill from")
+    sars = [str(_raster_path(p)) for p in req.sars]
+    helpers = [str(_raster_path(p)) for p in req.helpers]
+    mask_p = str(_raster_path(req.mask)) if req.mask else None
+    truth = str(_raster_path(req.truth)) if req.truth else None
+
+    def work(job):
+        progress.update(0.02, "Reading the images")
+        with rasterio.open(opt) as s:
+            prof = s.profile.copy()
+            names = list(s.descriptions)
+            img = s.read(masked=True).astype("float32").filled(np.nan)
+            if s.width * s.height > 30_000_000:
+                raise ValueError("The image is too big to fill in one go (30 million pixels): clip it to the area first")
+        scl = [i for i, n in enumerate(names) if (n or "").upper() in ("SCL", "SCENE_CLASSIFICATION")]
+        if mask_p:
+            mask = _onto_grid(mask_p, opt)[0] > 0
+        elif scl:
+            from lulc_fetch.sar.fusion import SCL_CLOUD
+            mask = np.isin(np.nan_to_num(img[scl[0]], nan=0).astype(int), SCL_CLOUD)
+        else:
+            raise ValueError("Choose the cloud mask (a layer where non-zero = cloud): the image has no SCL band")
+        keep = [i for i in range(img.shape[0]) if i not in scl]
+        with progress.span(0.05, 0.9):
+            filled, info = GF.fill(img[keep], mask, sar=[_onto_grid(p, opt) for p in sars] or None, helpers=[_onto_grid(p, opt) for p in helpers] or None,
+                                   model=req.model, residual=req.residual, samples=req.samples)
+        out = _out() / f"{_safe(req.name) or 'filled'}.tif"
+        prof.update(count=len(keep), dtype="float32", nodata=np.nan, compress="deflate")
+        with rasterio.open(out, "w", **prof) as d:
+            d.write(filled.astype("float32"))
+            for j, i in enumerate(keep, 1):
+                if names[i]:
+                    d.set_band_description(j, names[i])
+            d.update_tags(gapfill=f"{len(sars)} SAR, {len(helpers)} helper(s), {req.model}{', residual correction' if req.residual else ''}",
+                          cloud_pct=str(info["cloud_pct"]))
+        mpath = out.with_name(out.stem + "_filled_mask.tif")
+        mp = {**prof, "count": 1, "dtype": "uint8", "nodata": None}
+        with rasterio.open(mpath, "w", **mp) as d:
+            d.write(mask.astype("uint8")[None])
+            d.set_band_description(1, "Filled (1) / observed (0)")
+        res = {"outputs": [ws.rel(out), ws.rel(mpath)], **info}
+        if truth:
+            progress.update(0.95, "Scoring against the clear image")
+            t = _onto_grid(truth, opt)
+            t = t[[i for i in range(t.shape[0]) if i < len(keep)]] if t.shape[0] >= len(keep) else t
+            if t.shape[0] == len(keep):
+                bn = [(n or "").upper() for i, n in enumerate(names) if i in keep]
+                red = next((j for j, n in enumerate(bn) if n in ("B04", "B4", "RED")), 2 if len(keep) >= 4 else None)
+                nir = next((j for j, n in enumerate(bn) if n in ("B08", "B8", "B05", "B5", "NIR")), 3 if len(keep) >= 4 else None)
+                rng = float(np.nanpercentile(t, 99.9)) if np.nanpercentile(t, 99.9) > 1.5 else 1.0
+                res["score"] = GF.score(filled, t, mask, red=red, nir=nir, data_range=rng)
+            else:
+                res["score_note"] = "The clear image hasn't the same bands: not scored"
+        return res
+    return jobs.submit("sar", "Fill clouds from SAR", {}, work).to_dict()

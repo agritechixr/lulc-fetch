@@ -127,6 +127,13 @@ CATALOG = {
                         "frames of one pass are found and joined (join_frames true); several dates: multitemporal true for Quegan's "
                         "multi-temporal speckle filter; optional features ['ratio','rvi','ndpi'], temporal ['mean','median','std','trend'] and "
                         "change true (first → last date, flooding, water_db -18). Output: .tif files with a quality layer and a metadata .json",
+    "/api/sar/fusion": "SAR + optical fusion for a crop / land-cover map: `optical` (a Sentinel-2 image path), `sars` (processed SAR "
+                       "layer paths, one or several dates), `ground_truth` {type:'vector', geojson, field} or {type:'raster', path, band}; "
+                       "model 'lgbm' (default), block_m 1000 (spatial validation). Compares optical only, SAR only, early and late fusion "
+                       "and maps with the best. Output: class map + confidence .tif, report",
+    "/api/sar/gapfill": "Fill the clouds of an optical image from SAR: `optical` (cloudy image path), `mask` (cloud mask path, non-zero = "
+                        "cloud; omit to use the image's SCL band), `sars` (SAR paths of about the same date), optional `helpers` (e.g. "
+                        "MODIS of the same day, or a clear image of another date). Learned on the image's own clear pixels. Output: .tif",
     "/api/sar/series": "SAR time series of several SAR layers (`rasters`: paths, one track): stats mean, median, min, max, std, count, "
                        "trend (dB/yr); change true for first → last (log-ratio, ±threshold_db classes, new water below water_db = flooding). Output: .tif",
     "/api/raster/burn": "Burn severity: `before` and `after` images (paths, with NIR B08 and SWIR2 B12, or NBR rasters): dNBR = NBR "
@@ -363,7 +370,9 @@ RULES = """How to choose tools:
   /api/sar/process step (all the dates in `sources`; steps validate, calibrate, speckle, terrain, flatten, db, reproject, clip;
   change true for flooding between the first and last date; multitemporal true when there are several dates). SAR layers
   already processed (GEE, RTC) → only speckle / db / normalise, never calibrate or terrain again. Several SAR layers
-  already in Contents over time → /api/sar/series. InSAR / interferograms / ground movement need ASF HyP3 (the user sends
+  already in Contents over time → /api/sar/series. A crop or land-cover map from optical AND radar together, or what
+  radar adds under clouds → ONE /api/sar/fusion step (the SAR processed first by /api/sar/process onto the optical's grid
+  is not needed: fusion puts it there). Clouds in an optical image filled from radar → /api/sar/gapfill. InSAR / interferograms / ground movement need ASF HyP3 (the user sends
   those jobs from Analysis ▸ SAR ▸ InSAR & RTC on demand: they spend the user's credits, so never plan them).
 - A heat map of points (reports, incidents) → /api/vector/spatial-stats method 'density'; where values or reports
   cluster (hot spots) → 'hotspots'; whether a value is spatially clustered → 'moran'; whether points are clustered
