@@ -119,7 +119,7 @@ def calibrate_gr4j(P, E, Q, cal: np.ndarray, warm: int, seed: int = 0, maxiter: 
     def cb(xk, convergence=None):
         calls["n"] += 1
         progress.update(0.15 + 0.4 * min(1, calls["n"] / maxiter), f"Calibrating GR4J: round {calls['n']} of {maxiter}")
-    de = differential_evolution(loss, GR4J_BOUNDS, maxiter=maxiter, popsize=6, tol=1e-4, seed=seed, polish=False, callback=cb, init="sobol")
+    de = differential_evolution(loss, GR4J_BOUNDS, maxiter=maxiter, popsize=6, tol=1e-4, seed=seed, polish=False, callback=cb, init="latinhypercube")
     loc = minimize(loss, de.x, method="Nelder-Mead", options={"maxiter": 200, "xatol": 1e-2, "fatol": 1e-4})
     best = loc.x if loc.fun < de.fun else de.x
     best = [float(np.clip(v, lo, hi)) for v, (lo, hi) in zip(best, GR4J_BOUNDS)]

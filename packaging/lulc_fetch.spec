@@ -25,6 +25,8 @@ for pkg in ("rasterio", "xgboost", "lightgbm", "sklearn", "pystac_client", "plan
     binaries += b
     hiddenimports += h
 datas += collect_data_files("certifi")
+# scipy's data files (e.g. scipy.stats' Sobol direction numbers, used by optimisers) aren't picked up by import analysis
+datas += collect_data_files("scipy", excludes=["**/tests/**"])
 # the whole standard library: add-ons installed later (PyTorch) import modules LULC Fetch itself never uses
 import importlib.util
 _SKIP = {"test", "idlelib", "turtledemo", "lib2to3", "pydoc_data", "ensurepip", "antigravity", "this", "__phello__"}

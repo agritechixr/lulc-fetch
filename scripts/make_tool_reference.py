@@ -240,7 +240,7 @@ def hydro_models_md() -> str:
 #### GR4J daily rainfall–runoff model — `lulc_fetch/hydro/streamflow.py`
 
 Four parameters, calibrated on the KGE of the calibration years (differential evolution, population 6 × 4, up to 25
-generations, Sobol start; then a Nelder–Mead polish), after a warm-up of up to 365 days:
+generations, Latin hypercube start; then a Nelder–Mead polish), after a warm-up of up to 365 days:
 
 | Parameter | Meaning | Range searched |
 |---|---|---|
