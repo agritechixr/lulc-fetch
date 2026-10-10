@@ -162,20 +162,40 @@ def test_sentinel5p_no2(client, home):
     assert r["overpasses"] >= 1 and 1 < r["mean"] < 500 and r["csv"].startswith("tables/")
 
 
-def test_time_slider_animation(client):
+def test_time_slider_animation(client, monkeypatch):
+    """Saved as the desktop app would: without Pillow and OpenCV (it doesn't ship them)."""
     import base64
     import io
+    import sys
 
     from PIL import Image
     def png(color):
         b = io.BytesIO()
         Image.new("RGBA", (40, 30), color).save(b, "PNG")
         return "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
-    frames = [{"image": png(c), "bounds": [[13.0, 77.0], [13.3, 77.4]], "label": f"2026-0{k + 1}-01"} for k, c in enumerate([(255, 0, 0, 255), (0, 128, 0, 255), (0, 0, 255, 255)])]
-    for fmt in ("gif", "mp4"):
-        r = run(client, "/api/view/animation", {"frames": frames, "fps": 2, "format": fmt, "width": 400})
-        assert r["frames"] == 3 and r["file"].endswith("." + fmt) and r["size"][0] == 400
-        got = client.get(r["url"])
-        assert got.status_code == 200 and len(got.content) > 500
-    gif = Image.open(io.BytesIO(client.get(run(client, "/api/view/animation", {"frames": frames, "format": "gif"})["url"]).content))
+    frames = [{"image": png(c), "bounds": [[13.0, 77.0], [13.3, 77.4]], "label": f"2026-0{k + 1}-01 · ndvi"} for k, c in enumerate([(255, 0, 0, 255), (0, 128, 0, 255), (0, 0, 255, 255)])]
+    with monkeypatch.context() as m:
+        m.setitem(sys.modules, "PIL", None)
+        m.setitem(sys.modules, "PIL.Image", None)
+        m.setitem(sys.modules, "cv2", None)
+        r = run(client, "/api/view/animation", {"frames": frames, "fps": 2, "format": "gif", "width": 400})
+        job = ok(client.post("/api/view/animation", json={"frames": frames, "format": "mp4"}))
+        import time
+        for _ in range(100):
+            j = ok(client.get(f"/api/jobs/{job['id']}"))
+            if j["status"] in ("done", "error"):
+                break
+            time.sleep(0.1)
+        assert j["status"] == "error" and "add-on" in j["error"]
+    assert r["frames"] == 3 and r["file"].endswith(".gif") and r["size"][0] == 400
+    gif = Image.open(io.BytesIO(client.get(r["url"]).content))
     assert gif.n_frames == 3
+    centre = []
+    for k in range(3):
+        gif.seek(k)
+        rgb = gif.convert("RGB")
+        centre.append(rgb.getpixel((200, 60)))
+    assert centre[0][0] > 200 and centre[1][1] > 100 and centre[2][2] > 200                      # red, green, blue frames
+    gif.seek(0)
+    px = gif.convert("RGB").load()
+    assert any(px[x, y] == (255, 255, 255) for x in range(10, 200) for y in range(gif.size[1] - 40, gif.size[1] - 8))   # the label

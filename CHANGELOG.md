@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased (dev)
+## 0.0.4 beta (2026-10-10)
+
+Hydrology, flood and streamflow models, more GIS analysis and better map views. Everything below is new since 0.0.3.
+
 
 - **Analysis ▸ Hydrology**, a category of its own with every hydrology and watershed tool in five groups: **Rainfall
   data** (CHIRPS grids, Gumbel design storms from ERA5), **DEM preparation** (fill holes, align, burn streams, breach and
@@ -23,6 +26,7 @@
 - **View ▸ Compare ▸ Linked views** (2–4 synced maps, drag layers in, saved layouts) and **Time slider** (by date, GIF /
   MP4); **multi-select** in Contents (Ctrl / ⌘, Shift) and **layer groups**; a **compact ribbon** without tool icons; the
   Analysis categories in two columns (SAR no longer cut off).
+- **Time slider ▸ Save** writes GIFs with the app's own encoder (no extra libraries); MP4 with the deep-learning add-on.
 - The desktop launcher reuses port 8765 right after a restart instead of moving to 8766.
 - **docs/TOOL_REFERENCE.md**: every tool's parameters and every model's settings, generated from the code
   (`scripts/make_tool_reference.py`).

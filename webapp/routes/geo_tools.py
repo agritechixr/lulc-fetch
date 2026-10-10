@@ -321,57 +321,19 @@ class AnimationRequest(BaseModel):
 
 @router.post("/api/view/animation")
 def view_animation(req: AnimationRequest):
-    """The time slider's layers as an animated GIF or an MP4 video, each frame placed by its bounds and labelled."""
-    import base64
-    import io
-    import math
+    """The time slider's layers as an animated GIF or an MP4 video, each frame placed by its bounds and labelled. Uses only
+    what the desktop app ships (GDAL, numpy); MP4 needs OpenCV (the deep-learning add-on)."""
 
     def work(job):
-        from PIL import Image, ImageDraw, ImageFont
-
+        from lulc_fetch import animation as A
         from lulc_fetch import progress
-        bs = [(min(b[0][0], b[1][0]), min(b[0][1], b[1][1]), max(b[0][0], b[1][0]), max(b[0][1], b[1][1])) for b in (f.bounds for f in req.frames)]
-        s, w, n, e = min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs), max(b[3] for b in bs)
-        kx = math.cos(math.radians((s + n) / 2))
-        W = req.width - req.width % 2
-        H = max(2, int(W * (n - s) / max((e - w) * kx, 1e-12)))
-        H -= H % 2
-        if H > 4000:
-            raise ValueError("The layers' area is too tall for a video → zoom the frames to a smaller area")
-        try:
-            font = ImageFont.load_default(size=max(14, W // 40))
-        except TypeError:
-            font = ImageFont.load_default()
-        frames = []
-        for k, (f, (fs, fw, fn, fe)) in enumerate(zip(req.frames, bs)):
-            data = f.image.split(",", 1)[1] if f.image.startswith("data:") else f.image
-            im = Image.open(io.BytesIO(base64.b64decode(data))).convert("RGBA")
-            x0, x1 = int((fw - w) / (e - w) * W), int((fe - w) / (e - w) * W)
-            y0, y1 = int((n - fn) / (n - s) * H), int((n - fs) / (n - s) * H)
-            canvas = Image.new("RGBA", (W, H), (255, 255, 255, 255))
-            canvas.alpha_composite(im.resize((max(1, x1 - x0), max(1, y1 - y0)), Image.LANCZOS), (x0, y0))
-            if f.label:
-                d = ImageDraw.Draw(canvas)
-                tb = d.textbbox((0, 0), f.label, font=font)
-                pad = 6
-                d.rectangle([8, H - (tb[3] - tb[1]) - 3 * pad - 8, 8 + (tb[2] - tb[0]) + 2 * pad, H - 8], fill=(0, 0, 0, 170))
-                d.text((8 + pad, H - (tb[3] - tb[1]) - 2 * pad - 8 - tb[1]), f.label, font=font, fill=(255, 255, 255, 255))
-            frames.append(canvas.convert("RGB"))
-            progress.update(0.8 * (k + 1) / len(req.frames), f"Frame {k + 1} of {len(req.frames)}")
+        progress.update(0.1, f"Composing {len(req.frames)} frames")
+        frames = A.compose([f.model_dump() for f in req.frames], req.width)
+        progress.update(0.6, "Writing the " + req.format.upper())
         name = (_safe(req.name) or "animation") + "." + req.format
         job.dir.mkdir(parents=True, exist_ok=True)
         out = job.dir / name
-        if req.format == "gif":
-            pal = [fr.convert("P", palette=Image.ADAPTIVE, colors=255) for fr in frames]
-            pal[0].save(out, save_all=True, append_images=pal[1:], duration=int(1000 / req.fps), loop=0, optimize=True)
-        else:
-            import cv2
-            import numpy as np
-            vw = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"), req.fps, (W, H))
-            if not vw.isOpened():
-                raise RuntimeError("This computer cannot write MP4 video → save a GIF instead")
-            for fr in frames:
-                vw.write(cv2.cvtColor(np.asarray(fr), cv2.COLOR_RGB2BGR))
-            vw.release()
+        (A.write_gif if req.format == "gif" else A.write_mp4)(frames, out, req.fps)
+        H, W = frames[0].shape[:2]
         return {"file": name, "url": f"/api/jobs/{job.id}/files/{name}", "frames": len(frames), "size": [W, H], "mb": round(out.stat().st_size / 1e6, 2)}
     return jobs.submit("animation", f"Animation of {len(req.frames)} layers ({req.format.upper()})", {}, work).to_dict()

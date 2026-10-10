@@ -4270,7 +4270,7 @@ Used by the app itself (Contents, History, projects, files…), Workflows and th
 | `outline` | yes / no | `false` |  |
 | `name` | text | `""` | up to 80 characters |
 
-#### `POST /api/view/animation`: The time slider's layers as an animated GIF or an MP4 video, each frame placed by its bounds and labelled.
+#### `POST /api/view/animation`: The time slider's layers as an animated GIF or an MP4 video, each frame placed by its bounds and labelled. Uses only
 
 | Parameter | Type | Default | Allowed |
 |---|---|---|---|
