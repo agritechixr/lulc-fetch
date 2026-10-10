@@ -6,6 +6,7 @@
     applyTheme(prefs.get("theme", "auto"));
     setPane("contents", prefs.get("contents", true));
     buildToolsMenu();
+    setRibbonLook();
     setRibbonPinned(ribbon.pinned);
     state.config = await api("/api/config");
     $("#mission").innerHTML = Object.entries(state.config.missions).map(([k, m]) => `<option value="${k}">${esc(m.title)}</option>`).join("");

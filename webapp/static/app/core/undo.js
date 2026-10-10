@@ -91,6 +91,7 @@
       const aoi = getLayer("aoi");
       if (aoi && !state.aoi) restoreAoi(aoi);
       restack();
+      clearLayerSelection();
       selectedId = layers.some((l) => l.id === s.selected) ? s.selected : null;
       renderContents();
       renderMapTabs();

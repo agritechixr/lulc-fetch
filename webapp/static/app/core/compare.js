@@ -13,6 +13,7 @@
     const cand = layers.filter((l) => l.visible && l.type !== "image");
     if (cand.length < 2) return toast("Swipe compares two layers → add (or show) at least two layers first", true);
     stopSwipe(true);
+    stopLinkedViews(true);
     cmp.on = true; cmp.x = 0.5;
     setSwipeLayers(cand[1].id, cand[0].id);   // the top layer on the right, the next one on the left
     $("#swipe").classList.remove("hidden");
@@ -94,6 +95,7 @@
   }
   async function linkTo(doc) {
     stopSideBySide(true);
+    stopLinkedViews(true);
     stopSwipe(true);
     // the 3D map's layers as objects (never drawn in 2D here): their pictures are made for the 3D view
     if (!doc.live) { doc.live = (doc.stored || []).map((s) => ({ visible: true, opacity: 1, ...structuredClone(s), id: s.id || `${s.type}-${Math.random().toString(36).slice(2, 9)}` })); doc.stored = null; }

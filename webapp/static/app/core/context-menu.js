@@ -3,6 +3,22 @@
 
   // ------------------------------------------------------------------ context menu
   function showCtx(l, x, y) {
+    const many = selectedLayers();
+    if (many.length > 1) return showMenu(`${many.length} layers`, [
+      ["Zoom to these layers", () => zoomToLayers(many)],
+      ["Show them", () => setVisibleMany(many, (x) => many.includes(x) ? true : null, `Show ${many.length} layers`)],
+      ["Hide them", () => setVisibleMany(many, (x) => many.includes(x) ? false : null, `Hide ${many.length} layers`)],
+      ["Show only these", () => setVisibleMany(many, (x) => many.includes(x), "Show only the selected layers")],
+      "-",
+      many.some((x) => x.type !== "image") ? ["Copy (paste into another map)  Ctrl+C", () => copyLayers(many.filter((x) => x.type !== "image"))] : null,
+      ["Group these layers…", () => askGroup(many)],
+      many.some((x) => x.group) ? ["Take them out of their groups", () => historyStep("Ungroup layers", () => { many.forEach((x) => { delete x.group; }); renderContents(); saveLayers(); })] : null,
+      "-",
+      ["Move to top", () => moveLayers(many, 0)],
+      ["Move to bottom", () => moveLayers(many, layers.length)],
+      "-",
+      [`Remove ${many.length} layers`, () => removeLayers(many), "danger"],
+    ].filter(Boolean), x, y);
     const isPoly = l.type === "vector" && l.geojson?.features?.some((f) => /Polygon/.test(f.geometry?.type));
     if (l.type === "unplaced") return showMenu(l.name, [
       ["Coordinate system… (place it on the map)", () => openCrsDialog(l)],
@@ -33,6 +49,7 @@
       "-",
       ["Move to top", () => moveLayer(l.id, 0)],
       ["Move to bottom", () => moveLayer(l.id, layers.length)],
+      l.group ? [`Take out of group “${l.group}”`, () => historyStep(`Take ${l.name} out of its group`, () => { delete l.group; renderContents(); saveLayers(); })] : ["Put in a new group…", () => askGroup([l])],
       "-",
       ["Remove", () => removeLayer(l.id), "danger"],
     ].filter(Boolean);

@@ -4,10 +4,14 @@
   // ------------------------------------------------------------------ layers (Contents)
   const layers = [];   // index 0 = drawn on top
   let selectedId = null, seq = 0;
+  const selExtra = new Set();   // with Ctrl / Shift: the other selected layers (selectedId is the one clicked last)
+  let selAnchor = null;         // where a Shift-click range starts
   const PALETTE = ["#2563eb", "#db2777", "#ea580c", "#0891b2", "#7c3aed", "#65a30d", "#dc2626", "#0d9488"];
   let colorIdx = 0;
   const nextColor = () => PALETTE[colorIdx++ % PALETTE.length];
   const selectedLayer = () => layers.find((l) => l.id === selectedId) || null;
+  const isSelected = (id) => !!id && (id === selectedId || selExtra.has(id));
+  const selectedLayers = () => layers.filter((l) => isSelected(l.id));
   const getLayer = (id) => layers.find((l) => l.id === id) || null;
 
   // ---- style by attribute: a colour per value of a field (categories), or classes of a number field (graduated)
@@ -162,7 +166,7 @@
     const at = below ? layers.findIndex((x) => x.id === below) : -1;
     if (at >= 0) layers.splice(at + 1, 0, l); else layers.unshift(l);
     buildLeaflet(l);
-    if (select) selectedId = l.id;
+    if (select) { selectedId = l.id; selExtra.clear(); }
     restack();
     renderContents();
     saveLayers();
@@ -175,7 +179,9 @@
     if (i < 0) return;
     const [l] = layers.splice(i, 1);
     l.leaflet?.remove();
-    if (selectedId === id) selectedId = null;
+    selExtra.delete(id);
+    if (selectedId === id) selectedId = selExtra.size ? [...selExtra].pop() : null;
+    if (selectedId) selExtra.delete(selectedId);
     if (silent) return;
     onLayerRemoved(l);
     renderContents();
@@ -215,15 +221,114 @@
     if (b?.isValid()) { map.fitBounds(b, { padding: [30, 30], maxZoom: 17 }); zoom3dTo(b); status(`Zoomed to ${l.name}`); }
     else toast(`${l.name} has no extent to zoom to yet`, true);
   }
-  function zoomAll() {
+  function zoomToLayers(list, empty = "No visible layers to zoom to") {
     let b = null;
-    layers.filter((l) => l.visible).forEach((l) => { const lb = layerBounds(l); if (lb?.isValid()) b = b ? b.extend(lb) : L.latLngBounds(lb.getSouthWest(), lb.getNorthEast()); });
-    if (b) { map.fitBounds(b, { padding: [30, 30] }); zoom3dTo(b); } else toast("No visible layers to zoom to");
+    list.forEach((l) => { const lb = layerBounds(l); if (lb?.isValid()) b = b ? b.extend(lb) : L.latLngBounds(lb.getSouthWest(), lb.getNorthEast()); });
+    if (b) { map.fitBounds(b, { padding: [30, 30] }); zoom3dTo(b); } else toast(empty);
   }
-  function selectLayer(id) {
-    selectedId = id;
+  const zoomAll = () => zoomToLayers(layers.filter((l) => l.visible));
+  // a click selects one layer; Ctrl / ⌘-click adds or takes one away; Shift-click selects the run from the last clicked
+  // (in the order of the list), Ctrl+Shift-click adds that run
+  function selectLayer(id, e) {
+    const add = e && (e.ctrlKey || e.metaKey), range = e?.shiftKey && selAnchor && getLayer(selAnchor);
+    if (range) {
+      const ids = $$(".layer-list .layer[data-id]").map((el) => el.dataset.id), a = ids.indexOf(selAnchor), b = ids.indexOf(id);
+      if (!add) selExtra.clear();
+      ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => selExtra.add(x));
+      selectedId = id;
+    } else if (add) {
+      if (isSelected(id)) {
+        selExtra.delete(id);
+        if (selectedId === id) selectedId = selExtra.size ? [...selExtra].pop() : null;
+      } else { if (selectedId) selExtra.add(selectedId); selectedId = id; }
+      selAnchor = id;
+    } else { selExtra.clear(); selectedId = id; selAnchor = id; }
+    if (selectedId) selExtra.delete(selectedId);
     refreshRibbon();
-    $$(".layer-list .layer").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
+    $$(".layer-list .layer").forEach((el) => el.classList.toggle("selected", isSelected(el.dataset.id)));
+    const n = selectedLayers().length;
+    if (n > 1) status(`${n} layers selected · right-click for what to do with them all`);
+  }
+  function clearLayerSelection() { selectedId = null; selExtra.clear(); selAnchor = null; }
+  // remove several layers at once (one Undo step)
+  function removeLayers(list) {
+    if (!list.length) return;
+    if (list.length === 1) return removeLayer(list[0].id);
+    historyStep(`Remove ${list.length} layers`, () => {
+      list.forEach((l) => { removeLayer(l.id, { silent: true }); onLayerRemoved(l); });
+      renderContents();
+      saveLayers();
+    });
+    status(`Removed ${list.length} layers`);
+  }
+  // ---- groups in Contents: l.group names a layer's group; collapsed groups are remembered in this browser
+  const collapsedGroups = new Set(prefs.get("collapsed-groups", []));
+  const groupLayers = (name) => layers.filter((l) => l.group === name);
+  function groupLayersAs(list, name) {
+    name = (name || "").trim();
+    if (!name || !list.length) return;
+    historyStep(`Group ${list.length} layers as “${name}”`, () => {
+      const at = Math.min(...list.map((l) => layers.indexOf(l)));
+      const rest = layers.filter((l) => !list.includes(l));
+      list.forEach((l) => { l.group = name; });
+      rest.splice(Math.min(at, rest.length), 0, ...layers.filter((l) => list.includes(l)));   // together, where the topmost was
+      layers.splice(0, layers.length, ...rest);
+      restack(); renderContents(); saveLayers();
+    });
+    status(`Grouped ${list.length} layers as “${name}”`);
+  }
+  function ungroup(name) {
+    historyStep(`Ungroup “${name}”`, () => { groupLayers(name).forEach((l) => { delete l.group; }); renderContents(); saveLayers(); });
+  }
+  function renameGroup(name) {
+    const to = prompt("Group name", name)?.trim();
+    if (!to || to === name) return;
+    historyStep(`Rename group “${name}”`, () => { groupLayers(name).forEach((l) => { l.group = to; }); if (collapsedGroups.delete(name)) collapsedGroups.add(to); renderContents(); saveLayers(); });
+  }
+  function askGroup(list) {
+    const used = new Set(layers.map((l) => l.group).filter(Boolean));
+    let n = 1;
+    while (used.has(`Group ${n}`)) n++;
+    groupLayersAs(list, prompt(`Name of the group for ${list.length} layer${list.length === 1 ? "" : "s"}`, `Group ${n}`));
+  }
+  function wireGroup(wrap) {
+    const name = wrap.dataset.group, head = $(".lyr-grp", wrap), cb = $("input[type=checkbox]", head);
+    cb.indeterminate = cb.dataset.ind === "1";
+    $(".lyr-caret", head).onclick = (e) => {
+      e.stopPropagation();
+      if (collapsedGroups.has(name)) collapsedGroups.delete(name); else collapsedGroups.add(name);
+      prefs.set("collapsed-groups", [...collapsedGroups]);
+      wrap.classList.toggle("collapsed", collapsedGroups.has(name));
+    };
+    cb.onchange = () => setVisibleMany(groupLayers(name), (x) => x.group === name ? cb.checked : null, `${cb.checked ? "Show" : "Hide"} group “${name}”`);
+    const selectAll = () => { const g = groupLayers(name); if (!g.length) return; selectLayer(g[0].id); g.slice(1).forEach((l) => selectLayer(l.id, { ctrlKey: true })); };
+    head.onclick = (e) => { if (!e.target.closest("input, button")) selectAll(); };
+    head.ondblclick = (e) => { if (!e.target.closest("input, button")) renameGroup(name); };
+    const menu = (x, y) => showMenu(`Group “${name}”`, [
+      ["Zoom to the group", () => zoomToLayers(groupLayers(name), "The group's layers have no extent yet")],
+      ["Show all", () => setVisibleMany(groupLayers(name), (l) => l.group === name ? true : null, `Show group “${name}”`)],
+      ["Hide all", () => setVisibleMany(groupLayers(name), (l) => l.group === name ? false : null, `Hide group “${name}”`)],
+      ["Rename…", () => renameGroup(name)],
+      "-",
+      ["Ungroup (keep the layers)", () => ungroup(name)],
+      [`Remove the ${groupLayers(name).length} layers`, () => removeLayers(groupLayers(name)), "danger"],
+    ], x, y);
+    head.oncontextmenu = (e) => { e.preventDefault(); selectAll(); menu(e.clientX, e.clientY); };
+    $(".lyr-more", head).onclick = (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); menu(r.right, r.bottom); };
+    $(".lyr-zoom", head).onclick = (e) => { e.stopPropagation(); zoomToLayers(groupLayers(name), "The group's layers have no extent yet"); };
+    head.ondragstart = (e) => { e.dataTransfer.setData("text/layer-group", name); const g = groupLayers(name); if (g[0]) e.dataTransfer.setData("text/layer", g[0].id); };
+  }
+
+  // several layers to the top (0) or the bottom, keeping their order among themselves
+  function moveLayers(list, toIndex) {
+    historyStep(`Move ${list.length} layers`, () => {
+      const rest = layers.filter((l) => !list.includes(l));
+      layers.splice(0, layers.length, ...(toIndex === 0 ? [...list, ...rest] : [...rest, ...list]));
+      restack(); renderContents(); saveLayers();
+    });
+  }
+  function setVisibleMany(list, on, label) {
+    historyStep(label, () => { layers.forEach((l) => { const v = on(l); if (v !== null && v !== l.visible) setVisible(l, v); }); renderContents(); });
   }
   function moveLayer(id, toIndex) {
     const i = layers.findIndex((l) => l.id === id);
@@ -356,7 +461,7 @@
     // a 2D map has no 3D data: a DEM there is a flat raster, marked ⚠
     const in3d = (l) => is3D() && isSurface(l);
     const row = (l) => `
-      <div class="layer ${l.id === selectedId ? "selected" : ""} ${l.open ? "open" : ""}" data-id="${esc(l.id)}" draggable="true">
+      <div class="layer ${isSelected(l.id) ? "selected" : ""} ${l.open ? "open" : ""}" data-id="${esc(l.id)}" draggable="true">
         <div class="lyr-row">
           <button class="lyr-caret" title="Show legend & opacity">▶</button>
           <input type="checkbox" ${l.visible ? "checked" : ""} title="Show / hide">
@@ -375,15 +480,44 @@
           ${l.path ? `<div class="lyr-meta">${esc(l.path)}${l.info ? ` · ${esc(l.info.crs)} · ${l.info.width}×${l.info.height}` : ""}</div>` : ""}
         </div>
       </div>`;
+    // layers of one group (l.group) under a header of their own; the drawing order stays that of the list
+    const grouped = (list) => {
+      let html = "", open = null;
+      for (const l of list) {
+        if ((l.group || null) !== open) {
+          if (open) html += "</div></div>";
+          open = l.group || null;
+          if (open) {
+            const members = list.filter((x) => x.group === open), shown = members.filter((x) => x.visible).length;
+            html += `<div class="lyr-grp-wrap ${collapsedGroups.has(open) ? "collapsed" : ""}" data-group="${esc(open)}">
+              <div class="lyr-grp" draggable="true" title="${esc(open)}: drag onto Linked views to show all its layers">
+                <button class="lyr-caret" title="Show / hide the group's layers">▶</button>
+                <input type="checkbox" ${shown ? "checked" : ""} data-ind="${shown && shown < members.length ? 1 : 0}" title="Show / hide all">
+                <span class="lyr-ic grp-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+                <span class="lyr-name">${esc(open)}<small>${members.length} layer${members.length === 1 ? "" : "s"}</small></span>
+                <button class="lyr-zoom" title="Zoom to the group"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M11 8v6M8 11h6"/></svg></button>
+                <button class="lyr-more" title="Group options">⋯</button></div><div class="lyr-grp-body">`;
+          }
+        }
+        html += row(l);
+      }
+      return html + (open ? "</div></div>" : "");
+    };
     $("#layer-list").innerHTML = [...pendingLoads.values()].map((n) => `<div class="layer pending"><div class="lyr-row"><span class="spinner"></span>
-        <span class="lyr-name">${esc(n)}<small>Opening the file…</small></span></div></div>`).join("") + layers.filter((l) => !in3d(l)).map(row).join("");
-    $("#layer-list-3d").innerHTML = layers.filter(in3d).map(row).join("");
+        <span class="lyr-name">${esc(n)}<small>Opening the file…</small></span></div></div>`).join("") + grouped(layers.filter((l) => !in3d(l)));
+    $("#layer-list-3d").innerHTML = grouped(layers.filter(in3d));
+    $$(".layer-list .lyr-grp-wrap").forEach(wireGroup);
     $("#sect-3d").classList.toggle("hidden", !is3D());
     $$(".layer-list .layer[data-id]").forEach((el) => {
       const l = getLayer(el.dataset.id);
-      el.onclick = (e) => { if (!e.target.closest("input, button")) selectLayer(l.id); };
+      el.onclick = (e) => { if (!e.target.closest("input, button")) selectLayer(l.id, e); };
+      el.onmousedown = (e) => { if (e.shiftKey && !e.target.closest("input, button")) e.preventDefault(); };   // no text selection on Shift-click
       el.ondblclick = (e) => { if (!e.target.closest("input, button")) zoomTo(l); };
-      el.oncontextmenu = (e) => { e.preventDefault(); selectLayer(l.id); showCtx(l, e.clientX, e.clientY); };
+      el.oncontextmenu = (e) => {
+        e.preventDefault();
+        if (!isSelected(l.id) || selectedLayers().length < 2) selectLayer(l.id);   // right-click inside a multi-selection keeps it
+        showCtx(l, e.clientX, e.clientY);
+      };
       $("input[type=checkbox]", el).onchange = (e) => setVisible(l, e.target.checked);
       $("[data-lyr-retry]", el)?.addEventListener("click", (e) => { e.stopPropagation(); renderRaster(l).catch(() => {}); });
       $("[data-lyr-rm]", el)?.addEventListener("click", (e) => { e.stopPropagation(); removeLayer(l.id); });
@@ -404,12 +538,16 @@
         e.preventDefault(); e.stopPropagation();
         const target = layers.findIndex((x) => x.id === l.id), from = layers.findIndex((x) => x.id === id);
         if (is3D()) setLayer3d(getLayer(id), isSurface(l));   // dropped among the other section's layers: it moves to that section
+        const moved = getLayer(id);
+        if (moved && (moved.group || null) !== (l.group || null)) { if (l.group) moved.group = l.group; else delete moved.group; }   // and joins its group
         moveLayer(id, from < target ? target : target);
       };
     });
     updateSectionCounts();
     map3dChanged();
     swipeLayersChanged();
+    linkedViewsChanged();
+    timeSliderChanged();
     refreshRibbon();
     refreshAnalyzeInputs();
     if (pcaState.schema) refreshPcaInputs();
@@ -485,6 +623,6 @@
         renderRaster(l).catch(() => {});
       } else if (d.type === "tiles" || d.type === "unplaced") addLayer(d, { select: false });
     }
-    selectedId = null;
+    clearLayerSelection();
     renderContents();
   }

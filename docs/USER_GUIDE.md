@@ -39,6 +39,13 @@ This guide explains every part of LULC Fetch, the land-use / land-cover (LULC) t
 33. [Limits and known issues](#33-limits-and-known-issues)
 34. [Troubleshooting](#34-troubleshooting)
 35. [For developers: adding a tool](#35-for-developers-adding-a-tool)
+36. [Hydrology](#36-hydrology)
+37. [Floods: simulation, depth, impact and susceptibility](#37-floods-simulation-depth-impact-and-susceptibility)
+38. [AHP, groundwater potential and SAR flood ML](#38-ahp-groundwater-potential-and-sar-flood-ml)
+39. [Terrain, LiDAR, imagery and network tools](#39-terrain-lidar-imagery-and-network-tools)
+40. [View: linked views, time slider, layer groups](#40-view-linked-views-time-slider-layer-groups)
+
+Every tool's parameters and every model's settings, generated from the code: **[TOOL_REFERENCE.md](TOOL_REFERENCE.md)**.
 
 ---
 
@@ -1455,3 +1462,115 @@ The web app is a FastAPI backend (`webapp/`) with a single-page frontend (`webap
 | `lightseg/` | Eleven light segmentation networks (ENet, CGNet, DABNet, LEDNet, FDDWNet, LEANet, LSNet, EFSNet, FPENet, ADSCNet, TinyUNet; 0.15–0.95 M parameters) for any number of bands and any image size, and 256 × 256 tiling; used by Embeddings ▸ Train embedding model and Train classify model (see its README) |
 | `embeddings/` | Embeddings menu: `sources.py` (the datasets), `alphaearth.py` and `tessera.py` (readers), `download.py` (grid, availability, download), `explore.py` (colour view, similar places), `formats.py` (8-bit ↔ float conversion) |
 | `agri/` | Agri menu: `disease.py` (leaf photo → crop → disease, run in the deep-learning helper process), `knowledge.py` (crop list and the guide's search), `labels.py` (crop and disease names), `data/` (each crop's labels, test results and knowledge base). `python -m lulc_fetch.agri.import_data <disease repo folder>` refreshes `data/` after the disease models are retrained, and `python -m lulc_fetch.agri.publish <disease repo folder> <out>` converts the models for Hugging Face (then upload `<out>`), and `python -m lulc_fetch.agri.publish --repos <out> <folder> --upload` updates the 44 one-model repositories and the collection |
+
+## 36. Hydrology
+
+**Analysis ▸ Hydrology** has every hydrology and watershed tool, in five ribbon groups. They all start from a DEM in metres
+(Copernicus 30 m from Insert ▸ Library is a good start; up to 16 million cells, about 10 seconds per tool for 2000 × 2000).
+The usual order:
+
+1. **Rainfall data** (Data & DEM). *Total rainfall for dates* and *Mean annual rainfall over years* read CHIRPS (0.05°,
+   1981–now, free) for an area (a polygon layer, or the map's view); only the area's part of each file is downloaded, a
+   few seconds to half a minute per file. *Design storms* fit a Gumbel distribution to the yearly maximum 1-, 2-, 3- and
+   5-day rain at a place (the ERA5 archive through Open-Meteo, 1940–now) and give the 2- to 100-year storm, plus the
+   daily rain / evaporation / temperature series as a table.
+2. **DEM preparation.** Fill no-data holes, align the DEM to another raster, burn known rivers in (a line layer), breach
+   pits (roads and embankments across valleys are cut through instead of flooding the valley above) and / or fill the
+   rest. The result is marked *conditioned*: the other tools use it as it is. A raster of the change shows what was cut
+   or raised.
+3. **Flow direction & accumulation.** D8 (streams and watersheds), D-infinity (Tarboton) or MFD (wetness): direction,
+   accumulation in cells, contributing area (km²) and specific catchment area.
+4. **Watersheds** (Watersheds group). *Outlet points*: click on or near the river; each point moves to the largest flow
+   within the snap distance; points upstream of another make nested watersheds with a *parent*. *Sub-watersheds*: one per
+   stream link (optionally only inside a point's watershed). *Every basin*. Each basin has its area, perimeter,
+   compactness, mean height, relief, slope, stream length, drainage density, longest flow path and time of
+   concentration (Kirpich); the table lands in Contents ▸ Tabular data.
+5. **Drainage network.** Streams above a contributing area (about 1 km² for 30 m DEMs), as links between sources,
+   junctions and outlets with Strahler and Shreve order, length, slope and the link downstream; drainage density and
+   Horton's bifurcation ratios.
+6. **Morphometry & prioritisation.** Every sub-watershed's linear, areal and relief parameters (Rb, Dd, Fs, T, Ff, Re, Rc,
+   Cc, Rh, Rn, hypsometric integral and curve) and its priority for soil and water conservation by the compound value.
+7. **Terrain & runoff indicators.** Slope, aspect, curvature, TWI, SPI, HAND (height above the nearest drainage),
+   depressions (with volumes), flow length and flow paths from points. These are the predictors for flood and erosion
+   models.
+8. **Soil erosion (RUSLE)** (Runoff & erosion group). R from mean annual rainfall (a number or the CHIRPS raster), K from
+   the soil texture, LS from the DEM, C from land cover or NDVI, P for conservation practice: soil loss in t/ha/yr with
+   FAO classes, and per watershed the sediment yield.
+9. **Rainfall–runoff (SCS-CN).** How much of a storm runs off: curve numbers from land cover (WorldCover, Dynamic World,
+   ESRI, or class names) and the soil group, or a CN raster; dry / normal / wet ground. Runoff routed downhill and, per
+   outlet, the runoff volume and the peak flow.
+10. **Design flood hydrograph.** At an outlet, the flow hour by hour through design storms (e.g. the 10-, 50- and 100-year
+    rain from step 1): SCS Type II storm, SCS-CN excess and the SCS unit hydrograph; peak, time to peak and volume.
+11. **Streamflow modelling.** Needs a table of observed daily flow (Add data: CSV / Excel with a date and a flow column;
+    rain and PET columns are used when present, otherwise give the catchment's centre and they come from ERA5). GR4J,
+    LightGBM / Random Forest and an LSTM (deep-learning add-on) are calibrated on the first part of the record (70 % by
+    default, after a year of warm-up) and scored on the rest: NSE and KGE near 1 are excellent, above 0.5 usually useful.
+    The day-of-year mean is the baseline to beat. The simulated series is a table in Contents.
+12. **Groundwater potential** and **Check dams & ponds** (Water planning group): see section 38, and below.
+
+**Check dams & ponds.** *The best dam sites*: every stream cell in a range of orders, with a gentle bed, is tried with a dam
+of the given height; the sites holding the most water per metre of dam are kept, a minimum distance apart, with the pond
+each makes. *The area–capacity curve of a site*: the flooded area and stored volume for each water level up to a height.
+
+## 37. Floods: simulation, depth, impact and susceptibility
+
+- **Flood from HAND**: what floods when rivers rise 1, 2, 5 … m above their normal level: depth and extent at each level.
+  Fast, a first map, not a hydraulic model.
+- **Flood simulation (2D)**: water spreading over the DEM through time (the local inertial model of LISFLOOD-FP). Click
+  inflow points on the river and give the flow, steady (e.g. `300`) or a hydrograph (`0: 0, 2: 300, 8: 0`, hours: m³/s,
+  e.g. from the Design flood hydrograph), and / or rain on the grid (mm/h, steady or by hour). Roughness: one Manning's n
+  or from land cover. Results: maximum depth, maximum speed, the time water arrives, depth maps through the run and a
+  water balance (in, on the land, out of the edges). Up to 1.5 million cells: resample or clip larger DEMs. No buildings,
+  culverts or infiltration.
+- **Flood depth (FwDET)**: the depth inside a mapped flood (the SAR flood map, the water mask or polygons) from a DEM.
+- **Flood impact**: hectares of each land-cover class, people (a population raster you add, e.g. WorldPop), buildings
+  and km of roads under a flood, split by depth when the flood is a depth raster.
+- **Flood susceptibility**: where floods are likely, learned from where they happened (points or polygons) and predictors
+  (HAND, TWI, SPI, slope, curvature, distance to streams …). The score on new places (spatial blocks) is shown next to
+  the random-split score: the gap is how much a random split would flatter the model.
+
+## 38. AHP, groundwater potential and SAR flood ML
+
+**AHP weights & overlay** (Analysis ▸ Tools ▸ Fuzzy & suitability). Tick the factor rasters and say for each whether higher
+values are better or worse. Then compare every pair: *slope 3 × more important than rainfall* … The weights and the
+consistency ratio CR update as you choose; above 0.10 the tool names the pair that contradicts the others most. *Weigh &
+combine* scores each factor 0–1 and adds them with the weights into a suitability index and five classes.
+
+**Groundwater potential** (Hydrology ▸ Water planning). From the DEM (slope, drainage density, wetness), and any of: a
+rainfall raster, land cover, lineaments / faults (lines), geology and soil rasters with a score for each class
+(e.g. `1: 5, 2: 3, 3: 1`). Weights come from AHP in the usual order of importance. With wells (points with a yield or
+water-level field) the tool reports the rank correlation between the zones and the wells.
+
+**Flood map: ML refinement** (Analysis ▸ SAR). Run *Flood & water map* first, then give its confidence layer and the SAR
+image; a DEM (HAND, slope) and a pre-flood image help. LightGBM (fast) or a TinyUNet (deep-learning add-on) learns from the
+confident pixels and decides the uncertain ones; accuracy and IoU on held-out blocks are shown.
+
+## 39. Terrain, LiDAR, imagery and network tools
+
+- **Viewshed & line of sight** (Tools ▸ Raster & terrain): what one or more observers see (with several, how many see each
+  place), or whether A sees B and where the view is blocked; earth curvature and refraction included.
+- **LiDAR point cloud**: choose a folder of .las files (.laz needs `pip install "laspy[lazrs]"`): ground model (DTM),
+  surface (DSM), height above ground (CHM), point density, intensity and tree tops.
+- **Pansharpen** (Tools ▸ Imagery): sharpen a multispectral image with its panchromatic band (Landsat B8: 30 → 15 m) by
+  Gram-Schmidt adaptive, Brovey or IHS.
+- **Spectral unmixing**: fractions of pure materials in every pixel, from labelled samples (a field naming the material)
+  or found in the image; an RMSE band shows where the mix fits badly.
+- **Routing (roads)** (Tools ▸ Spatial analysis): quickest route through stops, service areas (reachable in 5, 10, 15 …
+  minutes) or each place's closest facility, by car, bicycle or on foot, on OpenStreetMap roads (downloaded for the
+  area, up to 2,500 km²) or your own line layer.
+- **Sentinel-5P air quality** (Analysis ▸ Forecast): NO₂, CO, SO₂, HCHO, O₃, CH₄ or the aerosol index averaged over an
+  area and dates (good-quality pixels only), with a daily series; about a minute per satellite pass.
+- **Vector to raster** now also makes a 0 / 1 mask (buffered, inverted) or the distance to the nearest shape.
+
+## 40. View: linked views, time slider, layer groups
+
+- **Select several layers** in Contents: Ctrl-click (⌘-click on Mac) adds or removes one, Shift-click selects a run.
+  Right-click the selection for zoom / show / hide / copy / move / group / remove; Delete and Ctrl+C act on all of them.
+- **Layer groups**: right-click a selection ▸ *Group these layers…*. The group's checkbox shows or hides them all; collapse,
+  rename, zoom, ungroup from its ⋯ menu; drop a layer on a group member to join the group.
+- **View ▸ Compare ▸ Linked views**: 2 to 4 maps side by side; drag layers (or a whole group) from Contents onto a view;
+  the 🔗 button links a view's pan and zoom to the others, and a red cross shows the mouse's place in them. *Layouts ▾*
+  saves and reopens arrangements.
+- **View ▸ Compare ▸ Time slider**: step (← →) or play (Space) through the selected layers, or every layer with a date in
+  its name, in date order; *Save…* writes an animated GIF or MP4 with date labels.
+- **View ▸ Ribbon**: *Compact ribbon* and *Icons next to tool names*.

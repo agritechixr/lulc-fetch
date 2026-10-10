@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased (dev)
+
+- **Analysis ▸ Hydrology**, a category of its own with every hydrology and watershed tool in five groups: **Rainfall
+  data** (CHIRPS grids, Gumbel design storms from ERA5), **DEM preparation** (fill holes, align, burn streams, breach and
+  fill pits), **Flow direction & accumulation** (D8, D-infinity, MFD), **Watersheds** (outlet points with snapping and
+  nesting, sub-watersheds, every basin; statistics, longest flow paths, time of concentration), **Drainage network**
+  (links, junctions, Strahler and Shreve order, drainage density, Horton ratios), **Morphometry & prioritisation**,
+  **Terrain & runoff indicators** (curvature, TWI, SPI, HAND, depressions, flow length and paths), **Soil erosion
+  (RUSLE)**, **Rainfall–runoff (SCS-CN)**, **Design flood hydrograph** (SCS unit hydrograph), **Streamflow modelling**
+  (GR4J, LightGBM / Random Forest, LSTM; NSE / KGE on unseen years), **Flood from HAND**, **Flood simulation (2D)**
+  (local inertial, as LISFLOOD-FP, exact water balance), **Flood depth (FwDET)**, **Flood impact**, **Flood
+  susceptibility** (spatial cross-validation), **Groundwater potential** (AHP) and **Check dams & ponds**.
+- **AHP weights & overlay** (Fuzzy & suitability): pairwise comparisons, live weights and consistency ratio, weighted overlay.
+- **SAR ▸ Flood map: ML refinement**: LightGBM or a TinyUNet trained on the flood map's own confident pixels.
+- **Viewshed & line of sight**, **LiDAR point clouds** (.las → DTM, DSM, CHM, density, tree tops), **Pansharpen**,
+  **Spectral unmixing**, **Routing** on OpenStreetMap or your roads (route, service areas, closest facility),
+  **Sentinel-5P air quality** (NO₂, CO, SO₂, HCHO, O₃, CH₄, aerosols).
+- **Vector to raster**: a 0 / 1 mask (buffered, inverted) and the distance to the nearest shape.
+- **Water mask**, **image features** (local statistics, GLCM, edges, multi-scale, morphology), **superpixels**,
+  **connected components**, **spatial cross-validation**, **SAR water and soil moisture**.
+- **View ▸ Compare ▸ Linked views** (2–4 synced maps, drag layers in, saved layouts) and **Time slider** (by date, GIF /
+  MP4); **multi-select** in Contents (Ctrl / ⌘, Shift) and **layer groups**; a **compact ribbon** without tool icons; the
+  Analysis categories in two columns (SAR no longer cut off).
+- The desktop launcher reuses port 8765 right after a restart instead of moving to 8766.
+- **docs/TOOL_REFERENCE.md**: every tool's parameters and every model's settings, generated from the code
+  (`scripts/make_tool_reference.py`).
+
 ## 0.0.3 beta (2026-10-07)
 
 A full GIS around the land-cover tools: 2D and 3D maps, an Assistant that plans and runs workflows, and about 35 new

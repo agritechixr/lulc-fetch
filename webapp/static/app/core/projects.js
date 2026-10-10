@@ -37,7 +37,7 @@
     [...layers].forEach((l) => removeLayer(l.id, { silent: true }));
     dataItems.splice(0);
     [...vw.tabs].forEach((t) => closeTab(t.key, true));
-    selectedId = null;
+    clearLayerSelection();
     renderContents(); renderItems();
   }
   // apply a project's saved state (or the temporary workspace's browser-stored state)

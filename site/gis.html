@@ -34,7 +34,7 @@
       <p class="lead">A ribbon like a desktop GIS, 2D and 3D maps, an AI Assistant that turns a sentence into a workflow, and 30 new tools: vectors, terrain, conversion, accuracy assessment, time series, georeferencing and image enhancement. Every screenshot is the real app on real data: Sentinel-2 and the Copernicus 30 m DEM over Nandi Hills, and a land-cover map of north Bengaluru.</p>
       <p class="cta-note">All of it is in <a href="index.html#download">version 0.0.3 beta</a> for Mac and Windows, free. Test it on <a href="#testdata">free sample data</a> for six sites.</p>
       <figure style="margin:28px auto 0;max-width:1080px"><img width="1855" height="132" src="assets/ribbon-gis.jpg" alt="The Analysis ribbon's new groups: Vector, Spatial analysis, Raster & terrain and Conversion" style="border:1px solid var(--border);border-radius:10px;width:100%;height:auto"><figcaption class="cta-note">The new groups on the Analysis ribbon</figcaption></figure>
-      <div class="jump"><a href="#maps">Ribbon, 2D &amp; 3D maps</a><a href="#assistant">Assistant</a><a href="#gis-tools">Vector &amp; spatial analysis</a><a href="#terrain">Terrain</a><a href="#conversion">Conversion</a><a href="#enhance">Enhancement &amp; resampling</a><a href="#accuracy">Accuracy &amp; area</a><a href="#timeseries">Time series</a><a href="#georef">Georeference</a><a href="#style">Style by attribute</a><a href="#schedule">Schedules</a><a href="#everyday">Everyday tools</a></div>
+      <div class="jump"><a href="#maps">Ribbon, 2D &amp; 3D maps</a><a href="#assistant">Assistant</a><a href="#gis-tools">Vector &amp; spatial analysis</a><a href="#terrain">Terrain</a><a href="#conversion">Conversion</a><a href="#enhance">Enhancement &amp; resampling</a><a href="#accuracy">Accuracy &amp; area</a><a href="#timeseries">Time series</a><a href="#georef">Georeference</a><a href="#style">Style by attribute</a><a href="#schedule">Schedules</a><a href="#hydrology">Hydrology &amp; floods (new)</a><a href="#everyday">Everyday tools</a></div>
     </div>
 
     <div class="show" id="maps">
@@ -180,6 +180,25 @@
         <p>Any workflow can run by itself every few hours, daily or weekly while the app is open, with dates that move with the run day. An alert tells you when a result crosses a limit, e.g. a field's NDVI dropping below 0.3.</p>
       </div>
       <img width="1800" height="1100" class="shot" src="assets/schedule.jpg" alt="A workflow's schedule: every hour, an alert when the total area is above 100 ha, and the last run's alert" loading="lazy">
+    </div>
+  </div>
+</section>
+
+<section id="hydrology">
+  <div class="wrap">
+    <div class="center">
+      <span class="eyebrow">New in the development version</span>
+      <h2>Hydrology, floods and models</h2>
+      <p class="lead">A Hydrology category with every watershed and flood tool, from rainfall data to a 2D flood simulation, and models that learn: GR4J, LightGBM and LSTM streamflow models scored on years they never saw, flood susceptibility with spatial cross-validation, and a SAR flood map refined by machine learning.</p>
+    </div>
+    <figure style="margin:24px auto 0;max-width:1180px"><img src="assets/hydrology.jpg" alt="Streams by Strahler order, sub-watersheds and HAND over Nandi Hills" width="1800" height="760" loading="lazy" style="width:100%;height:auto;border-radius:10px;border:1px solid var(--border)"><figcaption class="cta-note">Copernicus 30 m DEM over Nandi Hills: streams by Strahler order and 21 sub-watersheds (left), height above the nearest drainage (right).</figcaption></figure>
+    <div class="local" style="margin-top:24px">
+      <div class="card"><h3>Watersheds &amp; streams</h3><p>DEM preparation (fill, breach, burn streams), D8 / D-infinity / MFD flow, watersheds of points with snapping and nesting, sub-watersheds, stream networks with Strahler and Shreve order, morphometry and conservation priority.</p></div>
+      <div class="card"><h3>Rain, runoff &amp; erosion</h3><p>CHIRPS rainfall and 2- to 100-year design storms, SCS curve-number runoff, design flood hydrographs, RUSLE soil loss with sediment yield.</p></div>
+      <div class="card"><h3>Streamflow models</h3><p>GR4J calibrated automatically, LightGBM / Random Forest and an LSTM, compared by NSE and KGE on unseen years against a seasonal baseline.</p></div>
+      <div class="card"><h3>Floods</h3><p>2D flood simulation (local inertial, as LISFLOOD-FP), flood from HAND, flood depth (FwDET), flood impact on crops, people, buildings and roads, flood susceptibility.</p></div>
+      <div class="card"><h3>Water planning</h3><p>Groundwater potential zones weighted by AHP and checked against wells; check-dam and pond sites with area–capacity curves.</p></div>
+      <div class="card"><h3>More GIS</h3><p>Viewshed, LiDAR point clouds, routing on OpenStreetMap, pansharpening, spectral unmixing, Sentinel-5P air quality, linked views, a time slider and layer groups.</p></div>
     </div>
   </div>
 </section>

@@ -39,6 +39,10 @@ class _JsonLog(logging.Handler):
             pass
 
 
+# action "call": PyTorch trainings that live with their tools (target → module, function)
+CALLS = {"lstm_streamflow": ("lulc_fetch.hydro.streamflow", "train_lstm"), "unet_flood": ("lulc_fetch.sar.floodml", "train_unet")}
+
+
 def cli(argv: list[str]) -> int:
     req = json.loads(Path(argv[0]).read_text(encoding="utf-8"))
     stop = Path(req["stop_file"])
@@ -71,6 +75,13 @@ def cli(argv: list[str]) -> int:
         elif req["action"] == "diagnose":
             from .agri import disease
             res = disease.diagnose(**req["kwargs"])
+        elif req["action"] == "call":   # a few PyTorch trainings outside dl.py (allow-listed)
+            target = req["kwargs"].pop("target")
+            if target not in CALLS:
+                raise ValueError(f"Unknown target {target}")
+            mod, fn = CALLS[target]
+            import importlib
+            res = getattr(importlib.import_module(mod), fn)(**req["kwargs"])
         elif req["action"] == "status":
             res = dl.status()
         else:

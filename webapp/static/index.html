@@ -111,6 +111,7 @@
             <button type="button" class="an-cat" role="tab" data-an="embed" title="AlphaEarth &amp; TESSERA, light models"><span class="ic" data-ic="embed"></span><b>Embeddings</b></button>
             <button type="button" class="an-cat" role="tab" data-an="forecast" title="AQI &amp; weather data, forecasting models"><span class="ic" data-ic="forecast"></span><b>Forecast</b></button>
             <button type="button" class="an-cat" role="tab" data-an="sar" title="Sentinel-1 radar: preprocessing workflow, speckle, features, time series &amp; flooding"><span class="ic" data-ic="sar"></span><b>SAR</b></button>
+            <button type="button" class="an-cat" role="tab" data-an="hydro" title="DEM preparation, flow, watersheds, drainage network, wetness / HAND / stream power, rainfall–runoff, floods"><span class="ic" data-ic="rhydro"></span><b>Hydrology</b></button>
           </div></div><div class="rb-cap">Category</div></div>
         <div class="an-panels">
           <div class="an-panel" data-an-panel="tools" id="tools-menu" role="tabpanel"></div>
@@ -118,6 +119,7 @@
           <div class="an-panel" data-an-panel="embed" id="embed-menu" role="tabpanel"></div>
           <div class="an-panel" data-an-panel="forecast" id="forecast-menu" role="tabpanel"></div>
           <div class="an-panel" data-an-panel="sar" id="sar-menu" role="tabpanel"></div>
+          <div class="an-panel" data-an-panel="hydro" id="hydro-menu" role="tabpanel"></div>
         </div>
       </div>
     </div>
@@ -155,6 +157,8 @@
         <div class="rb-group"><div class="rb-items">
           <button data-cmd="swipe" class="rb-big" id="mi-swipe" title="Compare two layers: drag a line across the map (2D maps)"><span class="ic" data-ic="swipe"></span>Swipe</button>
           <button data-cmd="side-by-side" class="rb-big" id="mi-side" title="The 2D map and a 3D map side by side, moving together"><span class="ic" data-ic="sidebyside"></span>Side by side</button>
+          <button data-cmd="linked-views" class="rb-big" id="mi-linked" title="2 to 4 maps side by side, each with its own layers, zooming and panning together (2D maps)"><span class="ic" data-ic="linked"></span>Linked views</button>
+          <button data-cmd="time-slider" class="rb-big" id="mi-ts" title="Step or play through layers by date (select them in Contents, or layers with dates in their names), and save a GIF or MP4"><span class="ic" data-ic="timeslider"></span>Time slider</button>
           </div><div class="rb-cap">Compare</div></div>
         <div class="rb-group"><div class="rb-items">
           <div class="rb-stack">
@@ -165,6 +169,8 @@
         <div class="rb-group"><div class="rb-items">
           <div class="rb-stack">
             <button data-cmd="toggle-ribbon" class="rb-small check" id="mi-ribbon" title="Ctrl+F1, or double-click a tab">Always show the ribbon</button>
+            <button data-cmd="toggle-compact" class="rb-small check" id="mi-compact" title="Shorter rows and smaller text">Compact ribbon</button>
+            <button data-cmd="toggle-tool-icons" class="rb-small check" id="mi-tool-icons">Icons next to tool names</button>
           </div></div><div class="rb-cap">Ribbon</div></div>
       </div>
     </div>
@@ -273,6 +279,28 @@
       <!-- View ▸ Measure: distance, area, height (2D and 3D maps) -->
       <div class="measure-box hidden" id="measure-box" role="status" aria-live="polite"></div>
       <div class="profile-box hidden" id="profile-box"></div>
+      <!-- View ▸ Compare ▸ Linked views: 2 to 4 maps, each with its own layers; linked ones move together -->
+      <div class="lv hidden" id="lv">
+        <div class="lv-bar"><b>Linked views</b>
+          <span class="lv-n" id="lv-n" role="group" aria-label="Number of views"><button type="button" data-n="2">2</button><button type="button" data-n="3">3</button><button type="button" data-n="4">4</button></span>
+          <button type="button" class="btn small ghost lv-linkall" id="lv-linkall" title="Link or unlink all the views"></button>
+          <button type="button" class="btn small ghost" id="lv-layouts" title="Save these views, or open a saved layout">Layouts ▾</button>
+          <span class="muted lv-hint">Drag layers from Contents onto a view</span>
+          <button type="button" class="x" id="lv-x" title="Close (Esc)">×</button></div>
+        <div class="lv-grid" id="lv-grid"></div>
+      </div>
+      <!-- View ▸ Compare ▸ Time slider: one layer at a time, by date -->
+      <div class="ts hidden" id="ts">
+        <button type="button" class="ts-btn" id="ts-prev" title="Previous (←)">◀</button>
+        <button type="button" class="ts-btn ts-play" id="ts-play" title="Play (Space)">▶</button>
+        <button type="button" class="ts-btn" id="ts-next" title="Next (→)">▶︎|</button>
+        <div class="ts-mid"><div class="ts-top"><b id="ts-label"></b><span class="muted" id="ts-count"></span></div><input type="range" id="ts-range" min="0" max="1" value="0" aria-label="Frame"></div>
+        <label class="ts-opt" title="Frames per second">Speed <select id="ts-fps"><option value="0.5">0.5/s</option><option value="1" selected>1/s</option><option value="2">2/s</option><option value="4">4/s</option><option value="8">8/s</option></select></label>
+        <label class="check ts-opt"><input type="checkbox" id="ts-loop" checked> Loop</label>
+        <label class="check ts-opt" title="Write each frame's date and name on the saved animation"><input type="checkbox" id="ts-labels" checked> Labels</label>
+        <button type="button" class="btn small" id="ts-save" title="Save as an animated GIF or an MP4 video">Save…</button>
+        <button type="button" class="x" id="ts-x" title="Close (Esc)">×</button>
+      </div>
       <!-- View ▸ Compare ▸ Swipe: the line and the two layers' names -->
       <div class="swipe hidden" id="swipe">
         <div class="swipe-bar"><select id="swipe-left" aria-label="Left layer"></select><button type="button" class="btn small ghost" id="swipe-flip" title="Swap the sides">⇄</button><select id="swipe-right" aria-label="Right layer"></select><button type="button" class="x" id="swipe-x" title="Stop comparing (Esc)">×</button></div>
@@ -1698,6 +1726,9 @@
 <script src="/static/tools/forecast/run.js"></script>
 <script src="/static/tools/vector/vector-tools.js"></script>
 <script src="/static/tools/raster/raster-tools.js"></script>
+<script src="/static/tools/raster/geo-tools.js"></script>
+<script src="/static/tools/hydro/hydro.js"></script>
+<script src="/static/tools/hydro/hydro2.js"></script>
 <script src="/static/tools/convert/convert-tools.js"></script>
 <script src="/static/tools/analysis/analysis-tools.js"></script>
 <script src="/static/tools/analysis/fuzzy.js"></script>

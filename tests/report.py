@@ -47,6 +47,9 @@ TOOLS = {
     "test_sar": "SAR (Sentinel-1)",
     "test_watermask": "Water mask",
     "test_imagefeatures": "Image features & thresholds",
+    "test_geo_tools": "Hydrology, visibility, LiDAR, spectral & routing",
+    "test_hydro": "Hydrology & watersheds",
+    "test_hydro2": "Hydrology models, AHP & SAR flood ML",
 }
 
 

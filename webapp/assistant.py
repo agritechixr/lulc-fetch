@@ -144,6 +144,67 @@ CATALOG = {
     "/api/raster/watermask": "Water mask of a multispectral image `path` (Sentinel-2, Landsat): index 'auto' (AWEI no-shadow, else "
                              "NDWI), threshold 'zero'; clouds / shadow / snow from its SCL band. Output: mask .tif (land / water / masked), "
                              "index, confidence, hectares. Feed it to /api/sar/water as `water_mask` for a flood map with radar",
+    "/api/raster/hydrology": "Hydrology of a DEM `dem`: products from filled, direction, accumulation, streams, order, basins, twi; "
+                             "stream_km2 (a stream drains at least this, default 1); for basins: points [[lon, lat]] (outlets, snapped "
+                             "within snap_m) or none for every basin of min_basin_km2. Output: rasters + streams / basins .geojson",
+    "/api/hydro/condition": "DEM preparation of `dem`: steps from fill_nodata, breach, fill (in that order; default fill_nodata + breach); "
+                            "like (raster path) or res to align; streams (a line layer) + burn_m to burn rivers in; max_breach_m. Output: "
+                            "conditioned DEM .tif (use it as `dem` in the other /api/hydro tools) and the change",
+    "/api/hydro/flow": "Flow of `dem`: method d8, dinf or mfd; outputs from direction, accumulation, area (km²), sca. Output: .tif",
+    "/api/hydro/watershed": "Watersheds of `dem`: mode 'points' (`points` [[lon, lat]] outlets, snap_m; nested with parents), 'subbasins' "
+                            "(one per stream link at stream_km2; within_points + points to stay inside) or 'all' (min_basin_km2). Output: "
+                            "polygons .geojson with area, relief, slope, drainage density, longest flow path, time of concentration; ids .tif",
+    "/api/hydro/network": "Drainage network of `dem` at stream_km2: links (Strahler, Shreve, length, slope, downstream link), nodes "
+                          "(sources, junctions, outlets), order rasters, drainage density, Horton table. Output: .geojson + .tif",
+    "/api/hydro/terrain": "Indicators of `dem`: products from slope, aspect, curvature, twi, spi, hand, depressions, flowlength, flowpaths "
+                          "(needs points); flow mfd / dinf / d8 for TWI / SPI; stream_km2 for HAND. Output: .tif (and .geojson)",
+    "/api/hydro/runoff": "SCS curve-number runoff on `dem`: rain_mm, landcover (raster path; classes by name or scheme) + soil A–D (or "
+                         "soil_raster), or cn_raster; condition I / II / III; optional points (outlets) for runoff volume and peak flow "
+                         "(duration_h). Output: CN / runoff / coefficient .tif, routed volume, watershed table",
+    "/api/hydro/hand-flood": "Flood extent and depth from HAND on `dem` at levels_m (m above streams, e.g. [1, 2, 5]), stream_km2. "
+                             "Output: depth .tif (a band per level), extent .geojson, areas table",
+    "/api/hydro/susceptibility": "Flood susceptibility: `predictors` (raster paths, e.g. HAND, TWI, slope from /api/hydro/terrain), "
+                                 "`floods` (points / polygons of past floods), optional non_floods; model rf / lgbm; block_m for spatial CV. "
+                                 "Output: probability and class .tif, importance table, AUC",
+    "/api/hydro/rainfall": "Rainfall: op 'total' (CHIRPS sum over start–end, `bbox` [w, s, e, n]), 'annual' (CHIRPS mean annual "
+                           "rainfall over first_year–last_year, bbox) or 'storms' (`point` [lon, lat]: Gumbel design storms 2–100 yr and a "
+                           "daily ERA5 series). Output: .tif or tables",
+    "/api/hydro/erosion": "RUSLE soil loss on `dem`: rain_mm or rain_raster (mean annual), texture (e.g. 'loam') or k / k_raster, "
+                          "landcover or ndvi or c_raster, p; optional points (outlets) for sediment yield. Output: t/ha/yr .tif, FAO classes",
+    "/api/hydro/flood-depth": "Flood depth (FwDET) on `dem` from a flood map `flood` (raster path) or `polygons`. Output: depth .tif",
+    "/api/hydro/flood-impact": "Flood impact: `flood` (map), `depth` (raster) or `polygons`; with landcover, population (rasters), "
+                               "buildings, roads (layers). Output: table of ha / people / buildings / km flooded",
+    "/api/hydro/storage": "Check dam / pond sites on `dem` (op 'sites': height_m, stream_km2, orders, max_slope_pct, top) or the "
+                          "area–capacity curve at `point` (op 'curve'). Output: sites / reservoirs .geojson, table",
+    "/api/hydro/morphometry": "Morphometric parameters and conservation priority of sub-watersheds of `dem` (basin_km2) or of `points`. "
+                              "Output: polygons with Rb, Dd, Fs, Rc, Re, Ff, HI…, priority raster, tables",
+    "/api/hydro/groundwater": "Groundwater potential zones on `dem` (+ rain_raster, landcover, lineaments layer, geology / soil rasters "
+                              "with scores) weighted by AHP; wells + wells_field to check. Output: index and zones .tif",
+    "/api/hydro/streamflow": "Daily streamflow models from an observed-flow `table` (tables/…): models gr4j, lgbm, rf, lstm; area_km2 "
+                             "(for m³/s), point [lon, lat] for ERA5 rain / PET when the table has none. Output: simulated series, scores",
+    "/api/hydro/hydrograph": "Design flood hydrograph at outlet `point` on `dem`: storms_mm (e.g. [80, 120]), cn or landcover + soil. "
+                             "Output: hydrograph table, peaks",
+    "/api/hydro/flood-sim": "2D flood simulation on `dem`: inflows [{lon, lat, q (m³/s or [[h, m³/s], …])}] and / or rain_mm_h, "
+                            "hours, manning or landcover. Output: max depth, speed, arrival time .tif, depth over time",
+    "/api/ahp/overlay": "AHP weighted overlay: factors [{path, rising}] and a pairwise `matrix` (Saaty 1–9). Output: suitability "
+                        "index and classes .tif, weights, CR",
+    "/api/sar/flood-ml": "SAR flood map refined by ML: `sar` (VV/VH layer), `confidence` (from /api/sar/water), optional pre, dem; "
+                         "model lgbm or unet. Output: probability and classes .tif",
+    "/api/raster/viewshed": "What can be seen from `observers` [[lon, lat], …] on a DEM `dem`: observer_h (m, 1.7), target_h, max_dist_m, "
+                            "curvature. Output: .tif (1 seen / 0, or how many observers see each cell), visible km²",
+    "/api/raster/line-of-sight": "Can point `a` [lon, lat] see `b` on DEM `dem`: observer_h, target_h. Output: line .geojson (visible "
+                                 "true / false parts), where the view is first blocked, the profile",
+    "/api/lidar/grid": "A LiDAR point cloud `path` (.las / .laz file path) into products dtm, dsm, chm, density, intensity, trees at "
+                       "`res` m (crs only if the file has none). Output: .tif grids, tree tops .geojson",
+    "/api/raster/pansharpen": "Pansharpen multispectral `image` with the sharper panchromatic `pan` raster (e.g. Landsat B8): method "
+                              "gsa (default), brovey, ihs; bands optional. Output: .tif at the pan's pixel size",
+    "/api/raster/unmix": "Spectral unmixing of `path`: endmembers from `layer` (polygons / points of pure materials) + `field` naming "
+                         "them, or n_auto found in the image; constrained (0–1, sum 1). Output: fraction bands + RMSE .tif, spectra table",
+    "/api/network/routing": "Routing on roads: op 'route' (`points` = stops in order), 'service' (`points` = origins, breaks minutes "
+                            "[5, 10, 15]) or 'closest' (`points` = places, `facilities` [[lon, lat]]); mode car, bike, walk; roads: "
+                            "OpenStreetMap unless `roads` (a line layer) with speed_field / speed_kmh. Output: .geojson",
+    "/api/s5p/average": "Sentinel-5P air quality: product no2, co, so2, hcho, o3, ch4 or aer-ai; `bbox` [west, south, east, north]; "
+                        "start, end (YYYY-MM-DD); res degrees (0.05). Output: mean .tif (+ observations band), daily series table",
     "/api/raster/localstats": "Local statistics per pixel of `path` (bands optional): windows [3, 5, 7, 15], stats from mean, median, std, "
                               "variance, min, max, range, cv, entropy, skewness, gradient, laplacian. Output: a feature stack .tif",
     "/api/raster/glcm": "GLCM texture (Haralick) of `path`: window 7, levels 16, features contrast, dissimilarity, homogeneity, energy, asm, "
@@ -396,6 +457,21 @@ RULES = """How to choose tools:
   is not needed: fusion puts it there). Clouds in an optical image filled from radar → /api/sar/gapfill.
   Flooding / flood extent / water bodies from radar → /api/sar/water (pre-flood image as `pre` when there is one).
   Water from an optical image only (lakes, rivers, reservoirs, flood on a clear day) → /api/raster/watermask.
+- Hydrology on a DEM: prepare it first with /api/hydro/condition (then use its output as `dem`); flow → /api/hydro/flow;
+  watersheds / catchments / sub-basins → /api/hydro/watershed; streams, stream order, drainage density → /api/hydro/network;
+  TWI, SPI, HAND, curvature, depressions → /api/hydro/terrain; runoff of a storm → /api/hydro/runoff; what floods at a water
+  level → /api/hydro/hand-flood; flood-prone areas from past floods → /api/hydro/terrain then /api/hydro/susceptibility.
+  Everything in one quick step → /api/raster/hydrology. Rainfall totals / annual means / design storms → /api/hydro/rainfall;
+  soil erosion → /api/hydro/erosion; how deep a mapped flood is → /api/hydro/flood-depth, what it affects →
+  /api/hydro/flood-impact; check dams / ponds → /api/hydro/storage; watershed prioritisation → /api/hydro/morphometry;
+  groundwater potential → /api/hydro/groundwater; river flow from rain (calibrated) → /api/hydro/streamflow; design flood
+  peak → /api/hydro/hydrograph; flood spreading over time → /api/hydro/flood-sim; weighting factors (AHP) →
+  /api/ahp/overlay; a cleaner SAR flood map → /api/sar/water then /api/sar/flood-ml. What can be seen from
+  a place (towers, viewpoints) → /api/raster/viewshed; whether A sees B → /api/raster/line-of-sight. Tree / building
+  heights or a DTM from a .las / .laz point cloud → /api/lidar/grid. Sharper Landsat with its pan band →
+  /api/raster/pansharpen; fractions of vegetation / soil / water per pixel → /api/raster/unmix.
+- Travel time, the quickest route, what is reachable within N minutes, the nearest hospital / market by road →
+  /api/network/routing. Air pollution (NO₂, CO, SO₂, aerosols, ozone, methane) from satellite → /api/s5p/average.
 - Texture / local variation features for classification → /api/raster/localstats or /api/raster/glcm (then stack them with the
   image); edges or field boundaries → /api/raster/edges; objects instead of pixels → /api/raster/slic; cleaning a mask or
   class map (specks, holes) → /api/raster/morphology; counting / separating objects → /api/raster/components; whether a

@@ -86,6 +86,35 @@
     mprofile: '<path d="M3 20h18" opacity=".5"/><path d="M3 16l4-6 4 3 4-8 6 9"/><circle cx="15" cy="5" r="1.4" fill="currentColor" stroke="none"/>',
     print: '<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/><circle cx="17.5" cy="12" r=".9" fill="currentColor" stroke="none"/>',
     swipe: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 2v20"/><path d="M8 10l-2 2 2 2M16 10l2 2-2 2" opacity=".7"/>',
+    rhydro: '<path d="M3 5c3 0 4 3 6 3s3-3 6-3"/><path d="M9 8c0 3 2 4 3 6s0 5-1 7"/><path d="M15 5c0 3-2 5-3 9" opacity=".6"/><path d="M19 9c-2 0-4 2-6 5" opacity=".6"/>',
+    rview: '<path d="M2 20l6-8 4 4 4-7 6 11z" opacity=".45"/><circle cx="6" cy="6" r="2"/><path d="M8 7l12 4M8 6l9-2" stroke-dasharray="2 2"/>',
+    rlidar: '<circle cx="5" cy="17" r="1"/><circle cx="9" cy="15" r="1"/><circle cx="12" cy="9" r="1"/><circle cx="15" cy="7" r="1"/><circle cx="18" cy="12" r="1"/><circle cx="8" cy="19" r="1"/><circle cx="14" cy="18" r="1"/><circle cx="19" cy="18" r="1"/><path d="M3 21h18" opacity=".5"/>',
+    rpansharp: '<rect x="3" y="3" width="8" height="8" rx="1" opacity=".5"/><path d="M5 5h1v1H5zM8 5h1v1H8zM5 8h1v1H5z" opacity=".5"/><path d="M12 12l3 3"/><rect x="13" y="13" width="8" height="8" rx="1"/><path d="M15 15h4v4h-4z" opacity=".4"/>',
+    runmix: '<circle cx="9" cy="10" r="5" opacity=".6"/><circle cx="15" cy="10" r="5" opacity=".6"/><circle cx="12" cy="15" r="5" opacity=".6"/>',
+    vroute: '<circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><path d="M7 19h6a3 3 0 0 0 0-6h-2a3 3 0 0 1 0-6h6"/>',
+    s5p: '<path d="M4 15a4 4 0 0 1 4-4 5 5 0 0 1 9.6 1.5A3.5 3.5 0 0 1 17 19H7a3 3 0 0 1-3-4z"/><path d="M9 6l1-2M14 5l1.5-1.5M18 8l2-1" opacity=".6"/>',
+    timeslider: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/><path d="M3 21h18" opacity=".5"/><circle cx="8" cy="21" r="1.4" fill="currentColor" stroke="none"/>',
+    hydprep: '<path d="M3 18l5-7 3 4 3-6 7 9z" opacity=".45"/><path d="M8 11l3 4 3-6" /><path d="M16 4l2 2-6 6" stroke-width="2.2"/>',
+    hydflow: '<path d="M4 4l5 5M12 4v6M20 4l-5 5"/><path d="M6 13l6 7 6-7" /><path d="M12 10v10" stroke-width="2.4"/>',
+    hydwshed: '<path d="M4 9c2-4 6-6 9-5s6 4 7 8-2 8-6 8-8-1-9-4 0-5-1-7z" opacity=".5"/><path d="M12 20c0-4 1-7 0-10M12 13c2-1 4-3 5-5M12 15c-2-1-4-2-5-4"/>',
+    hydnet: '<path d="M12 21v-6M12 15l-5-5M12 15l5-6M7 10l-3-5M7 10l2-6M17 9l-2-5M17 9l4-4"/><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none"/>',
+    hydterrain: '<path d="M2 19l5-8 4 5 3-4 8 7z" opacity=".45"/><path d="M5 9c1-2 3-2 4 0s3 2 4 0 3-2 4 0" />',
+    hydrunoff: '<path d="M7 10a4 4 0 0 1 8-1 3 3 0 1 1 1 6H7a3 3 0 0 1 0-5z"/><path d="M8 18l-1 3M12 18l-1 3M16 18l-1 3" />',
+    hydflood: '<path d="M3 16c2 0 2-1.5 4.5-1.5S10 16 12 16s2.5-1.5 4.5-1.5S19 16 21 16"/><path d="M3 20c2 0 2-1.5 4.5-1.5S10 20 12 20s2.5-1.5 4.5-1.5S19 20 21 20"/><path d="M6 13V8l6-4 6 4v5" opacity=".55"/>',
+    hydsusc: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".35"/><path d="M3 15c3-1 4-5 7-5s4 4 7 3 3-2 4-2"/><circle cx="9" cy="16" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.2" fill="currentColor" stroke="none"/>',
+    hydrain: '<path d="M7 10a4 4 0 0 1 8-1 3 3 0 1 1 1 6H7a3 3 0 0 1 0-5z"/><path d="M9 18l-1 2M13 18l-1 2M17 18l-1 2"/><path d="M3 21h18" opacity=".4"/>',
+    hyderosion: '<path d="M2 17c4-1 6-6 10-6s5 4 10 4" /><path d="M2 21h20" opacity=".4"/><circle cx="15" cy="17" r="1" fill="currentColor" stroke="none"/><circle cx="18" cy="19" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r=".9" fill="currentColor" stroke="none"/>',
+    hyddepth: '<path d="M3 9c2 0 2-1.5 4.5-1.5S10 9 12 9s2.5-1.5 4.5-1.5S19 9 21 9"/><path d="M12 11v9M9 17l3 3 3-3"/>',
+    hydimpact: '<path d="M4 20V11l5-4 5 4v9z" opacity=".55"/><path d="M14 20v-6h6v6"/><path d="M2 17c2 0 2-1 4-1s2 1 4 1 2-1 4-1 2 1 4 1 2-1 4-1"/>',
+    hydstorage: '<path d="M3 8c3 2 6 3 9 3s6-1 9-3"/><path d="M5 12c2 3 4 5 7 5s5-2 7-5" opacity=".5"/><path d="M11 4v16h2V4z"/>',
+    hydmorph: '<path d="M4 9c2-4 6-6 9-5s6 4 7 8-2 8-6 8-8-1-9-4 0-5-1-7z" opacity=".45"/><path d="M8 17l3-4 2 2 3-5"/><circle cx="16" cy="10" r="1.2" fill="currentColor" stroke="none"/>',
+    hydgw: '<path d="M3 7h18" opacity=".5"/><path d="M12 7v9"/><path d="M3 16h18" stroke-dasharray="2 2"/><path d="M5 20c2 0 2-1 4-1s2 1 4 1 2-1 4-1 2 1 4 1"/><path d="M10 4h4" />',
+    hydstream: '<path d="M3 17l4-6 4 3 4-8 6 9"/><path d="M3 21h18" opacity=".4"/><circle cx="15" cy="6" r="1.3" fill="currentColor" stroke="none"/>',
+    hydhydrograph: '<path d="M3 20h18M3 20V4"/><path d="M4 19c3 0 4-12 7-12s4 8 9 11"/>',
+    hydsim: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".35"/><path d="M3 15c3 0 3-2 6-2s3 2 6 2 3-2 6-2"/><path d="M3 19c3 0 3-2 6-2s3 2 6 2 3-2 6-2" opacity=".6"/><path d="M8 4v4M12 4v6M16 4v3"/>',
+    ahp: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1" opacity=".6"/><rect x="3" y="14" width="7" height="7" rx="1" opacity=".6"/><path d="M14 17.5h7M17.5 14v7"/>',
+    sarfloodml: '<path d="M3 15c2 0 2-1.5 4.5-1.5S10 15 12 15s2.5-1.5 4.5-1.5S19 15 21 15"/><circle cx="7" cy="7" r="2"/><circle cx="17" cy="7" r="2"/><circle cx="12" cy="4" r="1.6"/><path d="M8.6 6l2-1.2M15.4 6l-2-1.2M9 7h6" opacity=".6"/>',
+    linked: '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/><path d="M11 7h2M11 17h2M7 11v2M17 11v2" stroke-width="2.4"/>',
     sidebyside: '<rect x="2" y="5" width="9" height="14" rx="1.5"/><path d="M17 5l5 3v8l-5 3-5-3V8z"/><path d="M12 8l5 3 5-3M17 11v8" opacity=".55"/>',
     assistant: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18.5 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" opacity=".7"/><path d="M5 16.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" opacity=".55"/>',
     vbuffer: '<path d="M8 9l5-2 3 5-4 4-4-2z"/><path d="M4.5 9.5l7.5-5 7 6.5-6 8.5-7.5-3.5z" stroke-dasharray="2.5 2" opacity=".7"/>',
@@ -154,10 +183,20 @@
     forecast: { el: "#forecast-menu", label: "Also useful for forecasts", shortcuts: ["interp", "ml"],
                 subtitles: { interp: "Make a map from a forecast at stations (Put on the map, then a surface: kriging, IDW…)",
                              ml: "Predict a value from other columns without time (regression / classification on tables)" } },
-    sar: { el: "#sar-menu", label: "Also useful for SAR", shortcuts: ["rwater", "rlocal", "rglcm", "redges", "rslic", "rmorph", "rclip", "rmosaic", "rchange", "rasterml"],
+    sar: { el: "#sar-menu", label: "Also useful for SAR", shortcuts: ["rwater", "rglcm", "rslic", "rchange", "rclip", "rasterml"],
            subtitles: { rwater: "Water from an optical image (AWEI, NDWI …): use it with the flood map as optical evidence",
                         rchange: "Before / after difference of two SAR dates (the SAR tools do it in dB with flood classes)",
                         rasterml: "Classify crops or land cover from SAR features (VV, VH, ratio, RVI, texture) and labelled points" } },
+    hydro: { el: "#hydro-menu", label: "Also useful for hydrology", groups: [["Data & DEM", ["hydrain", "hydprep", "hydflow", "rhydro"]], ["Watersheds", ["hydwshed", "hydnet", "hydmorph", "hydterrain"]],
+                     ["Runoff & erosion", ["hydrunoff", "hydhydrograph", "hydstream", "hyderosion"]], ["Floods", ["hydflood", "hydsim", "hyddepth", "hydimpact", "hydsusc"]],
+                     ["Water planning", ["hydgw", "hydstorage"]]], shortcuts: ["sarwater", "sarfloodml", "rwater", "rterrain", "ahp", "foverlay", "fboundary", "rspcv", "rresample", "rcalc"],
+             subtitles: { sarwater: "Flood extent from Sentinel-1 radar: Otsu and adaptive (tile-based) thresholds, with a confidence layer: a flood inventory for susceptibility",
+                          rwater: "Water from an optical image (AWEI, NDWI…): evidence for the flood map, or permanent water",
+                          foverlay: "Fuzzy suitability from hydrology layers (HAND, TWI, slope…) with weights",
+                          fboundary: "The uncertain edge of a flood or susceptibility map: transition zone, α-cuts, a refined boundary",
+                          rspcv: "How much a random split overstates a flood model's accuracy, by block size",
+                          rresample: "Put a DEM and other layers on the same grid, or change its pixel size",
+                          rcalc: "Combine indicators (e.g. HAND < 3 and TWI > 10)" } },
     library: { el: "#library-menu", label: "", shortcuts: [] },
     online: { el: "#online-menu", label: "", shortcuts: [] },
   };
@@ -194,8 +233,8 @@
     });
   }
   // the ribbon groups of the Tools category (tools not named here go in "More")
-  const TOOL_GROUPS = [["Imagery", ["search", "analyze", "timeseries", "pca", "stack", "rmosaic", "rburn", "rwater"]], ["Training data", ["samples", "raster2table", "patches"]],
-    ["Classical ML", ["ml", "rasterml", "rspcv", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve", "vhelpers"]], ["Spatial analysis", ["vzonal", "vlocation", "vsjoin", "vcount", "vgeometry", "vtjoin", "vstats", "rautocorr"]], ["Fuzzy & suitability", ["fmember", "foverlay", "fboundary", "fcmeans"]], ["Image features", ["rlocal", "rglcm", "redges", "rmulti", "rmorph"]], ["Objects", ["rslic", "rcomp"]], ["Raster & terrain", ["rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "rcalc"]], ["Assess", ["areastats", "accuracy"]], ["Conversion", ["r2poly", "r2line", "r2point", "rasterize", "vconvert", "georef"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
+  const TOOL_GROUPS = [["Imagery", ["search", "analyze", "timeseries", "pca", "stack", "rmosaic", "rburn", "rwater", "rpansharp", "runmix"]], ["Training data", ["samples", "raster2table", "patches"]],
+    ["Classical ML", ["ml", "rasterml", "rspcv", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve", "vhelpers"]], ["Spatial analysis", ["vzonal", "vlocation", "vsjoin", "vcount", "vgeometry", "vtjoin", "vstats", "rautocorr", "vroute"]], ["Fuzzy & suitability", ["ahp", "fmember", "foverlay", "fboundary", "fcmeans"]], ["Image features", ["rlocal", "rglcm", "redges", "rmulti", "rmorph"]], ["Objects", ["rslic", "rcomp"]], ["Raster & terrain", ["rterrain", "rview", "rlidar", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "rcalc"]], ["Assess", ["areastats", "accuracy"]], ["Conversion", ["r2poly", "r2line", "r2point", "rasterize", "vconvert", "georef"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
   // one ribbon group: a few tools as big buttons, more as small ones in columns of three
   function ribbonGroup(caption, tools, big = tools.length <= 3) {
     if (!tools.length) return "";
@@ -211,7 +250,11 @@
     wireEntries($("#tools-menu"), "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });
     Object.entries(MENUS).forEach(([key, m]) => {
       const el = $(m.el);
-      el.innerHTML = ribbonGroup({ agri: "Agri", embed: "Embeddings", forecast: "Forecast", sar: "SAR", library: "Library", online: "Online & field" }[key] || key, TOOLS.filter((t) => t.menu === key)) +
+      const own = TOOLS.filter((t) => t.menu === key);
+      el.innerHTML = (m.groups   // a menu with many tools: in named groups (tools not named go in the last)
+        ? m.groups.map(([cap, ids], gi) => ribbonGroup(cap, [...ids.map((id) => own.find((t) => t.id === id)).filter(Boolean),
+            ...(gi === m.groups.length - 1 ? own.filter((t) => !m.groups.some(([, x]) => x.includes(t.id))) : [])], false)).join("")
+        : ribbonGroup({ agri: "Agri", embed: "Embeddings", forecast: "Forecast", sar: "SAR", hydro: "Hydrology", library: "Library", online: "Online & field" }[key] || key, own)) +
         ribbonGroup(m.label, m.shortcuts.map((id) => TOOLS.find((t) => t.id === id)).filter(Boolean)
           .map((t) => m.subtitles?.[t.id] ? { ...t, subtitle: m.subtitles[t.id] } : t));
       wireEntries(el, "[data-tool]", (b) => { switchTool(b.dataset.tool); toggleMenu(null); });

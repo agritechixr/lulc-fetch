@@ -37,6 +37,8 @@
   "core/tour.js",
   "core/export-view.js",
   "core/compare.js",
+  "core/linked-views.js",
+  "core/time-slider.js",
   "tools/export.js",
   "core/area-picker.js",
   "core/layer-properties.js",

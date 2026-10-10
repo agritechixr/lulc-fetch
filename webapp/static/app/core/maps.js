@@ -49,6 +49,8 @@
   function openMap(cur, next) {
     stopMeasure(true);
     stopSwipe(true);
+    stopLinkedViews(true);
+    stopTimeSlider(true);
     if (link.on) stopSideBySide(true);
     if (cur) {
       cur.view = currentView();
@@ -57,7 +59,7 @@
       cur.live = layers.splice(0);
       [...vw.tabs].filter((t) => t.key.startsWith("attr:")).forEach((t) => closeTab(t.key, true));
     }
-    selectedId = null;
+    clearLayerSelection();
     docs.active = next.id;
     if (next.view?.center) map.setView(next.view.center, next.view.zoom ?? map.getZoom(), { animate: false });
     if (next.live) {

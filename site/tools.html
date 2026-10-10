@@ -31,8 +31,8 @@
     <div class="center">
       <span class="eyebrow">All tools</span>
       <h1 class="ptitle">Every tool in LULC Fetch</h1>
-      <p class="lead">62 tools, most in the app's Analysis menu (Tools, Agri, Embeddings, Forecast), with the models each one offers. Each has a hint (ⓘ) on every option inside the app.</p>
-      <div class="jump"><a href="#prep">Get &amp; prepare data</a><a href="#classical">Classical machine learning</a><a href="#segmentation">Deep learning: segmentation</a><a href="#detection">Deep learning: object detection</a><a href="#embeddings">Embeddings</a><a href="#agri">Agri</a><a href="#air">Air &amp; rain</a><a href="#gis">Vector &amp; spatial analysis</a><a href="#raster">Raster, terrain &amp; conversion</a><a href="#automate">Automate</a><a href="#workspace">Data, maps &amp; workspace</a></div>
+      <p class="lead">Over 110 tools, most in the app's Analysis menu (Tools, Agri, Embeddings, Forecast, SAR, Hydrology), with the models each one offers. Every parameter of every tool is in the <a href="https://github.com/agritechixr/lulc-fetch/blob/main/docs/TOOL_REFERENCE.md">tool reference</a>. Each has a hint (ⓘ) on every option inside the app.</p>
+      <div class="jump"><a href="#prep">Get &amp; prepare data</a><a href="#classical">Classical machine learning</a><a href="#segmentation">Deep learning: segmentation</a><a href="#detection">Deep learning: object detection</a><a href="#embeddings">Embeddings</a><a href="#agri">Agri</a><a href="#air">Air &amp; rain</a><a href="#gis">Vector &amp; spatial analysis</a><a href="#raster">Raster, terrain &amp; conversion</a><a href="#hydrology">Hydrology &amp; watersheds</a><a href="#floods">Floods, SAR &amp; models</a><a href="#terrain-net">Terrain, LiDAR &amp; networks</a><a href="#imagery-new">Imagery &amp; air</a><a href="#views">Views &amp; Contents</a><a href="#automate">Automate</a><a href="#workspace">Data, maps &amp; workspace</a></div>
     </div>
     <div class="tgroup" id="prep">
       <div class="thead"><h2>Get &amp; prepare data</h2><span class="where">Analysis ▸ Tools</span><p>Find imagery, compute indices, stack and reduce bands, draw labels and turn images into tables.</p></div>
@@ -122,6 +122,58 @@
       <div class="tcard"><h3>Index time series</h3><p>NDVI, EVI, NDWI, NDMI, NDRE or SAVI of a point or field in every Sentinel-2 scene of a period, from the free catalogue, clouds masked: a chart and a table.</p></div>
       <div class="tcard"><h3>Georeference</h3><p>Put a scanned map, plan or photo on the map with control points: affine, 2nd-order polynomial or thin-plate spline, with residuals and RMSE.</p></div>
       <div class="tcard"><h3>Resample / reproject</h3><p>A new pixel size, factor or coordinate system. The same methods are an option in Find imagery, Stack layers, Make training data, Download embeddings and Change detection.</p><div class="mchips"><span>Nearest</span><span>Bilinear</span><span>Cubic (bicubic)</span><span>Cubic spline</span><span>Lanczos</span><span>Average</span><span>Mode</span><span>Median</span><span>Min / max</span><span>Quartiles</span></div></div>
+      </div>
+    </div>
+    <div class="tgroup" id="hydrology">
+      <div class="thead"><h2>Hydrology &amp; watersheds <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Hydrology</span><p>Every hydrology and watershed tool in one category, from rainfall and DEM preparation to runoff, erosion and water planning. numpy and scipy only: no extra programs to install.</p></div>
+      <figure style="margin:0 0 18px"><img src="assets/hydrology.jpg" alt="Streams by Strahler order, 21 sub-watersheds and HAND from the Copernicus 30 m DEM over Nandi Hills" width="1800" height="760" loading="lazy" style="width:100%;height:auto;border-radius:10px;border:1px solid var(--border)"><figcaption class="cta-note">Made with the app from the Copernicus 30 m DEM over Nandi Hills (about 27 × 22 km, in 6 seconds): 277 stream links up to Strahler order 4, 434 km of streams (drainage density 0.72 km/km²), 21 sub-watersheds, and HAND (median 13 m).</figcaption></figure>
+      <div class="tgrid">
+      <div class="tcard"><h3>Rainfall data</h3><p>CHIRPS totals for your dates or the mean annual rainfall on a grid (only your area is downloaded), and design storms: the 1- to 5-day rain expected once in 2 … 100 years, from 80 years of ERA5 daily data.</p><div class="mchips"><span>CHIRPS 2.0</span><span>ERA5 (Open-Meteo)</span><span>Gumbel</span></div></div>
+      <div class="tcard"><h3>DEM preparation</h3><p>Make a DEM drain: fill no-data holes, align it to another raster, burn known rivers in, breach roads and embankments across valleys, fill the remaining pits.</p><div class="mchips"><span>Priority-flood fill</span><span>Complete breaching</span><span>Stream burning</span></div></div>
+      <div class="tcard"><h3>Flow direction &amp; accumulation</h3><p>Where water goes from every cell and how much area drains through it: cells, km² and specific catchment area.</p><div class="mchips"><span>D8</span><span>D-infinity</span><span>MFD</span></div></div>
+      <div class="tcard"><h3>Watersheds</h3><p>Catchments of outlet points (snapped to the river, nested with their parents), sub-watersheds of every stream link, or every basin, with area, relief, slope, drainage density, longest flow path and time of concentration.</p></div>
+      <div class="tcard"><h3>Drainage network · Morphometry</h3><p>Stream links between sources and junctions with Strahler and Shreve order, length, slope and topology; drainage density and Horton ratios. Morphometry: Rb, Dd, Fs, Rc, Re, Ff, ruggedness, hypsometric integral and curve for every sub-watershed, ranked for conservation (compound value).</p></div>
+      <div class="tcard"><h3>Terrain &amp; runoff indicators</h3><p>Slope, aspect, curvature, TWI, SPI, HAND (height above the nearest drainage), depressions with their volume, flow length and flow paths: the predictors for flood and erosion models.</p></div>
+      <div class="tcard"><h3>Soil erosion (RUSLE)</h3><p>Yearly soil loss in t/ha from rainfall, soil texture, slope, cover (land cover or NDVI) and practice, FAO classes, and sediment yield per watershed.</p></div>
+      <div class="tcard"><h3>Rainfall–runoff · Design flood hydrograph</h3><p>SCS curve numbers from land cover and soil group, runoff depth and routed volumes; the flow at an outlet hour by hour through design storms with the SCS unit hydrograph: peak, time to peak, volume.</p></div>
+      <div class="tcard"><h3>Streamflow modelling</h3><p>Daily river flow from rain and evaporation, calibrated on observed flow and scored on years the models never saw (NSE, KGE, bias) against a seasonal baseline.</p><div class="mchips"><span>GR4J</span><span>LightGBM</span><span>Random Forest</span><span>LSTM</span></div></div>
+      <div class="tcard"><h3>Groundwater potential · Check dams &amp; ponds</h3><p>Groundwater potential zones from slope, drainage density, wetness, rainfall, land cover, lineaments, geology and soil weighted by AHP, checked against wells; the best sites for small dams with the pond each makes, and area–capacity curves.</p></div>
+      </div>
+    </div>
+    <div class="tgroup" id="floods">
+      <div class="thead"><h2>Floods, SAR &amp; models <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Hydrology · Analysis ▸ SAR</span><p>From where water is to how deep, how fast and what it reaches.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Flood simulation (2D)</h3><p>Water spreading over the DEM through time from river inflows (steady or a hydrograph) and rain, with the local inertial model of LISFLOOD-FP: maximum depth, speed, arrival time, depth maps over time and an exact water balance.</p></div>
+      <div class="tcard"><h3>Flood from HAND · Flood depth</h3><p>What floods when rivers rise 1, 2, 5 m (from the height above the nearest drainage); the depth inside a mapped flood from a DEM (FwDET).</p></div>
+      <div class="tcard"><h3>Flood impact</h3><p>Hectares of cropland, built-up and other land cover, people, buildings and km of roads under a flood, by depth.</p></div>
+      <div class="tcard"><h3>Flood susceptibility</h3><p>Where floods are likely, learned from past floods and predictors, scored on new places with spatial cross-validation.</p><div class="mchips"><span>Random Forest</span><span>LightGBM</span></div></div>
+      <div class="tcard"><h3>SAR flood map: ML refinement</h3><p>A model learns from the radar flood map's own confident pixels (backscatter, texture, change, HAND, slope) and decides the uncertain ones.</p><div class="mchips"><span>LightGBM</span><span>TinyUNet</span></div></div>
+      </div>
+    </div>
+    <div class="tgroup" id="terrain-net">
+      <div class="thead"><h2>Terrain, LiDAR, networks &amp; suitability <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Tools</span><p>More GIS analysis on terrain, point clouds and roads.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Viewshed &amp; line of sight</h3><p>What one or more observers can see (and how many see each place), or whether A sees B, with the earth's curvature.</p></div>
+      <div class="tcard"><h3>LiDAR point clouds</h3><p>.las files (.laz with laspy) into a ground model, a surface model, tree and building heights, point density, intensity and tree tops.</p><div class="mchips"><span>DTM</span><span>DSM</span><span>CHM</span><span>Tree tops</span></div></div>
+      <div class="tcard"><h3>Routing</h3><p>On OpenStreetMap roads or your own: the quickest route through stops, service areas (reachable in 5, 10, 15 minutes) and each place's closest facility, by car, bicycle or on foot.</p></div>
+      <div class="tcard"><h3>AHP weights &amp; overlay</h3><p>Compare factors in pairs, see the weights and the consistency ratio live, then combine the scored layers into a suitability map.</p></div>
+      </div>
+    </div>
+    <div class="tgroup" id="imagery-new">
+      <div class="thead"><h2>Imagery &amp; air: more tools <span class="mchips"><span>New</span></span></h2><span class="where">Analysis ▸ Tools ▸ Imagery · Analysis ▸ Forecast</span><p>Sharper images, mixed pixels, water and air pollution.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Pansharpen</h3><p>A multispectral image as sharp as its panchromatic band (Landsat 30 → 15 m).</p><div class="mchips"><span>Gram-Schmidt adaptive</span><span>Brovey</span><span>IHS</span></div></div>
+      <div class="tcard"><h3>Spectral unmixing</h3><p>The fraction of vegetation, soil, water … in each pixel, from labelled pure samples or found in the image.</p></div>
+      <div class="tcard"><h3>Water mask · Image features · Objects</h3><p>Open water from optical images; local statistics, GLCM texture, edges, multi-scale features and morphology; superpixels (SLIC) and connected components; spatial cross-validation.</p></div>
+      <div class="tcard"><h3>Sentinel-5P air quality</h3><p>NO₂, CO, SO₂, formaldehyde, ozone, methane and aerosols averaged over your area and dates, with a daily series.</p></div>
+      </div>
+    </div>
+    <div class="tgroup" id="views">
+      <div class="thead"><h2>Views &amp; Contents <span class="mchips"><span>New</span></span></h2><span class="where">View ▸ Compare · Contents</span><p>Compare and organise many layers.</p></div>
+      <div class="tgrid">
+      <div class="tcard"><h3>Linked views</h3><p>2 to 4 maps side by side, each with its own layers dragged from Contents, panning and zooming together; saved layouts.</p></div>
+      <div class="tcard"><h3>Time slider</h3><p>Step or play through layers in date order and save the animation as a GIF or MP4.</p></div>
+      <div class="tcard"><h3>Multi-select &amp; layer groups</h3><p>Ctrl / ⌘ and Shift to select several layers and act on them all; named groups with one checkbox. A compact ribbon.</p></div>
       </div>
     </div>
     <div class="tgroup" id="automate">

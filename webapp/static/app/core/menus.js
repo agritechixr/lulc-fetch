@@ -6,7 +6,15 @@
   // shown and the map sits below it; collapsed (double-click a tab, the ⌃ button or Ctrl+F1), a tab's band opens over the map
   // on click and closes after a command.
   let openMenu = null;
-  const ribbon = { pinned: prefs.get("ribbon-pinned", true) };
+  const ribbon = { pinned: prefs.get("ribbon-pinned", true), compact: prefs.get("ribbon-compact", true), icons: prefs.get("ribbon-icons", false) };
+  function setRibbonLook({ compact = ribbon.compact, icons = ribbon.icons } = {}) {
+    Object.assign(ribbon, { compact, icons });
+    prefs.set("ribbon-compact", compact); prefs.set("ribbon-icons", icons);
+    document.body.classList.toggle("ribbon-compact", compact);
+    document.body.classList.toggle("ribbon-icons", icons);
+    refreshRibbon();
+    setTimeout(() => map.invalidateSize(), 30);
+  }
   const tabName = (m) => $(".menu-btn", m).textContent;
   function toggleMenu(m) {
     if (!m && ribbon.pinned) return;   // the pinned ribbon always shows a tab
@@ -48,6 +56,8 @@
     $("#mi-tools").classList.toggle("on", !document.body.classList.contains("no-tools"));
     $("#mi-viewer").classList.toggle("on", document.body.classList.contains("viewer-open"));
     $("#mi-ribbon").classList.toggle("on", ribbon.pinned);
+    $("#mi-compact").classList.toggle("on", ribbon.compact);
+    $("#mi-tool-icons").classList.toggle("on", ribbon.icons);
     if ($("#mi-project-close")) $("#mi-project-close").disabled = !inProject();
     $("#mi-labels").classList.toggle("on", map.hasLayer(placeLabels));
     const bm = prefs.get("basemap", "streets"), th = prefs.get("theme", "auto");
@@ -61,6 +71,8 @@
     try { canRecover = !inProject() && !!localStorage.getItem("lulc-recovery"); } catch {}
     $("#mi-recover").disabled = !canRecover;
     $("#mi-swipe").classList.toggle("on", cmp.on);
+    $("#mi-linked").classList.toggle("on", lv.on);
+    $("#mi-ts").classList.toggle("on", tsl.on);
     $("#mi-side").classList.toggle("on", link.on);
     syncQat();
     $("#mi-layer-copy").disabled = !sel;
@@ -91,7 +103,7 @@
       case "open-safe": openSafeDialog(); break;
       case "export-layer": openExport(selectedLayer()); break;
       case "layer-props": openProps(selectedLayer()); break;
-      case "remove-layer": { const l = selectedLayer(); if (l) removeLayer(l.id); break; }
+      case "remove-layer": removeLayers(selectedLayers()); break;
       case "clear-layers": if (layers.length && confirm("Remove all layers from Contents? Files on disk are kept. (Ctrl+Z brings them back)")) historyStep(`Remove all ${layers.length} layers`, () => [...layers].forEach((l) => removeLayer(l.id))); break;
       case "undo": undo(); break;
       case "save": saveNow(); break;
@@ -113,11 +125,13 @@
       case "toggle-labels": setLabels(!map.hasLayer(placeLabels)); break;
       case "zoom-all": zoomAll(); break;
       case "toggle-ribbon": setRibbonPinned(!ribbon.pinned); break;
+      case "toggle-compact": setRibbonLook({ compact: !ribbon.compact }); break;
+      case "toggle-tool-icons": setRibbonLook({ icons: !ribbon.icons }); break;
       case "new-map": newMap(arg === "3d" ? "3d" : "2d"); break;
       case "map-rename": editMapName(docs.active); break;
       case "map-duplicate": duplicateMap(docs.active); break;
       case "map-close": closeMap(docs.active); break;
-      case "layer-copy": copyLayers([selectedLayer()].filter(Boolean)); break;
+      case "layer-copy": copyLayers(selectedLayers().filter((l) => l.type !== "image")); break;
       case "layer-copy-all": copyLayers(layers); break;
       case "layer-paste": pasteLayers(); break;
       case "bookmark-view": bookmarkView(); break;
@@ -130,6 +144,8 @@
       case "print": openPrint(); break;
       case "swipe": cmp.on ? stopSwipe() : startSwipe(); break;
       case "side-by-side": link.on ? stopSideBySide() : startSideBySide(); break;
+      case "linked-views": lv.on ? stopLinkedViews() : startLinkedViews(); break;
+      case "time-slider": tsl.on ? stopTimeSlider() : startTimeSlider(); break;
       case "error-log": window.open("/api/errors/file", "_blank", "noopener"); break;
       case "error-log-reveal": api("/api/errors/reveal", { method: "POST" }).catch((e) => toast(e, true)); break;
       case "start": switchTool("home"); break;
