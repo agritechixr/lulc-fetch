@@ -469,7 +469,8 @@ class FusionRequest(BaseModel):
     block_m: float = Field(1000, ge=20, le=50000)
     folds: int = Field(5, ge=2, le=10)
     per_class: int = Field(3000, ge=50, le=50000)
-    map_with: str = Field("best", pattern="^(best|early|late|optical|sar|embedding)$")
+    map_with: str = Field("best", pattern="^(best|early|selected|late|optical|sar|embedding)$")
+    select: bool = True                                           # also early fusion with only the features that beat shuffled copies
     class_colors: dict | None = None
     name: str = Field("fusion", max_length=80)
 
@@ -498,7 +499,7 @@ def sar_fusion(req: FusionRequest):
                                 sar_dates=req.sar_dates, texture=req.texture, embedding=emb)
         with progress.span(0.25, 1):
             r = FU.compare(st["path"], gt, out, model=req.model, block_m=req.block_m, folds=req.folds, per_class=req.per_class,
-                           map_with=req.map_with, name=nm, class_colors=req.class_colors)
+                           map_with=req.map_with, name=nm, class_colors=req.class_colors, select=req.select)
         outs = [r["map"]["classes_path"], r["map"]["confidence_path"], st["path"]] if r.get("map") else [st["path"]]
         return {**{k: v for k, v in r.items() if k not in ("map", "report")}, "stack": {k: st[k] for k in ("groups", "cloud_pct", "sar_dates")},
                 "areas": (r.get("map") or {}).get("areas"), "outputs": [ws.rel(o) for o in outs], "report": ws.rel(r["report"])}
@@ -600,3 +601,69 @@ def sar_gapfill(req: GapfillRequest):
                 res["score_note"] = "The clear image hasn't the same bands: not scored"
         return res
     return jobs.submit("sar", "Fill clouds from SAR", {}, work).to_dict()
+
+
+# ------------------------------------------------------------------ water & flood map (fused evidence, with confidence)
+class WaterRequest(BaseModel):
+    post: str                                                      # SAR during / after the event (a SAR layer)
+    pre: str | None = None                                         # SAR before it (same track): tells new water from old
+    optical: str | None = None                                     # an optical image of about the same date (clouds masked by its SCL)
+    water_mask: str | None = None                                  # or a water mask made by the Water mask tool (instead of the image)
+    dem: str | None = "auto"                                       # "auto" (Copernicus DEM), a DEM layer, or none
+    permanent: str | None = "auto"                                 # "auto" (JRC Global Surface Water), a mask layer, or none
+    aoi: dict | None = None
+    vv_db: float | None = Field(None, ge=-35, le=-5)               # thresholds; omitted: found in the image (Otsu)
+    vh_db: float | None = Field(None, ge=-40, le=-10)
+    radar_threshold: str = Field("checked", pattern="^(checked|fixed|otsu|multi_otsu|li|yen|kapur|triangle|isodata|niblack|sauvola|wolf|phansalkar|fcm|fuzzy|membership)$")
+    hand_m: float = Field(10, ge=1, le=100)
+    slope_max: float = Field(8, ge=1, le=45)
+    drop_db: float = Field(3, ge=0.5, le=15)
+    name: str = Field("water", max_length=80)
+
+
+@router.post("/api/sar/water")
+def sar_water(req: WaterRequest):
+    """Water and flood map with a 0–1 confidence, from radar, optical, the change since a pre-flood image, terrain and
+    permanent water: each optional except the radar."""
+    from lulc_fetch.sar import water as WA
+    post = str(_raster_path(req.post))
+    pre = str(_raster_path(req.pre)) if req.pre else None
+    opt = str(_raster_path(req.optical)) if req.optical else None
+    wmask = str(_raster_path(req.water_mask)) if req.water_mask else None
+    dem = req.dem if req.dem in (None, "auto") else str(_raster_path(req.dem))
+    perm = req.permanent if req.permanent in (None, "auto") else str(_raster_path(req.permanent))
+    thr = {k: v for k, v in (("VV", req.vv_db), ("VH", req.vh_db)) if v is not None} or None
+
+    def work(job):
+        r = WA.run(post, _out(), pre_path=pre, optical_path=None if wmask else opt, mask_path=wmask, dem=dem, permanent=perm, cache=_cache(), aoi=req.aoi, name=_safe(req.name) or "water",
+                   thresholds=thr, hand_m=req.hand_m, slope_max=req.slope_max, drop_db=req.drop_db, threshold_mode=req.radar_threshold)
+        r["outputs"] = [ws.rel(o) for o in r["outputs"]]
+        return r
+    return jobs.submit("sar", "Water & flood map", {}, work).to_dict()
+
+
+# ------------------------------------------------------------------ soil moisture by change detection
+class SoilMoistureRequest(BaseModel):
+    rasters: list[str] = Field(min_length=4, max_length=400)       # SAR layers of one orbit track, one per date
+    pol: str = Field("VV", pattern="^(VV|HH)$")
+    lo: float = Field(5, ge=0, le=40)
+    hi: float = Field(95, ge=60, le=100)
+    min_range_db: float = Field(3.0, ge=0.5, le=15)
+    water_db: float = Field(-18.0, ge=-35, le=-8)
+    veg_ratio_db: float = Field(-5.0, ge=-15, le=0)
+    aoi: dict | None = None
+    name: str = Field("soil_moisture", max_length=80)
+
+
+@router.post("/api/sar/soilmoisture")
+def sar_soilmoisture(req: SoilMoistureRequest):
+    """Relative surface soil moisture (0–100 %) per date from a Sentinel-1 time series (change detection)."""
+    from lulc_fetch.sar import soilmoisture as SM
+    paths = [str(_raster_path(p)) for p in req.rasters]
+
+    def work(job):
+        r = SM.run(paths, _out(), pol=req.pol, lo=req.lo, hi=req.hi, min_range_db=req.min_range_db, water_db=req.water_db,
+                   veg_ratio_db=req.veg_ratio_db, aoi=req.aoi, name=_safe(req.name) or "soil_moisture")
+        r["outputs"] = [ws.rel(o) for o in r["outputs"]]
+        return r
+    return jobs.submit("sar", f"Soil moisture · {len(paths)} dates", {}, work).to_dict()

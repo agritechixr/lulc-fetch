@@ -134,8 +134,28 @@ CATALOG = {
     "/api/sar/gapfill": "Fill the clouds of an optical image from SAR: `optical` (cloudy image path), `mask` (cloud mask path, non-zero = "
                         "cloud; omit to use the image's SCL band), `sars` (SAR paths of about the same date), optional `helpers` (e.g. "
                         "MODIS of the same day, or a clear image of another date). Learned on the image's own clear pixels. Output: .tif",
+    "/api/sar/water": "Flood / water map with a 0–1 confidence: `post` (SAR layer path during / after), optional `pre` (SAR before, same "
+                      "track: tells flood from permanent water), `optical` (Sentinel-2 path), dem 'auto' (Copernicus) and permanent 'auto' "
+                      "(JRC surface water). Output: classes .tif (dry, uncertain, permanent water, flood, water) + confidence .tif, hectares",
+    "/api/sar/soilmoisture": "Relative surface soil moisture (0–100 %) per date by change detection: `rasters` (SAR layer paths of ONE orbit "
+                             "track, at least 4 dates; 30+ better). Output: a band per date, references, quality; the area's mean per date",
     "/api/sar/series": "SAR time series of several SAR layers (`rasters`: paths, one track): stats mean, median, min, max, std, count, "
                        "trend (dB/yr); change true for first → last (log-ratio, ±threshold_db classes, new water below water_db = flooding). Output: .tif",
+    "/api/raster/watermask": "Water mask of a multispectral image `path` (Sentinel-2, Landsat): index 'auto' (AWEI no-shadow, else "
+                             "NDWI), threshold 'zero'; clouds / shadow / snow from its SCL band. Output: mask .tif (land / water / masked), "
+                             "index, confidence, hectares. Feed it to /api/sar/water as `water_mask` for a flood map with radar",
+    "/api/raster/localstats": "Local statistics per pixel of `path` (bands optional): windows [3, 5, 7, 15], stats from mean, median, std, "
+                              "variance, min, max, range, cv, entropy, skewness, gradient, laplacian. Output: a feature stack .tif",
+    "/api/raster/glcm": "GLCM texture (Haralick) of `path`: window 7, levels 16, features contrast, dissimilarity, homogeneity, energy, asm, "
+                        "correlation, entropy, mean, variance. Output: .tif",
+    "/api/raster/edges": "Edges of a band of `path`: which ['sobel', 'canny', 'laplacian', 'magnitude', 'directional'], sigma 1. Output: .tif",
+    "/api/raster/multiscale": "Multi-scale (Gaussian scale space) features of `path`: sigmas [1, 2, 4, 8], features smooth, gradient, log, dog, mean, std. Output: .tif",
+    "/api/raster/morphology": "Morphology of a mask / class map `path`: op erosion, dilation, opening, closing, gradient, tophat, blackhat, "
+                              "remove_small, fill_holes, majority, boundary; size 3; value (one class). Output: .tif",
+    "/api/raster/autocorrelation": "Spatial autocorrelation of a band of `path`: global Moran's I and Geary's C, LISA clusters and Getis-Ord Gi* maps. Output: .tif",
+    "/api/raster/slic": "SLIC superpixels of `path`: n_segments 1000, compactness 0.3. Output: segment ids, mean image, boundaries, polygons with means",
+    "/api/raster/components": "Connected components of a mask / class `path` (value: the class): ids, a table and polygons",
+    "/api/raster/spatialcv": "Spatial cross-validation of a classification: `path` (image), `ground_truth`; random vs block k-fold, correlogram. Output: a table",
     "/api/raster/burn": "Burn severity: `before` and `after` images (paths, with NIR B08 and SWIR2 B12, or NBR rasters): dNBR = NBR "
                         "before − after and its USGS severity classes, with burned hectares. min_post_nbr 0.1 for stubble / crop "
                         "residue burning (keeps just-harvested fields out). Output: .tif (severity, dNBR) + .csv",
@@ -145,7 +165,8 @@ CATALOG = {
     "/api/convert/raster-to-polyline": "Lines from `raster`: mode 'boundaries' (edges between classes) or 'centrelines' (thin shapes such "
                                        "as roads / rivers: values = their classes), simplify (m), min_length (m). Output: .geojson",
     "/api/convert/raster-to-point": "A point per pixel of `raster` (every `step`-th) with each band's value. Output: .geojson",
-    "/api/convert/rasterize": "Vector `layer` → raster: mode 'value' (`field`: numbers, or text → classes), 'presence' or 'count'; "
+    "/api/convert/rasterize": "Vector `layer` → raster: mode 'value' (`field`: numbers, or text → classes), 'presence', 'count', 'mask' (0 / 1, "
+                              "buffer_m grows the shapes, invert) or 'distance' (metres to the nearest shape, max_distance_m caps it); "
                               "`res` metres, or `like` (a raster path) for the same grid; all_touched. Output: .tif",
     "/api/convert/features": "Change geometry type of `layer`: op = 'polygons_to_lines', 'lines_to_polygons', 'vertices_to_points', "
                              "'points_to_lines' (order_by, group_by, close), 'points_along_lines' (distance m), 'split_lines', "
@@ -372,7 +393,14 @@ RULES = """How to choose tools:
   already processed (GEE, RTC) → only speckle / db / normalise, never calibrate or terrain again. Several SAR layers
   already in Contents over time → /api/sar/series. A crop or land-cover map from optical AND radar together, or what
   radar adds under clouds → ONE /api/sar/fusion step (the SAR processed first by /api/sar/process onto the optical's grid
-  is not needed: fusion puts it there). Clouds in an optical image filled from radar → /api/sar/gapfill. InSAR / interferograms / ground movement need ASF HyP3 (the user sends
+  is not needed: fusion puts it there). Clouds in an optical image filled from radar → /api/sar/gapfill.
+  Flooding / flood extent / water bodies from radar → /api/sar/water (pre-flood image as `pre` when there is one).
+  Water from an optical image only (lakes, rivers, reservoirs, flood on a clear day) → /api/raster/watermask.
+- Texture / local variation features for classification → /api/raster/localstats or /api/raster/glcm (then stack them with the
+  image); edges or field boundaries → /api/raster/edges; objects instead of pixels → /api/raster/slic; cleaning a mask or
+  class map (specks, holes) → /api/raster/morphology; counting / separating objects → /api/raster/components; whether a
+  raster's values cluster → /api/raster/autocorrelation; how honest a classification's accuracy is → /api/raster/spatialcv.
+  Soil moisture / how wet the fields are over time → /api/sar/soilmoisture with all the dates of one track. InSAR / interferograms / ground movement need ASF HyP3 (the user sends
   those jobs from Analysis ▸ SAR ▸ InSAR & RTC on demand: they spend the user's credits, so never plan them).
 - A heat map of points (reports, incidents) → /api/vector/spatial-stats method 'density'; where values or reports
   cluster (hot spots) → 'hotspots'; whether a value is spatially clustered → 'moran'; whether points are clustered

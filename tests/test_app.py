@@ -113,7 +113,7 @@ def test_tool_files_register_themselves(client):
         ids += re.findall(r"^  LF\.tool\(\{\s*id: \"(\w+)\"", js.text, re.M)   # (lf.js only shows one in a comment)
         if "LF.tool(" in js.text:
             assert "panel:" in js.text and "setup(LF)" in js.text, f"{s} has no panel or setup"
-    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve", "vzonal", "vlocation", "vsjoin", "vgeometry", "vcount", "vtjoin", "rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "r2poly", "r2line", "r2point", "rasterize", "vconvert", "areastats", "accuracy", "rcalc", "timeseries", "georef", "vhelpers", "online", "field", "rmosaic", "rburn", "vstats", "fmember", "foverlay", "fboundary", "fcmeans", "sarflow", "sarsearch", "sarinspect", "sarspeckle", "sarfeatures", "sarseries", "sarhyp3", "sarfusion", "sargapfill"])
+    assert sorted(ids) == sorted(["embed", "embtrain", "embpredict", "embconvert", "embexplore", "agridisease", "agriguide", "library", "interp", "fcdata", "fctrain", "fcrun", "workflows", "assistant", "vbuffer", "vquery", "voverlay", "vdissolve", "vzonal", "vlocation", "vsjoin", "vgeometry", "vcount", "vtjoin", "rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "r2poly", "r2line", "r2point", "rasterize", "vconvert", "areastats", "accuracy", "rcalc", "timeseries", "georef", "vhelpers", "online", "field", "rmosaic", "rburn", "rwater", "rlocal", "rglcm", "rmorph", "rautocorr", "redges", "rmulti", "rslic", "rcomp", "rspcv", "vstats", "fmember", "foverlay", "fboundary", "fcmeans", "sarflow", "sarsearch", "sarinspect", "sarspeckle", "sarfeatures", "sarseries", "sarhyp3", "sarfusion", "sargapfill", "sarwater", "sarsoil"])
     assert len(ids) == len(set(ids)), "a tool id is registered twice"
     for css in re.findall(r'href="/static/(tools/[^"]+\.css)"', html):
         assert client.get(f"/static/{css}").status_code == 200
@@ -734,6 +734,16 @@ def test_conversion_tools(client, home):
     with rasterio.open(home / run(client, "/api/convert/rasterize", {"layer": fields, "mode": "count", "res": 5000})["path"]) as s:
         assert s.read(1).sum() == 2                                                              # polygons smaller than a cell count once each
     assert client.post("/api/convert/rasterize", json={"layer": fields, "mode": "value", "res": 10}).status_code == 400
+    with rasterio.open(home / run(client, "/api/convert/rasterize", {"layer": fields, "mode": "mask", "res": 20})["path"]) as s:
+        mk = s.read(1)
+        assert s.nodata is None and set(np.unique(mk)) == {0, 1}
+    with rasterio.open(home / run(client, "/api/convert/rasterize", {"layer": fields, "mode": "mask", "res": 20, "buffer_m": 200})["path"]) as s:
+        assert s.read(1).sum() > mk.sum()                                                        # grown by 200 m
+    with rasterio.open(home / run(client, "/api/convert/rasterize", {"layer": fields, "mode": "mask", "res": 20, "invert": True})["path"]) as s:
+        assert (s.read(1) == 1 - mk).all()
+    with rasterio.open(home / run(client, "/api/convert/rasterize", {"layer": fields, "mode": "distance", "res": 20, "max_distance_m": 500})["path"]) as s:
+        dist = s.read(1)
+        assert s.dtypes[0] == "float32" and dist.min() == 0 and dist.max() == 500 and (dist[mk == 1] == 0).all()
     conv = lambda op, lay, **kw: rd(run(client, "/api/convert/features", {"op": op, "layer": lay, **kw}))
     lines = conv("polygons_to_lines", fields)
     assert lines["features"][0]["geometry"]["type"] in ("LineString", "MultiLineString")

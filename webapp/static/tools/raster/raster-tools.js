@@ -1,7 +1,7 @@
 /* Analysis ▸ Tools ▸ Raster & terrain: Terrain (slope, aspect, hillshade), Contours, Reclassify, Change detection,
-   Clip raster, Resample / reproject and Enhance image; and in Imagery: Mosaic / merge rasters and Burn severity (dNBR). Jobs (progress, History, Workflows, the Assistant); results are
+   Clip raster, Resample / reproject and Enhance image; and in Imagery: Mosaic / merge rasters, Burn severity (dNBR) and Water mask. Jobs (progress, History, Workflows, the Assistant); results are
    added to Contents. Server: /api/raster/terrain, contours, reclassify, change, clip, resample, enhance, mosaic, burn ·
-   lulc_fetch/raster_ops.py, enhance.py, resample.py, mosaic.py, burn.py. */
+   lulc_fetch/raster_ops.py, enhance.py, resample.py, mosaic.py, burn.py, watermask.py. */
 (() => {
   "use strict";
   const { tip } = LF.html;
@@ -17,7 +17,7 @@
     runButton(p, async () => {
       const job = await api(endpoint, { method: "POST", json: body(v) });
       const r = (await trackJob(job, { title: job.title })).result;
-      const files = [...(r.outputs || []), ...(r.path ? [r.path] : [])];
+      const files = [...new Set([...(r.outputs || []), ...(r.path ? [r.path] : [])].map((f) => f.replace(/^.*?\/(analysis|downloads|imports|tables)\//, "$1/")))];
       for (const f of files) {
         if (/\.tiff?$/i.test(f)) await addRasterFromPath(f, { zoom: false }).catch(() => {});
         else if (/\.geojson$/i.test(f)) { const fc = await api(`/api/vector/read?path=${encodeURIComponent(f)}`); if (fc.features?.length) addVectorLayer(fc, r.name || "result", { path: f, zoom: false }); }
@@ -315,6 +315,286 @@
                  breaks, min_post_nbr: $("#rb-stubble").checked ? +$("#rb-lim").value : null, name: $("#rb-name").value.trim() };
       }, ["rb-a", "rb-b"], (r) => `<b>${r.summary.burned_ha.toLocaleString()} ha burned</b> (${r.summary.burned_pct}% of the area).
         <div class="dist" style="margin-top:6px">${r.classes.filter((c) => c.pixels).map((c) => `<div style="grid-template-columns:minmax(0,2fr) auto"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${c.color};margin-right:5px"></i>${esc(c.class)}</span><b>${fmt(c.area_ha, 1)} ha</b></div>`).join("")}</div>`);
+    },
+  });
+
+  LF.tool({ id: "rwater", title: "Water mask", icon: "rwater", kinds: ["watermask"],
+    clip: { "rw-area": { what: "mask covers" } },
+    subtitle: "Open water from a multispectral image (Sentinel-2, Landsat …): AWEI, NDWI, MNDWI or WI2015 with clouds, shadow and snow masked, specks removed and a confidence; also evidence for the SAR flood map",
+    panel: `<div class="card"><h2>Image ${tip("Any multispectral image with green and NIR bands (SWIR too for the better indices). Sentinel-2 and Landsat 8/9 band names are recognised (they number bands differently); otherwise choose the bands below.")}</h2>
+      ${rasterSel("rw-img", "Multispectral image")}
+      <details id="rw-bands-box"><summary class="hint" id="rw-bands-sum">Bands</summary><div class="grid3" id="rw-bands"></div></details></div>
+      <div class="card"><h2>Water index</h2>
+      <label>Index ${tip("Auto: AWEI no-shadow when the image has SWIR1 and SWIR2, else NDWI. On Sen1Floods11's hand-labelled flood chips (clear pixels): AWEI no-shadow 0.79 IoU, NDWI 0.79, AWEI shadow 0.77, WI2015 0.71, MNDWI 0.71. MNDWI misses turbid flood water and flooded vegetation.")} <select id="rw-index"><option value="auto">Auto (best for the bands)</option><option value="awei_nsh">AWEI no-shadow</option><option value="awei_sh">AWEI shadow (mountains, tall buildings)</option><option value="ndwi">NDWI (green, NIR)</option><option value="mndwi">MNDWI (green, SWIR1)</option><option value="wi2015">WI2015</option></select></label>
+      <label>Threshold ${tip("0 (water above it) is best on most images. The automatic methods look only at the parts of the image that clearly hold land and water (tiles whose two-Gaussian fit separates, with water above 0; Martinis et al. 2009): where there are none, 0 is used. Global: one value for the image. Local: a value per pixel from its window (for images whose brightness changes across the scene). Fuzzy: a 0–1 membership as the confidence. On Sen1Floods11's validation chips (IoU): 0 → 0.78; Multi-Otsu 0.68, Huang 0.65, Otsu / Isodata / fuzzy c-means / S-function ≈ 0.62, Li 0.58, Triangle 0.57; local methods 0.35–0.48 (made for documents, not landscapes); Yen / Kapur 0.37.")} <select id="rw-thr"><option value="zero">0 (recommended)</option>
+        <optgroup label="Global">${[["otsu", "Otsu"], ["multi_otsu", "Multi-Otsu"], ["li", "Li"], ["yen", "Yen"], ["kapur", "Kapur"], ["triangle", "Triangle"], ["isodata", "Isodata"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</optgroup>
+        <optgroup label="Local (per pixel)">${[["niblack", "Niblack"], ["sauvola", "Sauvola"], ["wolf", "Wolf"], ["phansalkar", "Phansalkar"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</optgroup>
+        <optgroup label="Fuzzy">${[["fcm", "Fuzzy c-means"], ["fuzzy", "Fuzzy threshold (Huang)"], ["membership", "Fuzzy membership (S-function)"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</optgroup></select></label>
+      <div class="grid2 hidden" id="rw-local"><label>Window (pixels) <input type="number" id="rw-win" value="51" min="5" step="2"></label><label>k ${tip("Leave empty for each method's usual value (Niblack 0.2, Sauvola 0.2, Wolf 0.5, Phansalkar 0.25).")} <input type="number" id="rw-k" placeholder="usual" step="0.05"></label></div></div>
+      <div class="card"><h2>Masking &amp; clean-up</h2>
+      <label class="check"><input type="checkbox" id="rw-scl" checked> Clouds, shadow and snow from the image's SCL band ${tip("Sentinel-2 L2A scene classification: cloud shadow, clouds, cirrus and snow are masked (shown grey), not called land or water.")}</label>
+      <label>Or a cloud mask layer ${tip("Any raster where non-zero = cloud (s2cloudless, Fmask …).")} <select id="rw-cloud"></select></label>
+      <label class="check"><input type="checkbox" id="rw-dem"> Drop water on steep slopes (Copernicus DEM) ${tip("Mountain and cloud shadows can look like water; on slopes steeper than the limit they aren't water. Downloads the DEM for the area.")}</label>
+      <div class="grid2"><label>Slope limit (°) <input type="number" id="rw-slope" value="10" min="1"></label><label>Smallest patch (pixels) ${tip("Water patches (and dry holes in water) smaller than this are removed: speckle-like noise.")} <input type="number" id="rw-min" value="9" min="1"></label></div>
+      ${LF.html.area("rw-area", "Area", "Optional: the mask is cut to it.")}
+      <label>Name <input type="text" id="rw-name" value="water_mask" maxlength="80"></label>
+      ${runRow("rw", "Make water mask")}</div>`,
+    setup(LF) {
+      const { $, $$, api, esc, fmt, getLayer, layers, getClip } = LF;
+      const ROLES = [["blue", "Blue"], ["green", "Green"], ["red", "Red"], ["nir", "NIR"], ["swir1", "SWIR 1"], ["swir2", "SWIR 2"]];
+      async function guess() {
+        const l = getLayer($("#rw-img").value);
+        if (!l) { $("#rw-bands").innerHTML = ""; return; }
+        let g;
+        try { g = await api(`/api/raster/watermask/bands?path=${encodeURIComponent(l.path)}`); } catch { return; }
+        const opts = (sel) => `<option value="">–</option>` + Array.from({ length: g.count }, (_, i) => `<option value="${i + 1}" ${sel === i + 1 ? "selected" : ""}>${i + 1}${g.names[i] ? ` · ${esc(g.names[i])}` : ""}</option>`).join("");
+        $("#rw-bands").innerHTML = ROLES.map(([k, t]) => `<label>${t} <select data-role="${k}">${opts(g.bands[k])}</select></label>`).join("");
+        const found = ROLES.filter(([k]) => g.bands[k]).map(([, t]) => t);
+        $("#rw-bands-sum").textContent = `Bands: ${found.length ? found.join(", ") : "not recognised, choose them"} (${g.sensor})`;
+        if (!g.bands.green) $("#rw-bands-box").open = true;
+      }
+      $("#rw-img").addEventListener("change", guess);
+      $("#rw-thr").onchange = () => $("#rw-local").classList.toggle("hidden", !["niblack", "sauvola", "wolf", "phansalkar"].includes($("#rw-thr").value));
+      const fillCloud = () => { const el = $("#rw-cloud"), w = el.value; el.innerHTML = `<option value="">(none)</option>` + layers.filter((l) => l.type === "raster" && l.path).map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join(""); if (getLayer(w)) el.value = w; };
+      const hooks = wire(LF, "rw", "/api/raster/watermask", (v) => ({
+        path: v.raster("rw-img"), bands: Object.fromEntries($$("#rw-bands [data-role]").filter((s) => s.value).map((s) => [s.dataset.role, +s.value])),
+        index: $("#rw-index").value, threshold: $("#rw-thr").value, window: +$("#rw-win").value || 51, k: $("#rw-k").value === "" ? null : +$("#rw-k").value, scl: $("#rw-scl").checked, cloud: getLayer($("#rw-cloud").value)?.path || null,
+        dem: $("#rw-dem").checked ? "auto" : null, slope_max: +$("#rw-slope").value || 10, min_px: +$("#rw-min").value || 9, aoi: getClip("rw-area"),
+        name: $("#rw-name").value.trim() || "water_mask" }), ["rw-img"], (r) => `<b>${r.areas_ha ? `${fmt(r.areas_ha.Water, 1)} ha of water` : `${r.pixels.Water.toLocaleString()} water pixels`}</b> (${r.water_pct_of_clear} % of the clear area) by ${esc(r.index)} &gt; ${r.threshold_varies ? `a per-pixel threshold (mean ${r.threshold})` : r.threshold} (${esc(r.threshold_source)}).
+          ${r.pixels["Masked (cloud, shadow, snow)"] ? `<p class="hint" style="margin:4px 0 0">${r.pixels["Masked (cloud, shadow, snow)"].toLocaleString()} pixels masked (${esc(r.masking.join("; "))}): for those, the SAR flood map can fill in from radar.</p>` : ""}`);
+      return { open(a) { hooks.open(a); fillCloud(); guess(); }, layersChanged() { hooks.layersChanged(); fillCloud(); } };
+    },
+  });
+
+  // ---------------- Image features: local statistics, GLCM texture, morphology
+  const bandTicks = (LF, sel, box, checkedAll = true) => {
+    const { $, getLayer, esc } = LF;
+    const l = getLayer($(`#${sel}`).value);
+    const bands = l?.info?.bands || [];
+    $(`#${box}`).innerHTML = bands.length > 1 ? `<div class="sf-ticks">${bands.map((b) => `<label class="check"><input type="checkbox" data-b="${b.index}" ${checkedAll || b.index === 1 ? "checked" : ""}> ${b.index}${b.description && b.description !== "Band " + b.index ? ` · ${esc(b.description)}` : ""}</label>`).join("")}</div>` : "";
+  };
+  const ticked = (LF, box) => LF.$$(`#${box} [data-b]:checked`).map((c) => +c.dataset.b);
+
+  LF.tool({ id: "rlocal", title: "Local statistics", icon: "rlocal", kinds: ["localstats"],
+    subtitle: "Per pixel, over its 3×3 … 31×31 neighbourhood: mean, median, std, variance, min, max, range, coefficient of variation, entropy, skewness, edges: features for SAR and optical classification",
+    panel: `<div class="card"><h2>Image ${tip("Any raster. Each chosen band gets every chosen statistic for every window: one output band each. Linear SAR power is put in dB first.")}</h2>
+      ${rasterSel("rl-img", "Raster")}<div id="rl-bands"></div></div>
+      <div class="card"><h2>Windows ${tip("The neighbourhood, in pixels. Small windows keep detail; big ones describe texture and land cover (a 15 × 15 window at 10 m is 150 m).")}</h2>
+      <div class="sf-ticks" style="grid-template-columns:repeat(4,1fr)">${[3, 5, 7, 9, 11, 15, 21, 31].map((w) => `<label class="check"><input type="checkbox" data-w="${w}" ${[3, 5, 7, 15].includes(w) ? "checked" : ""}> ${w}×${w}</label>`).join("")}</div></div>
+      <div class="card"><h2>Statistics</h2><div class="sf-ticks" style="grid-template-columns:1fr 1fr">${[
+        ["mean", "Mean", "μ = (1/N) Σ x over the window: the local level, smoother than the pixel itself."],
+        ["median", "Median", "The middle value: like the mean but untouched by a few extreme pixels (speckle)."],
+        ["std", "Standard deviation", "How much the window varies: texture. High at edges, in towns and forests; low on water and smooth fields."],
+        ["variance", "Variance", "The standard deviation squared."],
+        ["min", "Minimum", "The lowest value in the window."], ["max", "Maximum", "The highest value in the window."],
+        ["range", "Range", "Maximum − minimum: contrast within the window."],
+        ["cv", "Coefficient of variation", "σ / μ: variation relative to the level, the classic SAR heterogeneity measure (speckle alone gives about 1/√looks)."],
+        ["entropy", "Entropy", "How disordered the window's values are (bits, from a 32-level histogram): 0 when uniform."],
+        ["skewness", "Skewness", "Whether the window has a tail of bright (positive) or dark (negative) pixels."],
+        ["gradient", "Gradient (Sobel)", "Edge strength, after smoothing to the window's scale."],
+        ["laplacian", "Laplacian", "Second derivative (Laplacian of Gaussian): bright and dark blobs and ridges at the window's scale."]].map(([v, t, h], i) => `<label class="check"><input type="checkbox" data-st="${v}" ${v === "mean" || v === "std" ? "checked" : ""}> ${t} ${tip(h)}</label>`).join("")}</div>
+      <label class="check"><input type="checkbox" id="rl-db" checked> SAR in dB ${tip("Linear SAR power (γ⁰ / σ⁰) is converted to dB before the statistics, as classifiers expect.")}</label>
+      <label>Name <input type="text" id="rl-name" placeholder="automatic" maxlength="80"></label>${runRow("rl", "Compute")}</div>`,
+    setup(LF) {
+      const { $, $$ } = LF;
+      $("#rl-img").addEventListener("change", () => bandTicks(LF, "rl-img", "rl-bands"));
+      const h = wire(LF, "rl", "/api/raster/localstats", (v) => {
+        const windows = $$("#tab-rlocal [data-w]:checked").map((c) => +c.dataset.w), stats = $$("#tab-rlocal [data-st]:checked").map((c) => c.dataset.st);
+        if (!windows.length || !stats.length) throw new Error("Tick at least one window and one statistic");
+        return { path: v.raster("rl-img"), bands: ticked(LF, "rl-bands").length ? ticked(LF, "rl-bands") : null, windows, stats, db: $("#rl-db").checked, name: $("#rl-name").value.trim() };
+      }, ["rl-img"], (r) => `<b>${r.bands.length} feature bands</b>${r.converted_to_db.length ? ` (${LF.esc(r.converted_to_db.join(", "))} in dB)` : ""}.`);
+      return { open(a) { h.open(a); bandTicks(LF, "rl-img", "rl-bands"); }, layersChanged() { h.layersChanged(); } };
+    },
+  });
+
+  LF.tool({ id: "rglcm", title: "Texture (GLCM)", icon: "rglcm", kinds: ["glcm"],
+    subtitle: "Grey-level co-occurrence texture per pixel (Haralick): contrast, dissimilarity, homogeneity, energy, ASM, correlation, entropy, mean, variance, averaged over four directions",
+    panel: `<div class="card"><h2>Image ${tip("Usually SAR (VV, VH in dB) or a single optical band / index. Each band × feature is one output band.")}</h2>
+      ${rasterSel("rg-img", "Raster")}<div id="rg-bands"></div></div>
+      <div class="card"><h2>GLCM ${tip("For each pixel, how often grey level i sits next to level j in its window (both ways, at the distance, in 4 directions), then statistics of that matrix (Haralick 1973). Values are first put into a few grey levels between the image's 1st and 99th percentiles.")}</h2>
+      <div class="grid3"><label>Window ${tip("Bigger windows: steadier texture, coarser detail. 7–11 is usual for Sentinel-1 at 10 m.")} <select id="rg-win">${[5, 7, 9, 11, 15, 21, 31].map((w) => `<option value="${w}" ${w === 7 ? "selected" : ""}>${w}×${w}</option>`).join("")}</select></label>
+        <label>Distance ${tip("Pixel pairs this far apart.")} <input type="number" id="rg-dist" value="1" min="1" max="10"></label>
+        <label>Grey levels ${tip("16 is a good balance; 32 / 64 show finer texture but make energy and entropy slower and noisier.")} <select id="rg-lev"><option>8</option><option selected>16</option><option>32</option><option>64</option></select></label></div>
+      <div class="sf-ticks" style="grid-template-columns:1fr 1fr">${[
+        ["contrast", "Contrast", "Σ P(i,j)(i − j)²: large local differences (edges, rough texture)."],
+        ["dissimilarity", "Dissimilarity", "Σ P(i,j)|i − j|: like contrast, growing linearly."],
+        ["homogeneity", "Homogeneity", "Σ P(i,j)/(1 + (i − j)²): high for smooth, uniform areas (water, bare fields)."],
+        ["energy", "Energy", "√ASM: high when few grey-level pairs repeat (orderly texture)."],
+        ["asm", "ASM", "Angular second moment Σ P(i,j)²."],
+        ["correlation", "Correlation", "How linearly a pixel predicts its neighbour: high for smooth gradients and stripes (row crops)."],
+        ["entropy", "Entropy", "−Σ P log P: disorder of the texture (towns, forests high)."],
+        ["mean", "GLCM mean", "The mean grey level of the pairs."],
+        ["variance", "GLCM variance", "The spread of the pairs' grey levels."]].map(([v, t, h]) => `<label class="check"><input type="checkbox" data-gf="${v}" ${["contrast", "homogeneity", "energy", "correlation", "entropy"].includes(v) ? "checked" : ""}> ${t} ${tip(h)}</label>`).join("")}</div>
+      <label class="check"><input type="checkbox" id="rg-db" checked> SAR in dB</label>
+      <label>Name <input type="text" id="rg-name" placeholder="automatic" maxlength="80"></label>${runRow("rg", "Compute texture")}</div>`,
+    setup(LF) {
+      const { $, $$ } = LF;
+      $("#rg-img").addEventListener("change", () => bandTicks(LF, "rg-img", "rg-bands"));
+      const h = wire(LF, "rg", "/api/raster/glcm", (v) => {
+        const features = $$("[data-gf]:checked").map((c) => c.dataset.gf);
+        if (!features.length) throw new Error("Tick at least one feature");
+        return { path: v.raster("rg-img"), bands: ticked(LF, "rg-bands").length ? ticked(LF, "rg-bands") : null, window: +$("#rg-win").value, distance: +$("#rg-dist").value || 1,
+                 levels: +$("#rg-lev").value, features, db: $("#rg-db").checked, name: $("#rg-name").value.trim() };
+      }, ["rg-img"], (r) => `<b>${r.bands.length} texture bands</b>${r.converted_to_db.length ? ` (${LF.esc(r.converted_to_db.join(", "))} in dB)` : ""}.`);
+      return { open(a) { h.open(a); bandTicks(LF, "rg-img", "rg-bands"); }, layersChanged() { h.layersChanged(); } };
+    },
+  });
+
+  LF.tool({ id: "rmorph", title: "Morphology", icon: "rmorph", kinds: ["morphology"],
+    subtitle: "Shape operations on masks and class maps (after a threshold or a classification): erosion, dilation, opening, closing, gradient, top-hat, black-hat; remove small objects, fill holes, majority filter",
+    panel: `<div class="card"><h2>Raster ${tip("A mask (0 / 1), a class map (one class, or all with the majority filter), or a continuous band (grey-level morphology).")}</h2>
+      ${rasterSel("rm2-img", "Raster")}
+      <div class="grid2"><label>Band <input type="number" id="rm2-band" value="1" min="1"></label>
+        <label>Only class value ${tip("For a class map: the class to operate on (e.g. 2 for water in a water mask); the other classes stay. Empty: the band as it is (binary when 0 / 1).")} <input type="number" id="rm2-val" placeholder="(whole band)" step="any"></label></div></div>
+      <div class="card"><h2>Operation</h2>
+      <label>Operation <select id="rm2-op"><optgroup label="Basic">${[["erosion", "Erosion: shrink objects"], ["dilation", "Dilation: grow objects"], ["opening", "Opening: remove small bits and thin bridges"], ["closing", "Closing: fill small gaps and holes"], ["gradient", "Morphological gradient: the outline"], ["tophat", "Top-hat: small bright details"], ["blackhat", "Black-hat: small dark details"]].map(([v, t]) => `<option value="${v}" ${v === "opening" ? "selected" : ""}>${t}</option>`).join("")}</optgroup>
+        <optgroup label="Clean-up">${[["remove_small", "Remove small objects"], ["fill_holes", "Fill small holes"], ["majority", "Majority filter (smooth a class map)"], ["boundary", "Boundary (inner edge)"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</optgroup></select></label>
+      <div class="grid3"><label>Shape ${tip("The structuring element: a disk is direction-neutral; a square follows the pixel grid; a cross only looks up / down / left / right.")} <select id="rm2-shape"><option value="disk">Disk</option><option value="square">Square</option><option value="cross">Cross</option></select></label>
+        <label>Size (pixels) <input type="number" id="rm2-size" value="3" min="1" max="101"></label><label>Repeat <input type="number" id="rm2-it" value="1" min="1" max="20"></label></div>
+      <label id="rm2-min-row" class="hidden">Smaller than (pixels) ${tip("Objects (or holes) with fewer pixels than this are removed (filled).")} <input type="number" id="rm2-min" value="50" min="1"></label>
+      <label>Name <input type="text" id="rm2-name" placeholder="automatic" maxlength="80"></label>${runRow("rm2", "Apply")}</div>`,
+    setup(LF) {
+      const { $ } = LF;
+      $("#rm2-op").onchange = () => $("#rm2-min-row").classList.toggle("hidden", !["remove_small", "fill_holes"].includes($("#rm2-op").value));
+      return wire(LF, "rm2", "/api/raster/morphology", (v) => ({ path: v.raster("rm2-img"), band: +$("#rm2-band").value || 1, op: $("#rm2-op").value, shape: $("#rm2-shape").value,
+        size: +$("#rm2-size").value || 3, iterations: +$("#rm2-it").value || 1, value: $("#rm2-val").value === "" ? null : +$("#rm2-val").value, min_px: +$("#rm2-min").value || 50,
+        name: $("#rm2-name").value.trim() }), ["rm2-img"], (r) => `<b>${LF.esc(r.op)}</b> done.`);
+    },
+  });
+
+  // ---------------- spatial structure: autocorrelation, edges, multi-scale features, superpixels, components, spatial CV
+  const bandBox = (id) => `<label>Band <input type="number" id="${id}" value="1" min="1"></label>`;
+
+  LF.tool({ id: "rautocorr", title: "Spatial autocorrelation (raster)", icon: "rautocorr", kinds: ["autocorrelation"],
+    subtitle: "Whether similar values cluster in space: global Moran's I and Geary's C with significance, and maps of Local Moran's I clusters (hot, cold, outliers) and Getis-Ord Gi* hot spots",
+    panel: `<div class="card"><h2>Raster ${tip("One band of any raster: an index (NDVI), SAR backscatter, a change map, yields … For points or polygons use Spatial statistics instead.")}</h2>
+      ${rasterSel("ra-img", "Raster")}<div class="grid2">${bandBox("ra-band")}<label>Neighbours within (pixels) ${tip("1: the 8 surrounding pixels (queen contiguity). Larger radii look at broader patterns.")} <input type="number" id="ra-rad" value="1" min="1" max="25"></label></div>
+      <label>Significance level ${tip("Local clusters are shown where p is below this (two-sided). With many pixels some are significant by chance: 0.01 is stricter.")} <select id="ra-alpha"><option value="0.05">0.05</option><option value="0.01">0.01</option><option value="0.001">0.001</option></select></label>
+      <p class="hint">Moran's I = (n / W) · Σᵢ Σⱼ wᵢⱼ (xᵢ − x̄)(xⱼ − x̄) / Σᵢ (xᵢ − x̄)²: above −1/(n − 1) when similar values cluster, below when they alternate. Geary's C is below 1 for clustering.</p>
+      <label class="check"><input type="checkbox" id="ra-db" checked> SAR in dB</label><label>Name <input type="text" id="ra-name" placeholder="automatic" maxlength="80"></label>${runRow("ra", "Measure")}</div>`,
+    setup(LF) {
+      const { $, esc } = LF;
+      return wire(LF, "ra", "/api/raster/autocorrelation", (v) => ({ path: v.raster("ra-img"), band: +$("#ra-band").value || 1, radius: +$("#ra-rad").value || 1,
+        alpha: +$("#ra-alpha").value, db: $("#ra-db").checked, name: $("#ra-name").value.trim() }), ["ra-img"], (r) => {
+        const p = (x) => x == null ? "–" : x < 0.001 ? "< 0.001" : x.toFixed(3);
+        return `<table class="kv"><tr><td>Moran's I</td><td><b>${r.moran_i}</b> (expected ${r.moran_expected}, z ${r.moran_z}, p ${p(r.moran_p)})</td></tr>
+          <tr><td>Geary's C</td><td><b>${r.geary_c}</b> (z ${r.geary_z}, p ${p(r.geary_p)})</td></tr><tr><td>Pixels</td><td>${r.n.toLocaleString()}, neighbours within ${r.radius}</td></tr></table>
+          <p class="hint" style="margin:4px 0 0">${r.moran_i > r.moran_expected && r.moran_p < 0.05 ? "Similar values cluster." : r.moran_i < r.moran_expected && r.moran_p < 0.05 ? "Neighbours tend to differ (a checkerboard-like pattern)." : "No significant spatial pattern."}</p>
+          <div class="dist">${Object.entries(r.lisa_counts).map(([k, n]) => `<div style="grid-template-columns:minmax(0,2fr) auto"><span>${esc(k)}</span><b>${n.toLocaleString()}</b></div>`).join("")}</div>`;
+      });
+    },
+  });
+
+  LF.tool({ id: "redges", title: "Edges & boundaries", icon: "redges", kinds: ["edges"],
+    subtitle: "Sobel (x, y, magnitude, direction), Canny edges, Laplacian of Gaussian, gradient magnitude and directional gradients: field boundaries, shorelines, roads",
+    panel: `<div class="card"><h2>Raster</h2>${rasterSel("red-img", "Raster")}<div class="grid2">${bandBox("red-band")}<label>Scale σ (pixels) ${tip("Gaussian smoothing before the derivatives: 1 for fine edges, 2–3 for speckled SAR or noisy images, bigger for broad boundaries.")} <input type="number" id="red-sig" value="1" min="0" step="0.5"></label></div></div>
+      <div class="card"><h2>Detectors</h2><div class="sf-ticks">${[["sobel", "Sobel: x, y, magnitude and direction", "First derivatives across and along the image; magnitude = edge strength, direction = which way the value rises."],
+        ["canny", "Canny: thin, connected edges (0 / 1)", "Gradient, thinning to one pixel (non-maximum suppression), then strong edges plus the weaker ones connected to them (hysteresis)."],
+        ["laplacian", "Laplacian of Gaussian", "Second derivative: zero-crossings at edges; blobs and ridges at the scale σ."],
+        ["magnitude", "Gradient magnitude", "Edge strength only (included in Sobel)."],
+        ["directional", "Directional gradients 0°, 45°, 90°, 135°", "The derivative along four directions: edges with a given orientation (e.g. field boundaries along a road)."]].map(([v, t, h]) => `<label class="check"><input type="checkbox" data-ed="${v}" ${v === "sobel" || v === "canny" ? "checked" : ""}> ${t} ${tip(h)}</label>`).join("")}</div>
+      <div class="grid2"><label>Canny low ${tip("Fractions of the strongest gradient: weak edges above low are kept when they connect to strong ones above high.")} <input type="number" id="red-lo" value="0.1" step="0.05" min="0.01" max="0.95"></label><label>Canny high <input type="number" id="red-hi" value="0.2" step="0.05" min="0.02" max="1"></label></div>
+      <label class="check"><input type="checkbox" id="red-db" checked> SAR in dB</label><label>Name <input type="text" id="red-name" placeholder="automatic" maxlength="80"></label>${runRow("red", "Detect edges")}</div>`,
+    setup(LF) {
+      const { $, $$ } = LF;
+      return wire(LF, "red", "/api/raster/edges", (v) => {
+        const which = $$("[data-ed]:checked").map((c) => c.dataset.ed);
+        if (!which.length) throw new Error("Tick at least one detector");
+        return { path: v.raster("red-img"), band: +$("#red-band").value || 1, which, sigma: +$("#red-sig").value, low: +$("#red-lo").value, high: +$("#red-hi").value, db: $("#red-db").checked, name: $("#red-name").value.trim() };
+      }, ["red-img"], (r) => `<b>${r.bands.length} edge bands</b>.`);
+    },
+  });
+
+  LF.tool({ id: "rmulti", title: "Multi-scale features", icon: "rmulti", kinds: ["multiscale"],
+    subtitle: "Gaussian scale space at several scales: smoothed image, gradient, Laplacian of Gaussian, difference of Gaussians, local mean and std, as one feature stack for classification",
+    panel: `<div class="card"><h2>Raster ${tip("Each chosen band × scale × feature is one output band; stack it with the image for Classical ML or deep learning.")}</h2>${rasterSel("rms-img", "Raster")}<div id="rms-bands"></div></div>
+      <div class="card"><h2>Scales σ (pixels) ${tip("The Gaussian's standard deviation. Doubling scales (1, 2, 4, 8) cover fine to coarse structure; at 10 m pixels σ 8 ≈ 80 m.")}</h2>
+      <div class="sf-ticks" style="grid-template-columns:repeat(4,1fr)">${[0.5, 1, 2, 4, 8, 16].map((s2) => `<label class="check"><input type="checkbox" data-sg="${s2}" ${[1, 2, 4, 8].includes(s2) ? "checked" : ""}> ${s2}</label>`).join("")}</div>
+      <div class="sf-ticks">${[["smooth", "Smoothed (Gaussian)"], ["gradient", "Gradient magnitude"], ["log", "Laplacian of Gaussian (scale-normalised)"], ["dog", "Difference of Gaussians (between scales)"], ["mean", "Local mean"], ["std", "Local standard deviation"]].map(([v, t]) => `<label class="check"><input type="checkbox" data-mf="${v}" ${v !== "mean" ? "checked" : ""}> ${t}</label>`).join("")}</div>
+      <label class="check"><input type="checkbox" id="rms-db" checked> SAR in dB</label><label>Name <input type="text" id="rms-name" placeholder="automatic" maxlength="80"></label>${runRow("rms", "Compute")}</div>`,
+    setup(LF) {
+      const { $, $$ } = LF;
+      $("#rms-img").addEventListener("change", () => bandTicks(LF, "rms-img", "rms-bands", false));
+      const h = wire(LF, "rms", "/api/raster/multiscale", (v) => {
+        const sigmas = $$("[data-sg]:checked").map((c) => +c.dataset.sg), features = $$("[data-mf]:checked").map((c) => c.dataset.mf);
+        if (!sigmas.length || !features.length) throw new Error("Tick at least one scale and one feature");
+        return { path: v.raster("rms-img"), bands: ticked(LF, "rms-bands").length ? ticked(LF, "rms-bands") : null, sigmas, features, db: $("#rms-db").checked, name: $("#rms-name").value.trim() };
+      }, ["rms-img"], (r) => `<b>${r.bands.length} feature bands</b>.`);
+      return { open(a) { h.open(a); bandTicks(LF, "rms-img", "rms-bands", false); }, layersChanged() { h.layersChanged(); } };
+    },
+  });
+
+  LF.tool({ id: "rslic", title: "Superpixels (SLIC)", icon: "rslic", kinds: ["slic"],
+    subtitle: "Groups pixels into small homogeneous segments (SLIC) instead of treating each pixel alone: segment ids, boundaries, the mean image per segment and polygons with their means, for object-based classification",
+    panel: `<div class="card"><h2>Raster ${tip("Bands to segment on (all by default). SAR speckle averages out within a segment, so segment means classify more cleanly than single pixels.")}</h2>${rasterSel("rsl-img", "Raster")}<div id="rsl-bands"></div></div>
+      <div class="card"><h2>SLIC ${tip("Achanta et al. 2012: k-means in position + band values, each centre searching only nearby, so it scales to large images. Bands are standardised first.")}</h2>
+      <div class="grid3"><label>Segments (about) ${tip("How many superpixels: area ÷ segments = their typical size. Aim for segments smaller than the objects you map (fields, buildings).")} <input type="number" id="rsl-n" value="1000" min="4"></label>
+        <label>Compactness ${tip("Low (0.1–0.3): segments follow the image's edges; high (1–3): squarer, more regular. 0.3 suits most images.")} <input type="number" id="rsl-c" value="0.3" step="0.1" min="0.01"></label>
+        <label>Smoothing σ ${tip("Gaussian smoothing before clustering. Empty: 2 for SAR (speckle), 1 otherwise.")} <input type="number" id="rsl-sig" placeholder="auto" step="0.5" min="0"></label></div>
+      <label class="check"><input type="checkbox" id="rsl-poly" checked> Also as polygons with the segment means ${tip("A vector layer: one polygon per segment with its pixels, hectares and each band's mean: ready for attribute-based classification.")}</label>
+      <label class="check"><input type="checkbox" id="rsl-db" checked> SAR in dB</label><label>Name <input type="text" id="rsl-name" placeholder="automatic" maxlength="80"></label>${runRow("rsl", "Segment")}</div>`,
+    setup(LF) {
+      const { $ } = LF;
+      $("#rsl-img").addEventListener("change", () => bandTicks(LF, "rsl-img", "rsl-bands"));
+      const h = wire(LF, "rsl", "/api/raster/slic", (v) => ({ path: v.raster("rsl-img"), bands: ticked(LF, "rsl-bands").length ? ticked(LF, "rsl-bands") : null,
+        n_segments: +$("#rsl-n").value || 1000, compactness: +$("#rsl-c").value || 0.3, sigma: $("#rsl-sig").value === "" ? null : +$("#rsl-sig").value, polygons: $("#rsl-poly").checked,
+        db: $("#rsl-db").checked, name: $("#rsl-name").value.trim() }), ["rsl-img"], (r) => `<b>${r.segments.toLocaleString()} superpixels</b> (compactness ${r.compactness}, smoothing σ ${r.sigma}).`);
+      return { open(a) { h.open(a); bandTicks(LF, "rsl-img", "rsl-bands"); }, layersChanged() { h.layersChanged(); } };
+    },
+  });
+
+  LF.tool({ id: "rcomp", title: "Connected components", icon: "rcomp", kinds: ["components"],
+    subtitle: "Separate objects in a mask or one class (water bodies, fields, buildings): an id per object, a table of their size, area and centre, and polygons",
+    panel: `<div class="card"><h2>Mask or class map</h2>${rasterSel("rcp-img", "Raster")}
+      <div class="grid2">${bandBox("rcp-band")}<label>Class value ${tip("The class to separate into objects (e.g. 2 for water in a water mask). Empty: every non-zero pixel.")} <input type="number" id="rcp-val" placeholder="(non-zero)" step="any"></label></div>
+      <div class="grid2"><label>Connectivity ${tip("8: diagonal neighbours join (a diagonal line is one object). 4: only sides touch.")} <select id="rcp-conn"><option value="8">8 (with diagonals)</option><option value="4">4 (sides only)</option></select></label>
+        <label>Smallest object (pixels) <input type="number" id="rcp-min" value="1" min="1"></label></div>
+      <label class="check"><input type="checkbox" id="rcp-poly" checked> Also as polygons</label><label>Name <input type="text" id="rcp-name" placeholder="automatic" maxlength="80"></label>${runRow("rcp", "Find objects")}</div>`,
+    setup(LF) {
+      const { $ } = LF;
+      return wire(LF, "rcp", "/api/raster/components", (v) => ({ path: v.raster("rcp-img"), band: +$("#rcp-band").value || 1, value: $("#rcp-val").value === "" ? null : +$("#rcp-val").value,
+        connectivity: +$("#rcp-conn").value, min_px: +$("#rcp-min").value || 1, polygons: $("#rcp-poly").checked, name: $("#rcp-name").value.trim() }), ["rcp-img"],
+        (r) => `<b>${r.count.toLocaleString()} objects</b>${r.total_ha != null ? `, ${LF.fmt(r.total_ha, 1)} ha in all` : ""}; largest ${r.largest_px.toLocaleString()} px, median ${r.median_px.toLocaleString()} px.`);
+    },
+  });
+
+  LF.tool({ id: "rspcv", title: "Spatial cross-validation", icon: "rspcv", kinds: ["spatialcv"],
+    subtitle: "How much a random train / test split overstates a map's accuracy: the same model scored with random k-fold and with spatial blocks of several sizes, and a correlogram suggesting the block size",
+    panel: `<div class="card"><h2>Data ${tip("The image (or feature stack) you classify and its ground truth. Neighbouring pixels are near copies: a random split tests on pixels next to training ones; spatial blocks test on new places.")}</h2>
+      ${rasterSel("rv-img", "Image / feature stack")}<div id="rv-bands"></div>
+      <label>Ground truth <select id="rv-gt"></select></label><div id="rv-gt-v" class="hidden"><label>Class attribute <select id="rv-field"></select></label></div></div>
+      <div class="card"><h2>Validation</h2>
+      <div class="grid2"><label>Model <select id="rv-model"><option value="lgbm">LightGBM</option><option value="rf">Random Forest</option><option value="xgb">XGBoost</option></select></label>
+        <label>Folds <input type="number" id="rv-folds" value="5" min="2" max="10"></label></div>
+      <label>Block sizes (m) ${tip("Squares left out together. Compare: the score falls as blocks grow until they exceed the range of spatial autocorrelation (shown by the correlogram).")} <input type="text" id="rv-blocks" value="250, 500, 1000, 2000, 4000"></label>
+      <label>Pixels per class <input type="number" id="rv-pc" value="2000" min="50" step="500"></label>${runRow("rv", "Compare")}</div>`,
+    setup(LF) {
+      const { $, layers, getLayer, esc } = LF;
+      $("#rv-img").addEventListener("change", () => bandTicks(LF, "rv-img", "rv-bands"));
+      const fillGt = () => {
+        const w = $("#rv-gt").value;
+        const gts = layers.filter((l) => (l.type === "vector" && l.geojson?.features?.length) || (l.type === "raster" && l.path));
+        $("#rv-gt").innerHTML = `<option value="">Choose…</option>` + gts.map((l) => `<option value="${esc(l.id)}">${l.type === "vector" ? "▢" : "▦"} ${esc(l.name)}</option>`).join("");
+        if (getLayer(w)) $("#rv-gt").value = w;
+      };
+      $("#rv-gt").onchange = () => {
+        const l = getLayer($("#rv-gt").value);
+        $("#rv-gt-v").classList.toggle("hidden", l?.type !== "vector");
+        if (l?.type === "vector") $("#rv-field").innerHTML = [...new Set(l.geojson.features.flatMap((f) => Object.keys(f.properties || {})))].map((k) => `<option>${esc(k)}</option>`).join("");
+      };
+      const h = wire(LF, "rv", "/api/raster/spatialcv", (v) => {
+        const g = getLayer($("#rv-gt").value);
+        if (!g) throw new Error("Choose the ground truth");
+        const blocks_m = $("#rv-blocks").value.split(/[,\s]+/).map(Number).filter((x) => x > 0);
+        return { path: v.raster("rv-img"), bands: ticked(LF, "rv-bands").length ? ticked(LF, "rv-bands") : null, model: $("#rv-model").value, folds: +$("#rv-folds").value || 5,
+          blocks_m, per_class: +$("#rv-pc").value || 2000,
+          ground_truth: g.type === "raster" ? { type: "raster", path: g.path, band: 1 } : { type: "vector", geojson: g.geojson, field: $("#rv-field").value || null } };
+      }, ["rv-img"], (r) => `<table class="kv"><tr><td></td><td><b>OA</b></td><td><b>F1</b></td><td></td></tr>${r.table.map((t) => `<tr><td>${esc(t.method)}</td><td>${t.oa ?? "–"}</td><td>${t.f1 ?? "–"}</td><td class="hint">${esc(t.note || "")}</td></tr>`).join("")}</table>
+          ${r.optimism_f1 != null ? `<p style="margin:6px 0 0">Random k-fold overstates macro F1 by <b>${(100 * r.optimism_f1).toFixed(1)} points</b> compared with the largest blocks.</p>` : ""}
+          ${r.correlogram ? `<div class="home-label">Correlogram (features' Moran's I by distance)</div><div class="dist">${r.correlogram.map((c) => `<div style="grid-template-columns:80px minmax(0,1fr) auto"><span>${c.distance_m} m</span><span><span style="display:inline-block;height:8px;width:${Math.max(0, Math.round(120 * c.moran_i))}px;background:var(--accent);border-radius:2px"></span></span><b>${c.moran_i}</b></div>`).join("")}</div>
+            ${r.suggested_block_m ? `<p class="hint" style="margin:4px 0 0">Similarity fades below 0.1 within about ${r.suggested_block_m / 2} m: use blocks of at least <b>${r.suggested_block_m} m</b>.</p>` : ""}
+            ${r.range_note ? `<p class="hint" style="margin:4px 0 0">${esc(r.range_note)}.</p>` : ""}` : ""}`);
+      return { open(a) { h.open(a); fillGt(); bandTicks(LF, "rv-img", "rv-bands"); }, layersChanged() { h.layersChanged(); fillGt(); } };
     },
   });
 })();

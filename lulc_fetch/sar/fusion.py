@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 INDICES = ("NDVI", "EVI", "NDRE", "NDWI", "MNDWI", "NDMI")
 SCL_CLOUD = (3, 8, 9, 10)          # Sentinel-2 scene classification: cloud shadow, cloud medium / high, cirrus
 SETS = {"optical": "Optical only", "sar": "SAR only", "embedding": "Embedding only", "early": "Early fusion (stacked)",
+        "selected": "Early fusion, selected features",
         "late": "Late fusion (combined)"}
 PALETTE = [(31, 120, 180), (51, 160, 44), (227, 26, 28), (255, 127, 0), (106, 61, 154), (177, 89, 40), (166, 206, 227),
            (178, 223, 138), (251, 154, 153), (253, 191, 111), (202, 178, 214), (255, 255, 153), (141, 211, 199), (190, 186, 218)]
@@ -214,9 +215,33 @@ def _metrics(y, pred, k, names):
             "confusion": confusion_matrix(y, pred, labels=list(range(k))).tolist(), "n": int(len(y))}
 
 
+def select_features(X: np.ndarray, y: np.ndarray, seed: int = 0, rounds: int = 3) -> tuple[list[int], np.ndarray]:
+    """Features that beat chance (a light Boruta): each feature gets a shuffled copy (same values, no link to the
+    classes); a LightGBM is trained on both, and a feature is kept when its importance (gain) beats the best shuffled
+    copy's in most of `rounds` runs. Weak features (often many SAR dates on a clear image) then stop diluting the
+    strong ones. Returns (kept column indices, how often each was kept)."""
+    from lightgbm import LGBMClassifier
+    rng = np.random.default_rng(seed)
+    n, f = X.shape
+    take = rng.choice(n, size=min(n, 20000), replace=False)
+    Xs, ys = X[take], y[take]
+    hits = np.zeros(f)
+    for r in range(rounds):
+        sh = np.column_stack([rng.permutation(Xs[:, j]) for j in range(f)])
+        m = LGBMClassifier(n_estimators=150, learning_rate=0.1, num_leaves=31, colsample_bytree=0.8, subsample=0.8, subsample_freq=1,
+                           importance_type="gain", random_state=seed + r, verbose=-1, n_jobs=-1)
+        m.fit(np.hstack([Xs, sh]), ys)
+        imp = m.feature_importances_
+        hits += imp[:f] > imp[f:].max()
+    keep = [j for j in range(f) if hits[j] >= (rounds + 1) // 2 + (rounds % 2 == 0)]
+    if len(keep) < 3:   # never fewer than three: the strongest ones
+        keep = sorted(np.argsort(-hits)[:3].tolist())
+    return keep, hits / rounds
+
+
 def compare(stack: str, ground_truth: dict, out_dir: Path, *, model: str = "lgbm", block_m: float = 1000.0, folds: int = 5,
             per_class: int = 3000, map_with: str = "best", name: str = "fusion", seed: int = 0, make_map: bool = True,
-            class_colors: dict | None = None) -> dict:
+            class_colors: dict | None = None, select: bool = True) -> dict:
     """Optical only, SAR only (and embedding only), early and late fusion, on spatial-block cross-validation; then the
     map of the best one (or map_with: early / late / optical / sar)."""
     import pandas as pd
@@ -275,10 +300,11 @@ def compare(stack: str, ground_truth: dict, out_dir: Path, *, model: str = "lgbm
     sar_ok = np.isfinite(X_all[:, gidx["sar"]]).any(1)
     if (~opt_ok).mean() > 0.02:
         notes.append(f"{100 * (~opt_ok).mean():.0f} % of the training pixels are under clouds (no optical value)")
-    sets = ["optical", "sar"] + (["embedding"] if gidx["embedding"] else []) + ["early"]
+    sets = ["optical", "sar"] + (["embedding"] if gidx["embedding"] else []) + ["early"] + (["selected"] if select else [])
     cols = {"optical": gidx["optical"], "sar": gidx["sar"], "embedding": gidx["embedding"], "early": gidx["optical"] + gidx["sar"]}
     ok_rows = {"optical": opt_ok, "sar": sar_ok, "embedding": np.isfinite(X_all[:, gidx["embedding"]]).any(1) if gidx["embedding"] else None,
-               "early": opt_ok | sar_ok}
+               "early": opt_ok | sar_ok, "selected": opt_ok | sar_ok}
+    fold_keep = []   # the selection of each fold, made on its training pixels only (no peeking at the test blocks)
     oof = {s: np.full((len(y), k), np.nan) for s in sets}
     gkf = GroupKFold(n_splits=nf)
     splits = list(gkf.split(X_all, y, blk))
@@ -291,8 +317,13 @@ def compare(stack: str, ground_truth: dict, out_dir: Path, *, model: str = "lgbm
             trm, tem = tr[ok_rows[s][tr]], te[ok_rows[s][te]]
             if len(np.unique(y[trm])) < 2 or not len(tem):
                 continue
-            m = _fit(model, X_all[np.ix_(trm, cols[s])], y[trm], seed, k)
-            oof[s][tem] = _proba(model, m, X_all[np.ix_(tem, cols[s])], k)
+            cs = cols.get(s)
+            if s == "selected":
+                kept, _ = select_features(X_all[np.ix_(trm, cols["early"])], y[trm], seed)
+                cs = [cols["early"][j] for j in kept]
+                fold_keep.append(cs)
+            m = _fit(model, X_all[np.ix_(trm, cs)], y[trm], seed, k)
+            oof[s][tem] = _proba(model, m, X_all[np.ix_(tem, cs)], k)
     # late fusion: optical and SAR probabilities weighted per class by each model's F1 (SAR alone where optical is missing)
     res = {}
     for s in sets:
@@ -310,7 +341,7 @@ def compare(stack: str, ground_truth: dict, out_dir: Path, *, model: str = "lgbm
     res["late"]["coverage"] = round(100 * float(r.mean()), 1)
     sets.append("late")
     table = [{"set": s, "title": SETS[s], **{kk: res[s][kk] for kk in ("oa", "kappa", "f1", "n", "coverage")}} for s in sets if res.get(s)]
-    fused = [t for t in table if t["set"] in ("early", "late")]
+    fused = [t for t in table if t["set"] in ("early", "late", "selected")]
     best = max(fused, key=lambda t: (t["f1"], t["oa"]))["set"]
     gain = {"vs_optical_f1": round(res[best]["f1"] - res["optical"]["f1"], 4) if res.get("optical") else None,
             "vs_optical_oa": round(res[best]["oa"] - res["optical"]["oa"], 4) if res.get("optical") else None}
@@ -319,10 +350,18 @@ def compare(stack: str, ground_truth: dict, out_dir: Path, *, model: str = "lgbm
               "pixels": int(len(y)), "class_counts": {n: int((y == i).sum()) for i, n in enumerate(names)}, "warnings": notes,
               "late_weights": {"optical": dict(zip(names, np.round(wo, 3).tolist())), "sar": dict(zip(names, np.round(ws, 3).tolist()))},
               "pixel_m": round(px, 3)}
+    if select:   # the final selection, on all the training pixels (what the map uses), and how stable it was across folds
+        kept, freq = select_features(X_all[:, cols["early"]], y, seed)
+        cols["selected"] = [cols["early"][j] for j in kept]
+        often = {cols_all[c]: round(sum(c in f_ for f_ in fold_keep) / max(1, len(fold_keep)), 2) for c in cols["early"]}
+        report["selection"] = {"kept": [cols_all[c] for c in cols["selected"]], "dropped": [cols_all[c] for c in cols["early"] if c not in cols["selected"]],
+                               "kept_optical": sum(1 for c in cols["selected"] if c in gidx["optical"]), "kept_sar": sum(1 for c in cols["selected"] if c in gidx["sar"]),
+                               "of": {"optical": len(gidx["optical"]), "sar": len(gidx["sar"])}, "folds_kept": often}
     if make_map:
         use = best if map_with == "best" else map_with
-        if use not in ("early", "late", "optical", "sar", "embedding") or (use == "embedding" and not gidx["embedding"]):
-            raise ValueError("Map with: best, early, late, optical, sar or embedding")
+        if use not in ("early", "late", "optical", "sar", "embedding", "selected") or (use == "embedding" and not gidx["embedding"]) \
+                or (use == "selected" and not select):
+            raise ValueError("Map with: best, early, selected, late, optical, sar or embedding")
         with progress.span(0.78, 1.0):
             report["map"] = _map(stack, out_dir, stem, use, model, X_all, y, ok_rows, cols, k, names, seed, wo, ws, class_colors)
         report["mapped_with"] = use

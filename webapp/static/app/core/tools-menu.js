@@ -66,6 +66,16 @@
     bookmark: '<path d="M6 3h12v18l-6-4.5L6 21z"/><path d="M12 7v6M9 10h6" opacity=".75"/>',
     history: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/><path d="M12 7v5l3 2"/>',
     sar: '<path d="M4 20l5-9" /><circle cx="9.5" cy="10" r="1.6"/><path d="M12.5 7a5 5 0 0 1 4 4M14 4a8.5 8.5 0 0 1 6 6" /><path d="M3 20h18" opacity=".5"/>',
+    rwater: '<path d="M12 3c3 4 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-7 6-11z"/><path d="M9 15a3 3 0 0 0 3 3" opacity=".6"/>',
+    rlocal: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".4"/><rect x="8" y="8" width="8" height="8" rx="1"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/>',
+    rglcm: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18" opacity=".45"/><path d="M4 4l4 4M10 10l4 4M16 16l4 4"/>',
+    rmorph: '<circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5" opacity=".5"/><path d="M12 8v8" stroke-dasharray="2 2"/>',
+    rautocorr: '<circle cx="7" cy="7" r="2.2" fill="currentColor" stroke="none"/><circle cx="12" cy="8" r="2.2" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="2.2" fill="currentColor" stroke="none"/><circle cx="17" cy="17" r="2" opacity=".5"/><circle cx="18" cy="11" r="2" opacity=".5"/>',
+    redges: '<rect x="3" y="3" width="18" height="18" rx="2" opacity=".35"/><path d="M6 17l4-7 4 4 4-8"/>',
+    rmulti: '<circle cx="12" cy="12" r="2"/><circle cx="12" cy="12" r="5" opacity=".7"/><circle cx="12" cy="12" r="9" opacity=".4"/>',
+    rslic: '<path d="M3 8l5-5h7l6 6v6l-5 6H8l-5-5z" opacity=".4"/><path d="M8 3l2 7-7 1M15 3l-5 7 6 4 5-5M10 10l-2 11M16 14l0 7"/>',
+    rcomp: '<rect x="3" y="4" width="7" height="6" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="2" opacity=".6"/><rect x="5" y="14" width="6" height="7" rx="1.5" opacity=".8"/><circle cx="17" cy="17" r="3.5"/>',
+    rspcv: '<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1" opacity=".4"/><rect x="3" y="13" width="8" height="8" rx="1" opacity=".4"/><rect x="13" y="13" width="8" height="8" rx="1"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor" stroke="none"/>',
     save: '<path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3"/><rect x="7" y="13" width="10" height="6" rx="1"/>',
     saveas: '<path d="M13 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l3 3v5"/><path d="M7 3v5h8V3"/><path d="M7 21v-6h5"/><path d="M15.5 21l.6-2.6 4.6-4.6a1.4 1.4 0 0 1 2 2l-4.6 4.6z"/>',
@@ -144,8 +154,9 @@
     forecast: { el: "#forecast-menu", label: "Also useful for forecasts", shortcuts: ["interp", "ml"],
                 subtitles: { interp: "Make a map from a forecast at stations (Put on the map, then a surface: kriging, IDW…)",
                              ml: "Predict a value from other columns without time (regression / classification on tables)" } },
-    sar: { el: "#sar-menu", label: "Also useful for SAR", shortcuts: ["rclip", "rmosaic", "rchange", "rasterml"],
-           subtitles: { rchange: "Before / after difference of two SAR dates (the SAR tools do it in dB with flood classes)",
+    sar: { el: "#sar-menu", label: "Also useful for SAR", shortcuts: ["rwater", "rlocal", "rglcm", "redges", "rslic", "rmorph", "rclip", "rmosaic", "rchange", "rasterml"],
+           subtitles: { rwater: "Water from an optical image (AWEI, NDWI …): use it with the flood map as optical evidence",
+                        rchange: "Before / after difference of two SAR dates (the SAR tools do it in dB with flood classes)",
                         rasterml: "Classify crops or land cover from SAR features (VV, VH, ratio, RVI, texture) and labelled points" } },
     library: { el: "#library-menu", label: "", shortcuts: [] },
     online: { el: "#online-menu", label: "", shortcuts: [] },
@@ -183,8 +194,8 @@
     });
   }
   // the ribbon groups of the Tools category (tools not named here go in "More")
-  const TOOL_GROUPS = [["Imagery", ["search", "analyze", "timeseries", "pca", "stack", "rmosaic", "rburn"]], ["Training data", ["samples", "raster2table", "patches"]],
-    ["Classical ML", ["ml", "rasterml", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve", "vhelpers"]], ["Spatial analysis", ["vzonal", "vlocation", "vsjoin", "vcount", "vgeometry", "vtjoin", "vstats"]], ["Fuzzy & suitability", ["fmember", "foverlay", "fboundary", "fcmeans"]], ["Raster & terrain", ["rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "rcalc"]], ["Assess", ["areastats", "accuracy"]], ["Conversion", ["r2poly", "r2line", "r2point", "rasterize", "vconvert", "georef"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
+  const TOOL_GROUPS = [["Imagery", ["search", "analyze", "timeseries", "pca", "stack", "rmosaic", "rburn", "rwater"]], ["Training data", ["samples", "raster2table", "patches"]],
+    ["Classical ML", ["ml", "rasterml", "rspcv", "interp"]], ["Deep learning", ["dltrain", "dlpredict", "traindet", "detect"]], ["Vector", ["vbuffer", "vquery", "voverlay", "vdissolve", "vhelpers"]], ["Spatial analysis", ["vzonal", "vlocation", "vsjoin", "vcount", "vgeometry", "vtjoin", "vstats", "rautocorr"]], ["Fuzzy & suitability", ["fmember", "foverlay", "fboundary", "fcmeans"]], ["Image features", ["rlocal", "rglcm", "redges", "rmulti", "rmorph"]], ["Objects", ["rslic", "rcomp"]], ["Raster & terrain", ["rterrain", "rcontours", "rreclass", "rchange", "rclip", "rresample", "renhance", "rcalc"]], ["Assess", ["areastats", "accuracy"]], ["Conversion", ["r2poly", "r2line", "r2point", "rasterize", "vconvert", "georef"]], ["Output", ["export", "jobs"]], ["Automate", ["assistant", "workflows"]]];
   // one ribbon group: a few tools as big buttons, more as small ones in columns of three
   function ribbonGroup(caption, tools, big = tools.length <= 3) {
     if (!tools.length) return "";

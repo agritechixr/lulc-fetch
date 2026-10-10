@@ -45,6 +45,8 @@ TOOLS = {
     "test_workflow_conditions": "Workflows: conditions, checks & diagram",
     "test_fuzzy": "Fuzzy & suitability",
     "test_sar": "SAR (Sentinel-1)",
+    "test_watermask": "Water mask",
+    "test_imagefeatures": "Image features & thresholds",
 }
 
 

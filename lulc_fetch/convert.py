@@ -259,12 +259,16 @@ def raster_to_points(path, *, bands: list[int] | None = None, step: int = 1, max
 
 # ------------------------------------------------------------------ vector → raster
 def rasterize(fc: dict, out: Path, *, field: str | None = None, mode: str = "value", res: float | None = None,
-              like: str | Path | None = None, all_touched: bool = False) -> dict:
+              like: str | Path | None = None, all_touched: bool = False, buffer_m: float = 0.0, invert: bool = False,
+              max_distance_m: float | None = None) -> dict:
     """A layer burnt into a raster. mode 'value': a field's numbers (or, for text, one class per distinct text, with
     names and colours); 'presence': 1 where there is a shape; 'count': how many shapes fall in each cell (lines and
-    polygons counted once, at a point inside them). The grid: like a raster (same CRS, pixels and extent), or `res` metres over the layer in its UTM zone."""
-    if mode not in ("value", "presence", "count"):
-        raise ValueError("mode: value, presence or count")
+    polygons counted once, at a point inside them); 'mask': 1 inside the shapes (grown by buffer_m), 0 outside (or the
+    reverse with invert), with no no-data so both values count; 'distance': metres from each cell to the nearest shape
+    (0 on it; capped at max_distance_m). The grid: like a raster (same CRS, pixels and extent), or `res` metres over
+    the layer in its UTM zone."""
+    if mode not in ("value", "presence", "count", "mask", "distance"):
+        raise ValueError("mode: value, presence, count, mask or distance")
     items = _geoms(fc)
     if not items:
         raise ValueError("The layer has no shapes")
@@ -286,7 +290,25 @@ def rasterize(fc: dict, out: Path, *, field: str | None = None, mode: str = "val
     geoms = _reproject_all([g for _, g in items], "EPSG:4326", crs)
     progress.update(0.3, f"Burning {len(geoms):,} shapes into {w:,} × {h:,} pixels")
     cmap = names = None
-    if mode == "count":   # each line or polygon counts once, at a point inside it (else small ones miss every cell centre)
+    if mode in ("mask", "distance"):
+        from scipy import ndimage as ndi
+        if rasterio.crs.CRS.from_user_input(crs).is_geographic:   # degrees → metres at the grid's mean latitude
+            lat = transform.f + transform.e * h / 2
+            px = (abs(transform.e) * 110574, abs(transform.a) * 111320 * math.cos(math.radians(lat)))
+        else:
+            px = (abs(transform.e), abs(transform.a))
+        inside = features.rasterize(((g, 1) for g in geoms), out_shape=(h, w), transform=transform, fill=0, all_touched=all_touched or mode == "distance", dtype="uint8") > 0
+        if mode == "distance" or buffer_m:
+            d = ndi.distance_transform_edt(~inside, sampling=px) if inside.any() else np.full((h, w), np.inf)
+        if mode == "mask":
+            m = inside | (d <= buffer_m) if buffer_m else inside
+            a = (~m if invert else m).astype("uint8")
+            dtype, nodata = "uint8", None
+            cmap = {0: (0, 0, 0, 0), 1: (37, 99, 235, 255)}
+        else:
+            a = (np.minimum(d, max_distance_m) if max_distance_m else d).astype("float32")
+            dtype, nodata = "float32", None
+    elif mode == "count":   # each line or polygon counts once, at a point inside it (else small ones miss every cell centre)
         pts = (g if g.geom_type in ("Point", "MultiPoint") else g.representative_point() for g in geoms)
         a = features.rasterize(((g, 1) for g in pts), out_shape=(h, w), transform=transform, fill=0, all_touched=all_touched,
                                merge_alg=features.MergeAlg.add, dtype="int32")
@@ -318,13 +340,13 @@ def rasterize(fc: dict, out: Path, *, field: str | None = None, mode: str = "val
     with rasterio.open(out, "w", driver="GTiff", width=w, height=h, count=1, dtype=dtype, crs=crs, transform=transform, nodata=nodata,
                        compress="deflate", tiled=True, blockxsize=256, blockysize=256) as d:
         d.write(a, 1)
-        d.set_band_description(1, field if (field and mode == "value") else mode)
+        d.set_band_description(1, field if (field and mode == "value") else {"distance": "Distance to the nearest shape (m)", "mask": "Mask (1 inside)"}.get(mode, mode))
         if cmap:
             d.write_colormap(1, cmap)
         if names:
             d.update_tags(classes=json.dumps(names))
     progress.update(1, "Done")
-    filled = int((a != (nodata if nodata is not None else 0)).sum()) if mode != "count" else int((a > 0).sum())
+    filled = int((a > 0).sum()) if mode in ("count", "mask") else int(np.isfinite(a).sum()) if mode == "distance" else int((a != (nodata if nodata is not None else 0)).sum())
     return {"path": str(out), "size": [w, h], "crs": str(crs), "pixels_with_data": filled, **({"classes": names} if names else {})}
 
 

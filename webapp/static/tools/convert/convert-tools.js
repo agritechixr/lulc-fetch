@@ -78,10 +78,13 @@
   });
 
   LF.tool({ id: "rasterize", title: "Vector to raster", icon: "rasterize", kinds: ["rasterize"],
-    subtitle: "Burn a layer into a GeoTIFF (rasterize): a field's values (text becomes classes with names), presence, or how many points fall in each cell",
-    panel: `<div class="card"><h2>Vector to raster ${tip("Numbers give a float raster; text gives one class per value, with its name and a colour (e.g. crop type for training labels). Presence: 1 where there is a shape. Count: shapes per cell (e.g. points per 100 m). Match a raster to get the very same grid, e.g. labels for an image.")}</h2>
+    subtitle: "Burn a layer into a GeoTIFF (rasterize): a field's values (text becomes classes with names), presence, how many points fall in each cell, a 0 / 1 mask (buffered, inverted) or the distance to the nearest shape",
+    panel: `<div class="card"><h2>Vector to raster ${tip("Numbers give a float raster; text gives one class per value, with its name and a colour (e.g. crop type for training labels). Presence: 1 where there is a shape. Count: shapes per cell (e.g. points per 100 m). Mask: 1 inside, 0 outside with no no-data, e.g. to mask an image or as a training layer; grow it by a buffer or flip it. Distance: metres from every cell to the nearest shape, e.g. distance to roads or rivers as a feature for a model. Match a raster to get the very same grid, e.g. labels for an image.")}</h2>
       ${sel("cz-layer", "Layer")}
-      <label>Values <select id="cz-mode"><option value="value">A field's values</option><option value="presence">Presence (1 inside the shapes)</option><option value="count">Count of shapes per cell (lines and polygons once, at their centre)</option></select></label>
+      <label>Values <select id="cz-mode"><option value="value">A field's values</option><option value="presence">Presence (1 inside the shapes)</option><option value="count">Count of shapes per cell (lines and polygons once, at their centre)</option><option value="mask">Mask (1 inside, 0 outside)</option><option value="distance">Distance to the nearest shape (m)</option></select></label>
+      <label id="cz-buf-row" class="hidden">Grow the shapes by (m) <input type="number" id="cz-buf" value="0" min="0" step="any"></label>
+      <label id="cz-inv-row" class="check hidden"><input type="checkbox" id="cz-inv"> Invert (1 outside the shapes)</label>
+      <label id="cz-max-row" class="hidden">Cap the distance at (m) <input type="number" id="cz-max" min="0" step="any" placeholder="No cap"></label>
       <label id="cz-field-row">Field <select id="cz-field"></select></label>
       <label>Grid <select id="cz-grid"><option value="res">Pixel size</option><option value="like">Same as a raster</option></select></label>
       <label id="cz-res-row">Pixel size (m) <input type="number" id="cz-res" value="10" min="0.01" step="any"></label>
@@ -96,7 +99,8 @@
         $("#cz-field").innerHTML = keys.map((k) => `<option>${esc(k)}</option>`).join("") || `<option value="">(no fields)</option>`;
         if (keys.includes(was)) $("#cz-field").value = was;
       };
-      const show = () => { $("#cz-field-row").classList.toggle("hidden", $("#cz-mode").value !== "value");
+      const show = () => { const m = $("#cz-mode").value; $("#cz-field-row").classList.toggle("hidden", m !== "value");
+        $("#cz-buf-row").classList.toggle("hidden", m !== "mask"); $("#cz-inv-row").classList.toggle("hidden", m !== "mask"); $("#cz-max-row").classList.toggle("hidden", m !== "distance");
         $("#cz-res-row").classList.toggle("hidden", $("#cz-grid").value !== "res"); $("#cz-like-row").classList.toggle("hidden", $("#cz-grid").value !== "like"); };
       $("#cz-mode").onchange = show; $("#cz-grid").onchange = show;
       $("#cz-layer").addEventListener("change", fields);
@@ -104,7 +108,9 @@
         const mode = $("#cz-mode").value, grid = $("#cz-grid").value;
         if (mode === "value" && !$("#cz-field").value) throw new Error("The layer has no fields: use presence or count");
         return { layer: v.vector("cz-layer"), mode, field: mode === "value" ? $("#cz-field").value : null, res: grid === "res" ? +$("#cz-res").value : null,
-          like: grid === "like" ? v.raster("cz-like") : null, all_touched: $("#cz-touch").checked };
+          like: grid === "like" ? v.raster("cz-like") : null, all_touched: $("#cz-touch").checked,
+          buffer_m: mode === "mask" ? +$("#cz-buf").value || 0 : 0, invert: mode === "mask" && $("#cz-inv").checked,
+          max_distance_m: mode === "distance" && +$("#cz-max").value > 0 ? +$("#cz-max").value : null };
       }, { "cz-layer": "vector", "cz-like": "raster" }, (r) => `<b>${r.size[0].toLocaleString()} × ${r.size[1].toLocaleString()} pixels</b> (${r.pixels_with_data.toLocaleString()} with data)${r.classes ? `, ${Object.keys(r.classes).length} classes` : ""}.`);
       show();
       return { open(arg) { hooks.open(arg); fields(); }, layersChanged() { hooks.layersChanged(); fields(); } };

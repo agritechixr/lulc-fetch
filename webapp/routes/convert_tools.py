@@ -75,18 +75,22 @@ def raster_to_point(req: RasterToPointRequest):
 
 class RasterizeRequest(BaseModel):
     layer: Layer
-    mode: str = Field("value", pattern="^(value|presence|count)$")
+    mode: str = Field("value", pattern="^(value|presence|count|mask|distance)$")
     field: str | None = Field(None, max_length=200)
     res: float | None = Field(None, gt=0)
     like: str | None = None           # a raster whose grid to use
     all_touched: bool = False
+    buffer_m: float = Field(0, ge=0, le=1_000_000)          # mask: grow the shapes by this many metres
+    invert: bool = False                                    # mask: 1 outside the shapes instead
+    max_distance_m: float | None = Field(None, gt=0)        # distance: cap
     name: str = Field("rasterized", max_length=80)
 
 
 @router.post("/api/convert/rasterize")
 def vector_to_raster(req: RasterizeRequest):
-    """A vector layer burnt into a GeoTIFF: a field's values (text → classes with names), presence, or a count of
-    shapes per cell; on a pixel size in metres or on another raster's grid."""
+    """A vector layer burnt into a GeoTIFF: a field's values (text → classes with names), presence, a count of shapes
+    per cell, a 0 / 1 mask (buffered, inverted) or the distance in metres to the nearest shape; on a pixel size in
+    metres or on another raster's grid."""
     from lulc_fetch import convert
     like = _raster_path(req.like) if req.like else None
     if not like and not req.res:
@@ -96,7 +100,8 @@ def vector_to_raster(req: RasterizeRequest):
 
     def work(job):
         r = convert.rasterize(_layer(req.layer), _out_dir() / f"{_safe(req.name)}.tif", field=req.field, mode=req.mode,
-                              res=req.res, like=like, all_touched=req.all_touched)
+                              res=req.res, like=like, all_touched=req.all_touched, buffer_m=req.buffer_m, invert=req.invert,
+                              max_distance_m=req.max_distance_m)
         return {**r, "path": ws.rel(r["path"])}
     return jobs.submit("rasterize", f"Vector → raster ({req.mode})", {"mode": req.mode, "field": req.field}, work).to_dict()
 

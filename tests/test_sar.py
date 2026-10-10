@@ -244,9 +244,10 @@ def test_sar_optical_fusion(client, home):
                                         "ground_truth": {"type": "vector", "geojson": {"type": "FeatureCollection", "features": feats}, "field": "crop"},
                                         "block_m": 800, "folds": 4, "per_class": 800, "name": "fu"})
     t = {x["set"]: x for x in r["table"]}
-    assert set(t) == {"optical", "sar", "early", "late"} and sorted(r["classes"]) == ["fallow", "rice", "sugarcane"]
+    assert set(t) == {"optical", "sar", "early", "selected", "late"} and sorted(r["classes"]) == ["fallow", "rice", "sugarcane"]
+    assert r["selection"]["kept_sar"] >= 1 and t["selected"]["f1"] > t["optical"]["f1"] + 0.2   # the radar features are kept: they matter here
     assert t["optical"]["coverage"] < 85 and t["early"]["coverage"] == 100                       # clouds over a quarter of the image
-    assert t["early"]["f1"] > t["optical"]["f1"] + 0.2 and r["best"] in ("early", "late") and r["gain"]["vs_optical_f1"] > 0.2
+    assert t["early"]["f1"] > t["optical"]["f1"] + 0.2 and r["best"] in ("early", "selected", "late") and r["gain"]["vs_optical_f1"] > 0.2
     assert r["stack"]["cloud_pct"] == pytest.approx(100 * (W - 120) / W, abs=0.5) and r["stack"]["sar_dates"] == 2
     with rasterio.open(home / r["outputs"][0]) as m:
         a = m.read(1)
@@ -306,3 +307,65 @@ def test_fill_clouds_route(client, home):
     with rasterio.open(home / r["outputs"][0]) as d:
         assert d.count == 4 and d.descriptions[3] == "B08"
     assert client.post("/api/sar/gapfill", json={"optical": "uploads/gf_cloudy.tif"}).status_code == 400
+
+
+def test_water_map_fuses_evidence():
+    from lulc_fetch.sar import water as WA
+    rng = np.random.default_rng(4)
+    yy, xx = np.mgrid[0:H, 0:W]
+    lake = (np.hypot(yy - 40, xx - 40) < 20)                     # permanent water
+    flood = (xx > 90) & (xx < 140) & (yy > 50) & (yy < 100)      # new water
+    hill = xx > 145                                              # radar shadow on a slope: dark but not water
+    vv_pre = np.where(lake, 0.003, np.where(hill, 0.004, 0.08)) * rng.gamma(4.4, 1 / 4.4, (H, W))
+    vv_post = np.where(lake | flood, 0.003, np.where(hill, 0.004, 0.08)) * rng.gamma(4.4, 1 / 4.4, (H, W))
+    post, pre = {"VV": vv_post, "VH": vv_post / 6}, {"VV": vv_pre, "VH": vv_pre / 6}
+    dem = np.where(hill, 200.0 + (xx - 145) * 30.0, 200.0)       # a steep slope rising from the plain on the right
+    r = WA.water_map(post, pre=pre, dem=dem, res_m=20)
+    c = r["classes"]
+    assert (c[lake] == 3).mean() > 0.9 and (c[flood] == 4).mean() > 0.9           # permanent vs flood
+    assert (np.isin(c[hill], (3, 4, 5))).mean() < 0.05                            # the shadow isn't water
+    assert (np.isin(c[~(lake | flood | hill)], (3, 4, 5))).mean() < 0.02
+    radar_only = WA.water_map(post)["classes"]
+    assert np.isin(radar_only[hill], (3, 4, 5)).mean() > 0.5                      # without terrain it would be
+    # clouds: optical counts only where clear
+    g, sw = np.where(lake | flood, 0.08, 0.06), np.where(lake | flood, 0.02, 0.2)
+    clear = np.ones((H, W), bool)
+    clear[:, :70] = False
+    r2 = WA.water_map(post, optical={"B03": g, "B11": sw}, clear=clear)
+    assert "optical (MNDWI)" in r2["sources"] and (np.isin(r2["classes"][flood], (5,))).mean() > 0.9
+
+
+def test_soil_moisture_change_detection(tmp_path):
+    from lulc_fetch.sar import soilmoisture as SM
+    rng = np.random.default_rng(6)
+    wetness = np.array([0.1, 0.3, 0.9, 0.6, 0.2, 0.05, 0.5, 0.8])           # the "truth" per date
+    yy, xx = np.mgrid[0:H, 0:W]
+    town, forest = xx < 30, xx > 130
+    paths = []
+    for k, m in enumerate(wetness):
+        vv_db = np.where(town, 2.0, np.where(forest, -8.0, -16 + 6 * m)) + rng.normal(0, 0.3, (H, W))
+        vh_db = np.where(forest, -12.5, vv_db - 7)
+        p = scene(tmp_path / f"sm_2026-0{1 + k // 3}-{10 + k:02d}.tif", 10 ** (vv_db / 10), 10 ** (vh_db / 10))
+        paths.append(str(p))
+    r = SM.run(paths, tmp_path / "out", veg_ratio_db=-5)
+    got = np.array([p["mean"] for p in r["series"]])
+    assert np.corrcoef(got, wetness)[0, 1] > 0.98 and got.min() < 15 and got.max() > 85
+    assert r["quality_pct"]["Little sensitivity (town, rock, stable)"] > 15 and r["quality_pct"]["Dense vegetation"] > 15
+    with pytest.raises(ValueError):
+        SM.run(paths[:3], tmp_path / "o2")
+
+
+def test_water_and_soil_routes(client, home):
+    up = home / "uploads"
+    up.mkdir(exist_ok=True)
+    rng = np.random.default_rng(8)
+    yy, xx = np.mgrid[0:H, 0:W]
+    pond = np.hypot(yy - 60, xx - 80) < 25
+    scene(up / "wa_2026-08-20.tif", np.where(pond, 0.002, 0.08) * rng.gamma(4.4, 1 / 4.4, (H, W)), np.where(pond, 0.0004, 0.015) * rng.gamma(4.4, 1 / 4.4, (H, W)))
+    r = run(client, "/api/sar/water", {"post": "uploads/wa_2026-08-20.tif", "dem": None, "permanent": None})
+    assert r["areas_ha"]["Water"] == pytest.approx(pond.sum() * 0.04, rel=0.15) and r["sources"] == ["radar"]
+    for k in range(5):
+        scene(up / f"sm_2026-07-{10 + k:02d}.tif", 10 ** ((-15 + 2 * k + rng.normal(0, 0.3, (H, W))) / 10), 10 ** ((-23 + 2 * k) / 10) * np.ones((H, W)))
+    s = run(client, "/api/sar/soilmoisture", {"rasters": [f"uploads/sm_2026-07-{10 + k:02d}.tif" for k in range(5)]})
+    assert [p["mean"] for p in s["series"]] == sorted(p["mean"] for p in s["series"]) and len(s["outputs"]) == 3
+    assert client.post("/api/sar/soilmoisture", json={"rasters": ["uploads/sm_2026-07-10.tif"]}).status_code == 422

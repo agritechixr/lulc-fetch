@@ -472,10 +472,11 @@
         <div id="fu-gt-r" class="hidden"><label>Band <input type="number" id="fu-gt-band" value="1" min="1"></label></div></div>
       <div class="card"><h2>4 · Model &amp; validation</h2>
         <div class="grid2"><label>Model ${tip("LightGBM: fast and accurate, handles missing optical values itself (recommended). Random Forest: robust, the classic. XGBoost: similar to LightGBM.")} <select id="fu-model"><option value="lgbm">LightGBM</option><option value="rf">Random Forest</option><option value="xgb">XGBoost</option></select></label>
-          <label>Map with ${tip("Best: the fusion (early or late) with the higher F1 in validation. Or force one, e.g. late fusion for a very cloudy image.")} <select id="fu-map"><option value="best">The best fusion</option><option value="early">Early fusion</option><option value="late">Late fusion</option><option value="optical">Optical only</option><option value="sar">SAR only</option></select></label></div>
+          <label>Map with ${tip("Best: the fusion (early or late) with the higher F1 in validation. Or force one, e.g. late fusion for a very cloudy image.")} <select id="fu-map"><option value="best">The best fusion</option><option value="early">Early fusion</option><option value="selected">Early fusion, selected features</option><option value="late">Late fusion</option><option value="optical">Optical only</option><option value="sar">SAR only</option></select></label></div>
         <div class="grid3"><label>Block (m) ${tip("Validation leaves whole squares of this size out (and whole polygons), so the score isn't inflated by neighbouring, near-identical pixels. About 5–10 × a field's width; smaller if the ground truth is in a small area.")} <input type="number" id="fu-block" value="1000" min="20" step="100"></label>
           <label>Folds ${tip("How many times the blocks are split into training and test.")} <input type="number" id="fu-folds" value="5" min="2" max="10"></label>
           <label>Pixels / class ${tip("At most this many training pixels per class (sampled evenly).")} <input type="number" id="fu-pc" value="3000" min="50" step="500"></label></div>
+        <label class="check"><input type="checkbox" id="fu-select" checked> Feature selection ${tip("Also tries early fusion with only the features that beat a shuffled copy of themselves (a light Boruta), chosen inside each validation fold. Many weak SAR features (e.g. several dates of a clear dry season) can otherwise dilute the strong optical ones.")}</label>
         <label>Name <input type="text" id="fu-name" value="fusion" maxlength="80"></label>${runRow("fu", "Compare & map")}</div>`,
     setup(LF) {
       const { $, $$, esc, api, layers, getLayer, fillLayers, runButton, trackJob, showResult } = LF;
@@ -520,7 +521,7 @@
         const j = await api("/api/sar/fusion", { method: "POST", json: { optical: o.path, sars, ground_truth, cloud: getLayer($("#fu-cloud").value)?.path || null, scl: $("#fu-scl").checked,
           indices: $$("[data-fi]:checked").map((c) => c.dataset.fi), sar_dates: $("#fu-dates").checked, texture: $("#fu-tex").checked, embedding: getLayer($("#fu-emb").value)?.path || null,
           model: $("#fu-model").value, block_m: +$("#fu-block").value || 1000, folds: +$("#fu-folds").value || 5, per_class: +$("#fu-pc").value || 3000, map_with: $("#fu-map").value,
-          name: $("#fu-name").value.trim() || "fusion" } });
+          select: $("#fu-select").checked, name: $("#fu-name").value.trim() || "fusion" } });
         const r = (await trackJob(j, { title: j.title })).result;
         await addOutputs(LF, r.outputs.slice(0, 2));
         const top = Math.max(...r.table.map((t) => t.f1));
@@ -529,8 +530,10 @@
           <table class="kv" style="margin-top:6px"><tr><td></td><td><b>OA</b></td><td><b>κ</b></td><td><b>F1</b></td><td><b>Covers</b></td></tr>
           ${r.table.map((t) => `<tr${t.set === r.best ? ' style="font-weight:600"' : ""}><td>${esc(t.title)}</td><td>${pct(t.oa)}</td><td>${t.kappa.toFixed(3)}</td><td><span style="display:inline-block;height:8px;width:${Math.round(60 * t.f1 / top)}px;background:var(--accent);border-radius:2px;vertical-align:middle"></span> ${t.f1.toFixed(3)}</td><td>${t.coverage} %</td></tr>`).join("")}</table>
           <p class="hint" style="margin:4px 0 0">${r.pixels.toLocaleString()} pixels, ${r.folds}-fold validation on ${r.blocks} blocks of ${r.block_m} m (whole blocks left out). Covers: the share of the test pixels that set could classify (optical alone can't under clouds).</p>
-          <div class="home-label">F1 per class</div><table class="kv"><tr><td></td>${sets.map((s) => `<td><b>${esc({ optical: "Opt", sar: "SAR", embedding: "Emb", early: "Early", late: "Late" }[s])}</b></td>`).join("")}</tr>
+          <div class="home-label">F1 per class</div><table class="kv"><tr><td></td>${sets.map((s) => `<td><b>${esc({ optical: "Opt", sar: "SAR", embedding: "Emb", early: "Early", selected: "Sel.", late: "Late" }[s])}</b></td>`).join("")}</tr>
           ${r.classes.map((c) => `<tr><td>${esc(c)}</td>${sets.map((s) => `<td>${(r.per_class[s]?.[c] ?? 0).toFixed(2)}</td>`).join("")}</tr>`).join("")}</table>
+          ${r.selection ? `<p class="hint" style="margin:6px 0 0"><b>Selected features</b>: ${r.selection.kept_optical} of ${r.selection.of.optical} optical and ${r.selection.kept_sar} of ${r.selection.of.sar} SAR kept.
+            ${r.selection.dropped.length ? `Dropped: ${esc(r.selection.dropped.slice(0, 12).join(", "))}${r.selection.dropped.length > 12 ? ` and ${r.selection.dropped.length - 12} more` : ""}.` : "None dropped."}</p>` : ""}
           ${(r.warnings || []).map((w) => `<div class="warn">${esc(w)}</div>`).join("")}
           ${r.areas ? `<div class="home-label">Area mapped (${esc(r.mapped_with)})</div><div class="dist">${Object.entries(r.areas).map(([k, v]) => `<div style="grid-template-columns:minmax(0,2fr) auto"><span>${esc(k)}</span><b>${v.ha != null ? `${LF.fmt(v.ha, 1)} ha` : v.pixels}</b></div>`).join("")}</div>` : ""}
           <span class="hint">Class map and confidence added to Contents; the stack and a report (.json) are in ${esc(r.report.split("/").slice(0, -1).join("/"))}.</span>`);
@@ -580,6 +583,100 @@
           ${sc ? `<table class="kv" style="margin-top:6px"><tr><td>PSNR (whole image / where filled)</td><td>${sc.psnr} / ${sc.psnr_gap} dB</td></tr><tr><td>SSIM</td><td>${sc.ssim}</td></tr><tr><td>Mean absolute error (filled)</td><td>${sc.mae}</td></tr>
             <tr><td>Spectral angle (filled)</td><td>${sc.sam_deg}°</td></tr>${sc.ndvi_mae != null ? `<tr><td>NDVI error (filled)</td><td>${sc.ndvi_mae} (R² ${sc.ndvi_r2})</td></tr>` : ""}</table>` : ""}
           ${r.score_note ? `<p class="hint">${esc(r.score_note)}</p>` : ""}<span class="hint">The filled image is in Contents; a mask of the filled pixels is saved beside it.</span>`);
+      });
+      return { open: fill, layersChanged: fill };
+    },
+  });
+
+  // ---------------- water & flood map (fused evidence, with confidence)
+  LF.tool({ id: "sarwater", menu: "sar", title: "Flood & water map", icon: "sar", kinds: [],
+    clip: { "wa-area": { what: "map covers" } },
+    subtitle: "Open water and flooding with a confidence for every pixel: radar (dark calm water), the drop since a pre-flood image, optical water index where clear, terrain (low and flat) and permanent water (JRC), combined; no training needed",
+    panel: `<div class="card"><h2>Evidence ${tip("Only the radar image is needed; every other source adds evidence where it exists. The radar is the grid of the result.")}</h2>
+        <label>Radar during / after the flood ${tip("A processed SAR layer (γ⁰ or σ⁰, VV and VH). Calm water is very dark: its threshold is found in the image itself (Otsu) when the image has enough water, else −18 dB (VV) / −24 dB (VH).")} <select id="wa-post"></select></label>
+        <label>Radar before the flood (optional) ${tip("Same orbit track, from a dry date. Water then that is still water is permanent; new water that also got ≥ 3 dB darker is flood.")} <select id="wa-pre"></select></label>
+        <label>Optical image (optional) ${tip("Sentinel-2 or Landsat near the date: its water index (AWEI, else NDWI) marks water where it is clear, counted double against the radar; its SCL band masks the clouds.")} <select id="wa-opt"></select></label>
+        <label>Or a water mask (optional) ${tip("A mask made with Analysis ▸ Tools ▸ Water mask (its water / land where clear) instead of the optical image.")} <select id="wa-mask"></select></label>
+        <div class="grid2"><label>Terrain ${tip("Water lies low and flat: pixels far above the local low ground (≳ 10 m) or on slopes (≳ 8°) are unlikely water. This also removes radar shadow behind hills, which looks like water.")} <select id="wa-dem"><option value="auto">Copernicus DEM (downloaded)</option><option value="">None</option></select></label>
+          <label>Permanent water ${tip("JRC Global Surface Water: where water was at least half of the time 1984–2020. Tells rivers and lakes from the flood when there is no pre-flood image.")} <select id="wa-perm"><option value="auto">JRC Global Surface Water</option><option value="">None</option></select></label></div>
+        ${LF.html.area("wa-area", "Area", "Optional: the result is cut to it.")}</div>
+      <div class="card"><h2>Thresholds (optional) ${tip("Leave empty to find them in the image. Lower them if wet fields or dark tarmac come out as water; raise them for windy water.")}</h2>
+        <label>Radar threshold method ${tip("Checked Otsu (default): Otsu when the image has a clear water mode, else −18 / −24 dB. Or any automatic method: it looks only at the tiles that clearly hold land and water (two-Gaussian fit, the dark class below −18 / −24 dB); fixed: always −18 / −24 dB. Radar alone on Sen1Floods11's validation chips (IoU): Triangle 0.49, Li 0.49, checked Otsu 0.48, S-function 0.48, Isodata 0.47, fuzzy c-means 0.47, Kapur 0.45, Yen 0.44; local methods 0.19–0.26.")} <select id="wa-method"><option value="checked">Checked Otsu (recommended)</option><option value="fixed">Fixed (−18 / −24 dB)</option>
+        <optgroup label="Global">${[["otsu", "Otsu"], ["multi_otsu", "Multi-Otsu"], ["li", "Li"], ["yen", "Yen"], ["kapur", "Kapur"], ["triangle", "Triangle"], ["isodata", "Isodata"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</optgroup>
+        <optgroup label="Local (per pixel)">${[["niblack", "Niblack"], ["sauvola", "Sauvola"], ["wolf", "Wolf"], ["phansalkar", "Phansalkar"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</optgroup>
+        <optgroup label="Fuzzy">${[["fcm", "Fuzzy c-means"], ["fuzzy", "Fuzzy threshold (Huang)"], ["membership", "Fuzzy membership (S-function)"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</optgroup></select></label>
+        <div class="grid2"><label>VV water below (dB) <input type="number" id="wa-vv" placeholder="auto" step="0.5"></label><label>VH water below (dB) <input type="number" id="wa-vh" placeholder="auto" step="0.5"></label></div>
+        <div class="grid3"><label>Above low ground (m) <input type="number" id="wa-hand" value="10" min="1"></label><label>Slope (°) <input type="number" id="wa-slope" value="8" min="1"></label><label>Darker by (dB) ${tip("For flood: how much darker than before.")} <input type="number" id="wa-drop" value="3" step="0.5"></label></div>
+        <label>Name <input type="text" id="wa-name" value="water" maxlength="80"></label>${runRow("wa", "Map water")}</div>`,
+    setup(LF) {
+      const { $, esc, api, layers, getLayer, fillLayers, getClip, runButton, trackJob, showResult } = LF;
+      const fill = () => {
+        const rasters = layers.filter((l) => l.type === "raster" && l.path);
+        const sar = sarLayers(LF);
+        fillLayers($("#wa-post"), sar, { empty: "No SAR layer in Contents" });
+        const sel = (el, list, first) => { const w = el.value; el.innerHTML = `<option value="">${first}</option>` + list.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join(""); if (getLayer(w)) el.value = w; };
+        sel($("#wa-pre"), sar, "(none)");
+        sel($("#wa-opt"), rasters.filter((l) => !sar.includes(l)), "(none)");
+        sel($("#wa-mask"), rasters.filter((l) => !sar.includes(l)), "(none)");
+        for (const [id, first] of [["#wa-dem", "Copernicus DEM (downloaded)"], ["#wa-perm", "JRC Global Surface Water"]]) {
+          const el = $(id), w = el.value;
+          el.innerHTML = `<option value="auto">${first}</option><option value="">None</option>` + rasters.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+          el.value = [...el.options].some((o) => o.value === w) ? w : "auto";
+        }
+      };
+      const pick = (v) => v === "auto" ? "auto" : v ? getLayer(v)?.path || null : null;
+      runButton("wa", async () => {
+        const post = getLayer($("#wa-post").value);
+        if (!post) throw new Error("Choose the radar image");
+        const num = (q) => $(q).value === "" ? null : +$(q).value;
+        const j = await api("/api/sar/water", { method: "POST", json: { post: post.path, pre: getLayer($("#wa-pre").value)?.path || null, optical: getLayer($("#wa-opt").value)?.path || null,
+          water_mask: getLayer($("#wa-mask").value)?.path || null, dem: pick($("#wa-dem").value), permanent: pick($("#wa-perm").value), aoi: getClip("wa-area"), vv_db: num("#wa-vv"), vh_db: num("#wa-vh"),
+          radar_threshold: $("#wa-method").value, hand_m: +$("#wa-hand").value || 10, slope_max: +$("#wa-slope").value || 8, drop_db: +$("#wa-drop").value || 3, name: $("#wa-name").value.trim() || "water" } });
+        const r = (await trackJob(j, { title: j.title })).result;
+        await addOutputs(LF, r.outputs);
+        const areas = r.areas_ha || r.areas_px || {};
+        showResult("wa", `<b>Water map</b> from ${esc(r.sources.join(", "))}.
+          <div class="dist">${Object.entries(areas).map(([k, v]) => `<div style="grid-template-columns:minmax(0,2fr) auto"><span>${esc(k)}</span><b>${r.areas_ha ? `${LF.fmt(v, 1)} ha` : v}</b></div>`).join("")}</div>
+          <p class="hint" style="margin:4px 0 0">Radar thresholds: ${Object.entries(r.thresholds).map(([k, v]) => `${k} ${v} dB (${esc(r.threshold_source[k])})`).join(", ")}${r.dem ? ` · DEM: ${esc(r.dem)}` : ""}${r.permanent ? ` · ${esc(r.permanent)}` : ""}.
+          ${r.mean_confidence_water != null ? `Mean confidence of the water: ${r.mean_confidence_water}.` : ""}</p><span class="hint">Classes and confidence (0–1) added to Contents.</span>`);
+      });
+      return { open: fill, layersChanged: fill };
+    },
+  });
+
+  // ---------------- soil moisture by change detection
+  LF.tool({ id: "sarsoil", menu: "sar", title: "Soil moisture (change detection)", icon: "timeseries", kinds: [],
+    clip: { "sm-area": { what: "result covers" } },
+    subtitle: "Relative surface soil moisture (0–100 %) for every date of a Sentinel-1 series: each pixel between the driest and wettest it was seen (TU Wien change detection), with water, towns and dense vegetation masked",
+    panel: `<div class="card"><h2>Dates ${tip("SAR layers of ONE orbit track (same direction and relative orbit), one per date, processed alike (the SAR workflow). More dates give steadier dry / wet references: a year of data (30+) is best; at least 4.")}</h2><div id="sm-list" class="sf-list"></div>
+        <div class="grid2"><label>Polarisation ${tip("VV (or HH) responds most to soil moisture; VH is used only to find dense vegetation.")} <select id="sm-pol"><option>VV</option><option>HH</option></select></label>
+          <label>Dry / wet percentiles ${tip("The references: the pixel's 5th and 95th percentile over the series (rather than the min / max, which speckle and outliers would set).")} <input type="text" id="sm-pct" value="5, 95"></label></div>
+        <div class="grid3"><label>Min. range (dB) ${tip("Pixels whose backscatter varies less than this over the series (towns, rock, permanently wet or dry ground) are masked: the radar can't follow the soil there.")} <input type="number" id="sm-range" value="3" step="0.5"></label>
+          <label>Water below (dB) ${tip("Open water: masked.")} <input type="number" id="sm-water" value="-18" step="0.5"></label>
+          <label>Canopy VH−VV above (dB) ${tip("Where VH is close to VV, the radar sees a canopy (forest, tall crops): the soil underneath is masked.")} <input type="number" id="sm-veg" value="-5" step="0.5"></label></div>
+        ${LF.html.area("sm-area", "Area", "Optional: the result and the series are cut to it.")}
+        <label>Name <input type="text" id="sm-name" value="soil_moisture" maxlength="80"></label>${runRow("sm", "Compute soil moisture")}</div>`,
+    setup(LF) {
+      const { $, $$, esc, api, getLayer, getClip, runButton, trackJob, showResult } = LF;
+      const fill = () => {
+        const was = new Set($$("#sm-list input:checked").map((c) => c.value));
+        const ls = sarLayers(LF);
+        $("#sm-list").innerHTML = ls.length ? ls.map((l) => `<label class="check"><input type="checkbox" value="${esc(l.id)}" ${was.has(l.id) || !was.size ? "checked" : ""}> ${esc(l.name)}</label>`).join("") : `<p class="hint">No SAR layers in Contents.</p>`;
+      };
+      runButton("sm", async () => {
+        const ls = $$("#sm-list input:checked").map((c) => getLayer(c.value)).filter(Boolean);
+        if (ls.length < 4) throw new Error("Tick at least 4 dates of one orbit track");
+        const [lo, hi] = $("#sm-pct").value.split(/[,\s]+/).map(Number);
+        const j = await api("/api/sar/soilmoisture", { method: "POST", json: { rasters: ls.map((l) => l.path), pol: $("#sm-pol").value, lo: lo || 5, hi: hi || 95,
+          min_range_db: +$("#sm-range").value || 3, water_db: +$("#sm-water").value, veg_ratio_db: +$("#sm-veg").value, aoi: getClip("sm-area"), name: $("#sm-name").value.trim() || "soil_moisture" } });
+        const r = (await trackJob(j, { title: j.title })).result;
+        await addOutputs(LF, r.outputs.slice(0, 1).concat(r.outputs.slice(2)));
+        const mx = 100;
+        showResult("sm", `<b>${r.dates.length} dates</b> · median sensitivity ${r.median_sensitivity_db ?? "?"} dB between dry and wet.
+          <div class="home-label">Mean soil moisture of the area (valid pixels)</div>
+          <div class="dist">${r.series.map((p) => `<div style="grid-template-columns:90px minmax(0,1fr) auto"><span>${esc(p.date)}</span><span><span style="display:inline-block;height:8px;width:${Math.round(120 * (p.mean ?? 0) / mx)}px;background:var(--accent);border-radius:2px"></span></span><b>${p.mean ?? "–"} %</b></div>`).join("")}</div>
+          <div class="home-label">Pixels</div><div class="dist">${Object.entries(r.quality_pct).map(([k, v]) => `<div style="grid-template-columns:minmax(0,2fr) auto"><span>${esc(k)}</span><b>${v} %</b></div>`).join("")}</div>
+          ${(r.notes || []).map((n) => `<div class="warn">${esc(n)}</div>`).join("")}<span class="hint">A band per date (0–100 %) and the quality layer are in Contents; the dry / wet references are saved beside them.</span>`);
       });
       return { open: fill, layersChanged: fill };
     },
